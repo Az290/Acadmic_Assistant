@@ -26,9 +26,21 @@ class Settings(BaseSettings):
     # API key OpenAI - dùng cho cả LLM (agent) và embedding (tìm kiếm ngữ nghĩa)
     openai_api_key: str = ""
 
-    # Bí mật dùng để ký JWT (Tác vụ #3 - Auth). Để trống ở tác vụ này,
-    # sẽ bắt buộc điền khi làm Auth.
+    # Bí mật dùng để ký JWT (Tác vụ #3 - Auth). PHẢI điền giá trị ngẫu
+    # nhiên thật trong .env trước khi chạy - sinh bằng lệnh:
+    #   python -c "import secrets; print(secrets.token_hex(32))"
     jwt_secret: str = ""
+
+    # JWT dùng thuật toán nào để ký - HS256 là chuẩn phổ biến, đủ an
+    # toàn cho quy mô 1 backend service (không cần thuật toán bất đối
+    # xứng phức tạp hơn như RS256, vốn dùng khi nhiều service khác
+    # nhau cùng cần xác minh token mà không được biết bí mật ký).
+    jwt_algorithm: str = "HS256"
+
+    # Token hết hạn sau bao nhiêu phút - hết hạn thì phải đăng nhập lại.
+    # 7 ngày = 10080 phút: đủ dài để không làm phiền user đăng nhập lại
+    # liên tục, nhưng vẫn có giới hạn thay vì "sống mãi mãi".
+    jwt_expire_minutes: int = 10080
 
 
 @lru_cache

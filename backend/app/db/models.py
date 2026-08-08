@@ -51,12 +51,17 @@ class Base(DeclarativeBase):
 
 class Course(Base):
     """
-    Một môn học (vd: CS301 - Machine Learning).
+    Một môn học / "kênh lớp" (vd: CS301 - Machine Learning, hoặc lớp
+    riêng của một giáo viên trên hệ thống khoá học ngoài).
 
     Vì sao cần bảng riêng thay vì chỉ lưu "course_code" dạng chữ tự do
     trong bảng document/chunk: để có một nơi duy nhất quản lý danh sách
     môn học hợp lệ, và sau này mở rộng thêm thông tin (giảng viên phụ
     trách, học kỳ...) mà không phải sửa các bảng khác.
+
+    owner_id: giáo viên đã TẠO lớp này (Tác vụ #3). Dùng để kiểm tra
+    quyền - chỉ chính giáo viên sở hữu lớp mới được thêm học sinh vào
+    lớp đó, không phải bất kỳ INSTRUCTOR nào trong hệ thống.
     """
 
     __tablename__ = "course"
@@ -64,6 +69,7 @@ class Course(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -96,6 +102,44 @@ class AppUser(Base):
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Enrollment(Base):
+    """
+    "Ai thuộc lớp nào" - đây chính là bảng hiện thực hoá ý tưởng
+    "kênh riêng của giáo viên": 1 dòng = 1 user (học sinh hoặc giáo
+    viên trợ giảng) đã được thêm vào 1 course.
+
+    Khoá chính là CẶP (user_id, course_id) - không có cột "id" riêng,
+    vì bản chất bảng này chỉ diễn tả một QUAN HỆ (user X có thuộc lớp Y
+    không), không phải một thực thể độc lập cần định danh riêng. Cách
+    này cũng tự động chặn việc thêm trùng 1 học sinh vào cùng 1 lớp 2 lần.
+
+    role_in_course: tách biệt với `role` toàn cục ở app_user. Ví dụ một
+    người có role toàn cục là INSTRUCTOR vẫn có thể là STUDENT ở một
+    lớp khác (đi học lại 1 khoá của đồng nghiệp) - dù trường hợp này
+    hiếm, thiết kế tách riêng giúp không bị bó buộc sau này.
+
+    Bảng này quyết định TRỰC TIẾP kết quả tìm kiếm tài liệu: khi học
+    sinh hỏi AI, câu SQL sẽ join qua bảng này để biết "user đang hỏi
+    thuộc những course_id nào", rồi chỉ tìm chunk trong các course đó.
+    """
+
+    __tablename__ = "enrollment"
+    __table_args__ = (
+        CheckConstraint(
+            "role_in_course IN ('STUDENT','INSTRUCTOR')", name="ck_enrollment_role"
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_user.id"), primary_key=True
+    )
+    course_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("course.id"), primary_key=True
+    )
+    role_in_course: Mapped[str] = mapped_column(String(20), nullable=False, default="STUDENT")
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Document(Base):

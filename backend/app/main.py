@@ -2,18 +2,17 @@
 Điểm khởi động của Backend (bộ não xử lý của Academic Assistant).
 
 File này là nơi FastAPI "sống" - mọi request từ frontend (trình duyệt của
-người dùng) sẽ đi qua đây trước tiên.
-
-Ở giai đoạn này (Tác vụ #1), file chỉ có 1 endpoint duy nhất: /healthz
-Đây là quy ước chuẩn trong ngành để kiểm tra "server có đang sống không?"
-- Fly.io (nơi sẽ host backend) sẽ tự động gọi endpoint này định kỳ.
-  Nếu không trả lời -> Fly.io biết server bị treo và tự khởi động lại.
+người dùng) sẽ đi qua đây trước tiên. Các nhóm endpoint theo chủ đề (auth,
+courses...) được viết ở file riêng rồi "gắn" (include_router) vào đây -
+giữ file này gọn, chỉ đóng vai trò lắp ráp.
 """
 
 from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.router import router as auth_router
+from app.courses.router import router as courses_router
 from app.db.session import get_db
 
 app = FastAPI(
@@ -21,6 +20,9 @@ app = FastAPI(
     description="Backend cho hệ thống Trợ lý Học thuật đa agent",
     version="0.1.0",
 )
+
+app.include_router(auth_router)
+app.include_router(courses_router)
 
 
 @app.get("/healthz")

@@ -10,11 +10,19 @@ chi phí hạ tầng tối thiểu, chất lượng đủ dùng thật cho ngư�
 Acadmic_Assistant/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py          # Điểm khởi động server + các endpoint
-│   │   ├── config.py         # Đọc cấu hình bí mật từ .env (DB url, API key...)
-│   │   └── db/
-│   │       ├── models.py      # Định nghĩa 6 bảng database (SQLAlchemy)
-│   │       └── session.py     # Quản lý kết nối tới Postgres
+│   │   ├── main.py          # Điểm khởi động server, lắp ráp các router
+│   │   ├── config.py         # Đọc cấu hình bí mật từ .env (DB url, API key, JWT...)
+│   │   ├── db/
+│   │   │   ├── models.py      # Định nghĩa 7 bảng database (SQLAlchemy)
+│   │   │   └── session.py     # Quản lý kết nối tới Postgres
+│   │   ├── auth/               # Đăng nhập/đăng ký/JWT/phân quyền
+│   │   │   ├── security.py      # Băm mật khẩu, tạo/kiểm tra JWT
+│   │   │   ├── dependencies.py  # get_current_user, require_role(...)
+│   │   │   ├── schemas.py       # Định dạng dữ liệu ra/vào API auth
+│   │   │   └── router.py        # 5 endpoint /v1/auth/*
+│   │   └── courses/            # "Kênh lớp" của giáo viên
+│   │       ├── schemas.py
+│   │       └── router.py        # 3 endpoint /v1/courses/*
 │   ├── migrations/            # Lịch sử thay đổi cấu trúc database (Alembic)
 │   ├── .env.example           # Mẫu file cấu hình — copy thành .env rồi điền giá trị thật
 │   └── requirements.txt
@@ -27,9 +35,22 @@ Acadmic_Assistant/
 
 - [x] **Tác vụ #1**: Khung xương dự án (backend skeleton, cấu trúc thư mục, learning log)
 - [x] **Tác vụ #2**: Database schema (6 bảng, pgvector, Alembic migration)
-- [ ] Tác vụ #3: Auth (đăng nhập, JWT, phân quyền theo role)
+- [x] **Tác vụ #3**: Auth + Enrollment (đăng nhập/đăng ký/JWT, phân quyền theo role, kênh lớp)
 - [ ] Tác vụ #4: Ingestion pipeline (crawl + xử lý tài liệu)
 - [ ] ... (cập nhật dần — xem lộ trình đầy đủ trong `docs/learning-log.html`)
+
+## API hiện có (Tác vụ #3)
+
+| Endpoint | Ai gọi được | Việc gì |
+|---|---|---|
+| `POST /v1/auth/register` | Ai cũng được | Đăng ký email + mật khẩu, role mặc định STUDENT |
+| `POST /v1/auth/login` | Ai cũng được | Đăng nhập → JWT trong HttpOnly Cookie |
+| `POST /v1/auth/logout` | Đã đăng nhập | Xoá cookie |
+| `GET /v1/auth/me` | Đã đăng nhập | Thông tin + role — frontend dùng để điều hướng giao diện |
+| `POST /v1/auth/admin/reset-password` | ADMIN/INSTRUCTOR | Reset mật khẩu giúp học sinh (giải pháp "quên mật khẩu" không cần email) |
+| `POST /v1/courses` | INSTRUCTOR/ADMIN | Tạo lớp/kênh mới |
+| `POST /v1/courses/{id}/enroll` | Giáo viên sở hữu lớp đó | Thêm học sinh (theo email) vào lớp |
+| `GET /v1/courses/me` | Đã đăng nhập | Danh sách lớp mình thuộc về |
 
 ## Chạy thử backend ở máy local
 
