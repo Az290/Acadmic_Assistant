@@ -1,0 +1,12 @@
+# Danh sách thư viện Python cần cài để chạy backend.
+# Cài bằng lệnh: pip install -r requirements.txt
+
+fastapi==0.115.0            # Framework xử lý API (nhận request, trả response)
+uvicorn[standard]==0.32.0   # "Máy chủ" thực sự chạy FastAPI (ASGI server)
+
+# --- Database (Tác vụ #2) ---
+sqlalchemy[asyncio]==2.0.35 # ORM - định nghĩa bảng bằng Python, chống SQL injection mặc định
+asyncpg==0.30.0             # Driver kết nối Postgres bất đồng bộ
+pgvector==0.3.6             # Hỗ trợ kiểu dữ liệu "vector" cho SQLAlchemy (tìm kiếm ngữ nghĩa)
+alembic==1.13.3             # Quản lý "lịch sử thay đổi" cấu trúc database (như Git cho schema)
+pydantic-settings==2.6.0    # Đọc cấu hình từ file .env một cách an toàn, có kiểm tra kiểu dữ liệu
