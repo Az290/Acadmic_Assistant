@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     # API key OpenAI - dùng cho cả LLM (agent) và embedding (tìm kiếm ngữ nghĩa)
     openai_api_key: str = ""
 
-    # Bí mật dùng để ký JWT (Tác vụ #3 - Auth). PHẢI điền giá trị ngẫu
-    # nhiên thật trong .env trước khi chạy - sinh bằng lệnh:
+    # Bí mật dùng để ký JWT. PHẢI điền giá trị ngẫu nhiên thật trong
+    # .env trước khi chạy - sinh bằng lệnh:
     #   python -c "import secrets; print(secrets.token_hex(32))"
     jwt_secret: str = ""
 
@@ -37,10 +37,36 @@ class Settings(BaseSettings):
     # nhau cùng cần xác minh token mà không được biết bí mật ký).
     jwt_algorithm: str = "HS256"
 
-    # Token hết hạn sau bao nhiêu phút - hết hạn thì phải đăng nhập lại.
-    # 7 ngày = 10080 phút: đủ dài để không làm phiền user đăng nhập lại
-    # liên tục, nhưng vẫn có giới hạn thay vì "sống mãi mãi".
-    jwt_expire_minutes: int = 10080
+    # ACCESS token (JWT) hết hạn sau bao nhiêu phút - đây là token dùng
+    # cho MỌI request thường ngày. Access token KHÔNG tra được DB để
+    # biết có bị thu hồi hay chưa (đó là bản chất JWT - tự chứa, không
+    # cần tra DB mới nhanh) - nên phải sống NGẮN, để nếu bị lộ thì
+    # thiệt hại giới hạn trong 30 phút. Phiên đăng nhập được "nối dài"
+    # qua REFRESH token (xem bên dưới), không phải bằng cách kéo dài
+    # access token.
+    jwt_expire_minutes: int = 30
+
+    # REFRESH token sống dài hơn nhiều - đây là "vé" dùng để xin cấp
+    # lại access token mới mà không cần gõ lại mật khẩu. Khác access
+    # token, refresh token có bản ghi THẬT trong bảng refresh_token ->
+    # có thể thu hồi giữa chừng (đánh dấu is_revoked), đây là lý do
+    # chính để tách 2 loại token thay vì chỉ dùng 1 JWT sống dài duy nhất.
+    refresh_token_expire_days: int = 7
+
+    # Danh sách domain ĐƯỢC PHÉP gọi API này từ trình duyệt (CORS).
+    # Phân tách bằng dấu phẩy trong .env, ví dụ:
+    #   CORS_ALLOWED_ORIGINS=http://localhost:3000,https://academic-assistant.vercel.app
+    #
+    # Mặc định chỉ có localhost:3000 (nơi Next.js chạy lúc code trên
+    # máy) - KHÔNG dùng "*" (cho phép mọi domain), vì làm vậy đồng nghĩa
+    # bất kỳ trang web nào trên Internet cũng gọi được API kèm cookie
+    # đăng nhập của user nếu họ đang mở tab đó, dẫn tới rủi ro rò rỉ
+    # dữ liệu qua cross-origin request.
+    cors_allowed_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
 
 @lru_cache

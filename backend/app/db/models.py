@@ -14,9 +14,9 @@ Lợi ích thực dụng cho dự án này:
 3. Kết hợp với Alembic (công cụ đi kèm) để quản lý "lịch sử thay đổi"
    database - giống Git nhưng cho cấu trúc bảng.
 
-6 bảng ở đây là bộ tối thiểu cần cho: lưu tài liệu, tìm kiếm ngữ nghĩa
+Các bảng ở đây là bộ tối thiểu cần cho: lưu tài liệu, tìm kiếm ngữ nghĩa
 (RAG), đăng nhập/phân quyền, và lưu lịch sử chat. Các bảng nâng cao hơn
-(HITL, audit log, BKT...) sẽ thêm ở tác vụ tương ứng sau này.
+(HITL, audit log, BKT...) sẽ thêm khi hệ thống thực sự cần tới chúng.
 """
 
 from datetime import datetime
@@ -36,7 +36,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 
 # Kích thước vector embedding: cố định 1536 vì ta dùng model
-# OpenAI "text-embedding-3-small" (đã chốt ở Tác vụ #2).
+# OpenAI "text-embedding-3-small".
 # Nếu sau này đổi sang model embedding khác có số chiều khác,
 # sẽ cần một bảng/cột mới - không sửa trực tiếp cột này để tránh
 # làm hỏng dữ liệu embedding cũ.
@@ -59,7 +59,7 @@ class Course(Base):
     môn học hợp lệ, và sau này mở rộng thêm thông tin (giảng viên phụ
     trách, học kỳ...) mà không phải sửa các bảng khác.
 
-    owner_id: giáo viên đã TẠO lớp này (Tác vụ #3). Dùng để kiểm tra
+    owner_id: giáo viên đã TẠO lớp này. Dùng để kiểm tra
     quyền - chỉ chính giáo viên sở hữu lớp mới được thêm học sinh vào
     lớp đó, không phải bất kỳ INSTRUCTOR nào trong hệ thống.
     """
@@ -83,8 +83,8 @@ class AppUser(Base):
 
     password_hash: KHÔNG BAO GIỜ lưu mật khẩu gốc. Cột này lưu một
     chuỗi "băm" một chiều (không giải mã ngược lại được mật khẩu gốc).
-    Việc băm mật khẩu thực hiện ở tầng code (Tác vụ #3 - Auth), bảng
-    này chỉ định nghĩa chỗ lưu.
+    Việc băm mật khẩu thực hiện ở tầng code (app/auth/security.py),
+    bảng này chỉ định nghĩa chỗ lưu.
 
     role: nền tảng của toàn bộ phân quyền (RBAC). Khi đăng nhập, giá
     trị này được "đóng gói" vào JWT để mọi API sau đó biết đang phục
@@ -101,6 +101,52 @@ class AppUser(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RefreshToken(Base):
+    """
+    Vé "xin cấp lại" access token mới, không cần đăng nhập lại bằng
+    mật khẩu.
+
+    Khác với access token (JWT - tự chứa thông tin, backend KHÔNG cần
+    tra DB để xác minh), refresh token là một bản ghi THẬT trong
+    database - đây chính là điểm mấu chốt cho phép "thu hồi": muốn vô
+    hiệu hoá 1 phiên đăng nhập, chỉ cần đánh dấu dòng tương ứng ở đây,
+    có hiệu lực ngay lập tức (khác access token JWT, phải đợi hết hạn
+    tự nhiên vì backend không tra DB để kiểm tra JWT còn "sống" hay không).
+
+    token_hash: KHÔNG lưu refresh token gốc (dạng chuỗi ngẫu nhiên) vào
+    DB - cùng triết lý với password_hash: nếu database bị lộ, kẻ tấn
+    công không lấy được token dùng được ngay, phải "đảo ngược" hash
+    (không khả thi với SHA-256).
+
+    is_used + used_at: cùng nhau hiện thực hoá "rotation với grace
+    period" - mỗi refresh token chỉ nên dùng 1 lần để xin access token
+    mới, nhưng trong thực tế nhiều request có thể vô tình cùng gọi
+    refresh song song (vd: nhiều tab/nhiều thành phần trang cùng phát
+    hiện access token hết hạn gần như đồng thời). Nếu chặn cứng "dùng
+    lần 2 là coi như bị đánh cắp", các request hợp lệ đến sau sẽ bị
+    hiểu nhầm và tự đăng xuất người dùng thật một cách sai.
+
+    Giải pháp: khi 1 token bị dùng lần đầu, ghi used_at (thời điểm).
+    Token gốc mới đã phát ra thay thế được ghi nhớ tạm thời trong bộ
+    nhớ của process (KHÔNG lưu vào cột nào ở đây - xem app/auth/refresh.py)
+    để có thể trả lại đúng cho request đến sau trong grace period, mà
+    không phải lưu 1 bí mật dạng đọc được vào database. Chỉ khi dùng
+    lại sau khoảng grace period mới coi là dấu hiệu bị đánh cắp thật
+    và thu hồi toàn bộ phiên.
+    """
+
+    __tablename__ = "refresh_token"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -199,8 +245,7 @@ class Chunk(Base):
     - visibility + course_id: quyết định ai được thấy chunk này.
       Câu truy vấn sẽ luôn có điều kiện lọc theo môn học sinh viên
       đã đăng ký, thực hiện ngay trong SQL WHERE (không lọc sau khi
-      đã có kết quả) - đây là nguyên tắc "ACL pre-filter" đã bàn ở
-      bản đặc tả gốc.
+      đã có kết quả) - đây là nguyên tắc "ACL pre-filter".
     """
 
     __tablename__ = "chunk"
@@ -216,7 +261,7 @@ class Chunk(Base):
     ord: Mapped[int] = mapped_column(Integer, nullable=False)  # thứ tự chunk trong tài liệu
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    context_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)  # thêm ở Tác vụ #4 (Ingestion)
+    context_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)  # heading/mục gần nhất chứa chunk này
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     is_solution: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

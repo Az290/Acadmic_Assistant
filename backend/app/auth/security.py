@@ -7,6 +7,8 @@ phổ biến nhất, vì rất dễ bỏ sót một chi tiết nhỏ mà kẻ t�
 thác được.
 """
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
@@ -72,3 +74,33 @@ def decode_access_token(token: str) -> dict | None:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None
+
+
+# --- Refresh token ---
+#
+# Refresh token KHÔNG phải JWT - nó là một chuỗi ngẫu nhiên "vô nghĩa"
+# (không tự chứa thông tin gì), giá trị của nó chỉ có ý nghĩa khi tra
+# cứu đúng bản ghi tương ứng trong bảng refresh_token. Đây là điểm
+# khác biệt cốt lõi so với access token: JWT tự chứa + không tra DB
+# (nhanh, nhưng không thu hồi được); refresh token phải tra DB (chậm
+# hơn 1 chút, nhưng thu hồi được ngay lập tức) - đánh đổi hợp lý vì
+# refresh token dùng ít hơn nhiều so với access token (chỉ dùng khi
+# access token hết hạn, không dùng ở MỌI request).
+
+
+def generate_refresh_token() -> str:
+    """Sinh 1 refresh token mới - chuỗi ngẫu nhiên an toàn về mật mã học."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(token: str) -> str:
+    """
+    Băm refresh token bằng SHA-256 trước khi lưu vào DB.
+
+    Khác với mật khẩu (dùng bcrypt CHẬM có chủ đích), ở đây dùng
+    SHA-256 (NHANH) là phù hợp: mục đích không phải "chống dò hàng
+    loạt" (refresh token đã đủ dài + ngẫu nhiên để không thể đoán
+    được), mà chỉ để tránh lưu token gốc trần trụi trong DB - nếu
+    DB bị lộ, kẻ tấn công vẫn không lấy được token dùng ngay được.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()

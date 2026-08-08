@@ -8,12 +8,18 @@ giữ file này gọn, chỉ đóng vai trò lắp ráp.
 """
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.router import router as auth_router
+from app.config import get_settings
 from app.courses.router import router as courses_router
 from app.db.session import get_db
+from app.documents.router import router as documents_router
+from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 
 app = FastAPI(
     title="Academic Assistant API",
@@ -21,8 +27,30 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Rate limiting: gắn limiter vào app + đăng ký handler xử lý khi vượt
+# giới hạn (tự động trả lỗi 429 "Too Many Requests" đúng chuẩn HTTP
+# thay vì để lỗi rơi tự do).
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS: chỉ các domain trong danh sách whitelist (config.cors_allowed_origins)
+# mới được trình duyệt cho phép gọi API này bằng JavaScript. Đây là
+# điều BẮT BUỘC phải có trước khi frontend (chạy ở domain khác - vd
+# Vercel) gọi vào backend (vd Fly.io) - không có middleware này, trình
+# duyệt sẽ tự chặn mọi request cross-origin, kể cả khi cả 2 phía code
+# đều đúng.
+_settings = get_settings()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_settings.cors_allowed_origins_list,
+    allow_credentials=True,  # BẮT BUỘC để cookie (JWT) được gửi kèm qua cross-origin request
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router)
 app.include_router(courses_router)
+app.include_router(documents_router)
 
 
 @app.get("/healthz")
@@ -39,7 +67,7 @@ def health_check():
 @app.get("/healthz/db")
 async def health_check_db(session: AsyncSession = Depends(get_db)):
     """
-    Kiểm tra backend có kết nối được tới Database không (Tác vụ #2).
+    Kiểm tra backend có kết nối được tới Database không.
 
     Khác với /healthz (chỉ kiểm tra server sống), endpoint này thực sự
     gửi 1 câu lệnh nhỏ nhất có thể ("SELECT 1") tới Postgres và chờ

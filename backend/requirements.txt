@@ -17,3 +17,11 @@ bcrypt==4.0.1                # Ghim phiên bản cụ thể - bcrypt 5.x đổi 
 python-jose[cryptography]==3.3.0   # Tạo & kiểm tra JWT (vé đăng nhập có chữ ký chống giả mạo)
 pydantic[email]==2.9.2       # Kiểm tra định dạng email hợp lệ khi đăng ký
 python-multipart==0.0.12    # FastAPI cần thư viện này để đọc dữ liệu form (không chỉ JSON)
+
+# --- Ingestion Pipeline (Tác vụ #4) ---
+pymupdf==1.28.2              # Đọc PDF, lấy text sạch + font size (để phát hiện heading) - nhanh, miễn phí
+tiktoken==0.13.0              # Đếm token CHÍNH XÁC theo đúng cách model OpenAI đếm, dùng khi chunking
+openai==2.53.0                # Gọi API OpenAI (embedding ở tác vụ này, LLM agent ở các tác vụ sau)
+
+# --- Vá gap rủi ro cao (Tác vụ #4.5) ---
+slowapi==0.1.10               # Rate limiting theo IP (chống spam/DoS cơ bản, chống brute-force login)

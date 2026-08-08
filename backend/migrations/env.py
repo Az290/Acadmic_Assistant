@@ -3,9 +3,7 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
@@ -13,6 +11,7 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import get_settings  # noqa: E402
+from app.db.engine_factory import build_async_engine  # noqa: E402
 from app.db.models import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
@@ -76,11 +75,10 @@ async def run_async_migrations() -> None:
 
     """
 
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    # Dùng build_async_engine (giống hệt app/db/session.py) thay vì để
+    # Alembic tự tạo engine từ alembic.ini - đảm bảo migration và app
+    # lúc chạy thật xử lý SSL cho Neon theo ĐÚNG MỘT cách, không lệch nhau.
+    connectable = build_async_engine(get_settings().database_url)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

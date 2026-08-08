@@ -4,9 +4,9 @@
 - Giáo viên thêm học sinh vào lớp mình dạy (enrollment)
 - Bất kỳ ai đăng nhập xem được danh sách lớp mình thuộc về
 
-Đây chính là nền tảng ACL (phân quyền tài liệu) cho các Tác vụ sau:
-khi Ingestion (#4) và RAG (#5) hoạt động, mọi câu truy vấn tìm tài
-liệu sẽ join qua bảng `enrollment` để biết user được thấy course nào.
+Đây chính là nền tảng ACL (phân quyền tài liệu): khi Ingestion và
+Retrieval hoạt động, mọi câu truy vấn tìm tài liệu sẽ join qua bảng
+`enrollment` để biết user được thấy course nào.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status

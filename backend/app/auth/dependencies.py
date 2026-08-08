@@ -3,8 +3,8 @@
 
 FastAPI có khái niệm "Dependency" - một hàm được khai báo là tham số
 mặc định của endpoint, FastAPI tự động chạy nó TRƯỚC KHI vào phần thân
-endpoint. Ta đã dùng cơ chế này ở Tác vụ #2 với `get_db` (cấp session
-DB) - ở đây áp dụng đúng khuôn mẫu đó cho việc xác thực người dùng.
+endpoint. Cùng khuôn mẫu này cũng được dùng cho `get_db` (cấp session
+DB, xem app/db/session.py) - ở đây áp dụng cho việc xác thực người dùng.
 
 Có 2 tầng dependency:
 1. get_current_user   - "bạn là ai?" (đọc JWT từ cookie, tra ra user)
