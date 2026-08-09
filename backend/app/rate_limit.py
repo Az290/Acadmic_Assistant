@@ -4,11 +4,12 @@ Rate limiting cơ bản theo SỐ LƯỢT REQUEST.
 QUAN TRỌNG - ranh giới của module này: đây CHỈ là hàng rào chống
 spam/DoS đơn giản (giới hạn "bao nhiêu LƯỢT gọi/phút"), KHÔNG PHẢI
 giới hạn chi phí LLM theo TOKEN. Giới hạn token chỉ có ý nghĩa khi đã
-có endpoint gọi LLM thật cho chat (Academic Agent) - hiện tại, endpoint
-"nặng" nhất là Ingestion (gọi OpenAI embedding), nhưng đó là hành động
-của giáo viên (ít, có kiểm soát qua ACL), không phải học sinh gọi tự
-do - nên rate-limit theo request là đủ ở giai đoạn này. Giới hạn
-token/chi phí thật sự sẽ làm khi có Agent chat.
+có endpoint gọi LLM thật cho chat (Academic Agent) - rate-limit theo
+LƯỢT REQUEST là đủ ở giai đoạn này cho các endpoint tốn API thật khác
+(document upload - gọi OpenAI embedding cho hàng trăm chunk; search -
+gọi OpenAI embedding cho câu hỏi). Giới hạn token/chi phí chi tiết hơn
+sẽ làm khi có Agent chat, nơi 1 câu hỏi có thể tốn số token rất khác
+nhau tuỳ độ dài ngữ cảnh model đọc.
 
 Công cụ: slowapi (thư viện nhỏ, đếm ngay trong process, không cần
 Redis/service ngoài) - đủ dùng ở quy mô vài chục user test. Nếu sau

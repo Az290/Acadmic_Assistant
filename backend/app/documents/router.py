@@ -6,7 +6,7 @@ kích hoạt toàn bộ Ingestion Pipeline: Parse -> Chunk -> Embed -> Lưu Data
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from app.documents.validation import (
     validate_upload_filename,
 )
 from app.ingestion.pipeline import ingest_document
+from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
@@ -34,7 +35,9 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 @router.post("/upload", response_model=DocumentPublic, status_code=status.HTTP_201_CREATED)
+@limiter.limit(DEFAULT_RATE_LIMIT)
 async def upload_document(
+    request: Request,
     course_id: int,
     file: UploadFile,
     session: AsyncSession = Depends(get_db),
@@ -46,6 +49,11 @@ async def upload_document(
     Yêu cầu quyền: chỉ INSTRUCTOR sở hữu lớp đó (hoặc ADMIN) mới được
     upload - cùng nguyên tắc kiểm tra quyền đã dùng ở endpoint enroll,
     tránh giáo viên A tự ý thêm tài liệu vào lớp của giáo viên B.
+
+    @limiter.limit(DEFAULT_RATE_LIMIT): mỗi lần upload chạy toàn bộ
+    Ingestion Pipeline, gọi OpenAI embedding thật cho có thể hàng trăm
+    chunk - không giới hạn tần suất để lộ khả năng double-click/script
+    lỗi gọi liên tục làm tốn ngân sách API mà không có ai chặn lại.
     """
     course_result = await session.execute(select(Course).where(Course.id == course_id))
     course = course_result.scalar_one_or_none()

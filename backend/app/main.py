@@ -22,6 +22,7 @@ from app.documents.router import router as documents_router
 from app.logging_config import configure_logging
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 from app.request_id_middleware import RequestIdMiddleware
+from app.retrieval.router import router as retrieval_router
 
 configure_logging()
 
@@ -62,6 +63,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(courses_router)
 app.include_router(documents_router)
+app.include_router(retrieval_router)
 
 
 @app.get("/healthz")
