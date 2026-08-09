@@ -19,6 +19,7 @@ from app.config import get_settings
 from app.courses.router import router as courses_router
 from app.db.session import get_db
 from app.documents.router import router as documents_router
+from app.guardrail.router import router as guardrail_router
 from app.logging_config import configure_logging
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 from app.request_id_middleware import RequestIdMiddleware
@@ -64,6 +65,7 @@ app.include_router(auth_router)
 app.include_router(courses_router)
 app.include_router(documents_router)
 app.include_router(retrieval_router)
+app.include_router(guardrail_router)
 
 
 @app.get("/healthz")
