@@ -1,25 +1,28 @@
 """
 System prompt + lựa chọn model - MỖI category (từ Router Agent, Tác
-vụ #7) cần cách "nói chuyện" và mức chất lượt model khác nhau.
+vụ #7) cần cách "nói chuyện" khác nhau.
 
-DYNAMIC MODEL ROUTING: dùng model ĐẮT HƠN (gpt-4o) cho câu hỏi học
-thuật thật (RAG_QUESTION, SOCRATIC_REQUEST) - đây là lúc chất lượng
-giảng dạy quan trọng, đáng trả thêm chi phí. Dùng model RẺ (gpt-4o-
-mini) cho chitchat/lạc đề - không cần "trí tuệ" cao để chào hỏi hay
-từ chối lịch sự một câu hỏi ngoài phạm vi.
+QUYẾT ĐỊNH MODEL ĐÃ THAY ĐỔI SAU KHI ĐO TỐC ĐỘ THẬT: ban đầu dùng
+Dynamic Model Routing (gpt-4o cho RAG_QUESTION/SOCRATIC_REQUEST, đắt
+hơn nhưng chất lượng giảng dạy cao hơn). Đo thời gian thật cho thấy
+riêng bước sinh câu trả lời bằng gpt-4o chiếm ~10s trong tổng ~22s của
+1 request - gần một nửa tổng độ trễ người dùng phải chờ. Sau khi cân
+nhắc đánh đổi (tốc độ trải nghiệm chat thời gian thực quan trọng hơn
+mức tăng chất lượng biên của gpt-4o so với gpt-4o-mini ở giai đoạn
+này), quyết định dùng gpt-4o-mini cho MỌI category - đồng nhất với
+Router Agent (Tác vụ #7), chỉ khác Guardrail (Tác vụ #6) ở việc đây
+vẫn cần LLM sinh văn bản dài, không né được.
 
-Đây khác với Guardrail (Tác vụ #6, cố tình né LLM đắt) và Router Agent
-(Tác vụ #7, dùng 1 model rẻ cố định cho MỌI câu) - ở bước SINH CÂU TRẢ
-LỜI CUỐI CÙNG này, chất lượng đầu ra trực tiếp ảnh hưởng tới trải
-nghiệm học tập thật của sinh viên, nên đáng đầu tư đúng chỗ.
+Nếu sau này có bằng chứng thật qua Eval (Tác vụ #9) cho thấy chất
+lượng gpt-4o-mini không đủ cho câu hỏi học thuật phức tạp, đây là lúc
+cân nhắc lại - không phải đoán trước.
 """
 
 CHEAP_MODEL = "gpt-4o-mini"
-QUALITY_MODEL = "gpt-4o"
 
 MODEL_BY_CATEGORY = {
-    "RAG_QUESTION": QUALITY_MODEL,
-    "SOCRATIC_REQUEST": QUALITY_MODEL,
+    "RAG_QUESTION": CHEAP_MODEL,
+    "SOCRATIC_REQUEST": CHEAP_MODEL,
     "CHITCHAT": CHEAP_MODEL,
     "OFF_TOPIC": CHEAP_MODEL,
 }

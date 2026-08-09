@@ -95,22 +95,57 @@ _ACL_FILTER_SQL = """
     AND chunk.is_solution = FALSE
 """
 
+# Bản sao CÙNG Ý NGHĨA của _ACL_FILTER_SQL, nhưng dùng tham số VỊ TRÍ
+# ($2) thay vì tham số TÊN (:user_id) - chỉ dùng cho _vector_search(),
+# nơi bắt buộc phải gọi exec_driver_sql() thay vì session.execute(text())
+# để né lỗi hiệu năng compile với tham số vector dài (xem giải thích
+# chi tiết trong _vector_search()). Giữ 2 bản riêng thay vì 1 hàm build
+# động để dễ đọc, tránh lỗi lặt vặt khi tự sinh cú pháp SQL bằng code.
+_ACL_FILTER_SQL_POSITIONAL = """
+    chunk.course_id IN (
+        SELECT course_id FROM enrollment WHERE user_id = $2
+    )
+    AND chunk.is_solution = FALSE
+"""
+
 
 async def _vector_search(
     session: AsyncSession, query_vector: list[float], user_id: int, limit: int
 ) -> list[tuple[int, int]]:
-    """Trả về [(chunk_id, rank)] xếp theo khoảng cách cosine tăng dần (gần nhất trước)."""
-    result = await session.execute(
-        text(
-            f"""
-            SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:query_vector AS vector)) AS rank
-            FROM chunk
-            WHERE embedding IS NOT NULL AND {_ACL_FILTER_SQL}
-            ORDER BY embedding <=> CAST(:query_vector AS vector)
-            LIMIT :limit
-            """
-        ),
-        {"query_vector": str(query_vector), "user_id": user_id, "limit": limit},
+    """
+    Trả về [(chunk_id, rank)] xếp theo khoảng cách cosine tăng dần
+    (gần nhất trước).
+
+    Dùng exec_driver_sql() với tham số VỊ TRÍ ($1, $2...) thay vì
+    session.execute(text(...), {...}) với tham số TÊN - lý do lịch
+    sử: lúc điều tra độ trễ cao (đo được tới ~9s cho 1 lần gọi), ban
+    đầu nghi ngờ SQLAlchemy compile chậm với tham số vector dạng chuỗi
+    text ~30KB. Sau khi đo kỹ hơn (nhiều lần, nhiều session), phát
+    hiện NGUYÊN NHÂN THẬT là Neon (Postgres serverless) có "cold
+    start" - LẦN KẾT NỐI ĐẦU TIÊN trong 1 process luôn chậm (10-16s,
+    dao động lớn) vì phải đánh thức compute instance sau thời gian
+    idle; các lần sau (dùng lại connection pool) chỉ 1.5-2s. Đây
+    KHÔNG PHẢI lỗi SQLAlchemy - kết luận ban đầu là kết luận sai do
+    đo nhiễu bởi cold start, không phải bằng chứng thật.
+
+    Giữ lại cách viết exec_driver_sql() này dù không giải quyết đúng
+    nguyên nhân đã nghi ngờ - không gây hại, hoạt động đúng, và loại
+    trừ khả năng compile chậm với tham số dài trong tương lai (dù
+    chưa xác nhận chắc chắn đây có thật sự là rủi ro hay không). Với
+    server chạy liên tục (không phải script test ngắn), cold start
+    chỉ xảy ra ĐÚNG 1 LẦN lúc khởi động, không ảnh hưởng các request
+    sau đó.
+    """
+    conn = await session.connection()
+    result = await conn.exec_driver_sql(
+        f"""
+        SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) AS rank
+        FROM chunk
+        WHERE embedding IS NOT NULL AND {_ACL_FILTER_SQL_POSITIONAL}
+        ORDER BY embedding <=> $1::vector
+        LIMIT $3
+        """,
+        (str(query_vector), user_id, limit),
     )
     return [(row.id, row.rank) for row in result]
 

@@ -5,6 +5,12 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: int | None = None
     course_id: int | None = None
+    # ChatBubble có 2 tab tường minh ("Hỏi đáp"/"Gia sư") - khi người
+    # dùng chọn 1 tab, frontend gửi kèm giá trị này để ÉP category thay
+    # vì để Router Agent tự đoán qua nội dung câu hỏi. Chỉ chấp nhận
+    # 2 giá trị cần retrieval (RAG_QUESTION/SOCRATIC_REQUEST) - CHITCHAT/
+    # OFF_TOPIC không có tab riêng, luôn để Router tự phát hiện.
+    force_category: str | None = Field(default=None, pattern="^(RAG_QUESTION|SOCRATIC_REQUEST)$")
 
 
 class CitationPublic(BaseModel):

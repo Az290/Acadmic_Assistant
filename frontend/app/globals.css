@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+/*
+  Bảng màu lấy ĐÚNG theo file prototype (edu04-prototype_3.html) -
+  không phải suy đoán qua ảnh chụp. Giữ nguyên tên biến gốc để dễ đối
+  chiếu ngược lại prototype khi cần bổ sung thêm trang/thành phần sau
+  này.
+*/
+:root {
+  --bg: #f4f6fb;
+  --panel: #ffffff;
+  --border: #e0e4ee;
+  --border-strong: #cdd2e0;
+  --ink: #141829;
+  --ink-soft: #5c6178;
+  --ink-faint: #8e92a6;
+
+  --sidebar: #0e1225;
+  --sidebar-line: #1d2240;
+  --sidebar-ink: #a3a8c2;
+  --sidebar-active: #171d38;
+
+  --accent: #6c5ce7;
+  --accent-ink: #3a2fa0;
+  --accent-bg: #ede9fd;
+
+  --teal: #00b894;
+  --teal-ink: #007b63;
+  --teal-bg: #d6f5ed;
+
+  --blue: #0984e3;
+  --blue-ink: #0660a8;
+  --blue-bg: #ddeefb;
+
+  --red: #d63031;
+  --red-ink: #9b1f20;
+  --red-bg: #fcdede;
+
+  --amber: #fdcb6e;
+  --amber-ink: #7d5e00;
+  --amber-bg: #fff5da;
+
+  --background: var(--bg);
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Card dùng chung cho mọi khối nội dung trong trang - bo góc, viền
+   nhạt, không đổ bóng đậm (đúng phong cách phẳng nhẹ của prototype,
+   không phải Material Design bóng đậm). */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}

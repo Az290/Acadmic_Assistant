@@ -37,7 +37,7 @@ from app.config import get_settings
 from app.db.models import Conversation, Message, SecurityLog
 from app.guardrail.guardrail import check_input, check_output
 from app.retrieval.hybrid_search import SearchResult, hybrid_search
-from app.router_agent.classifier import classify
+from app.router_agent.classifier import RouteResult, classify
 
 # Số tin nhắn gần nhất đọc lại từ lịch sử hội thoại (5 cặp hỏi-đáp) -
 # đủ ngữ cảnh cho hội thoại tự nhiên nhiều lượt, không tốn quá nhiều
@@ -178,23 +178,46 @@ async def handle_chat(
     """
     Hàm chính - nhận 1 câu hỏi, chạy trọn 7 bước, trả về ChatResult.
     """
-    # --- Bước 1: Guardrail input ---
-    # check_input là hàm ĐỒNG BỘ (gọi OpenAI qua client sync) - chạy
-    # trong thread pool riêng bằng asyncio.to_thread để KHÔNG chặn
-    # event loop (các request khác vẫn được xử lý song song trong lúc
-    # chờ network I/O của lệnh gọi OpenAI này).
-    input_check = await asyncio.to_thread(check_input, message)
+    # --- Chuẩn bị lịch sử hội thoại TRƯỚC khi phân loại (không tạo
+    # Conversation mới ở bước này) ---
+    # Phải có history TRƯỚC bước classify - PHÁT HIỆN QUA TEST THẬT:
+    # phân loại 1 câu hỏi phụ thuộc ngữ cảnh (vd "cho ví dụ cụ thể được
+    # không?") mà KHÔNG có lịch sử trước đó dễ bị hiểu sai (từng bị xếp
+    # nhầm SOCRATIC_REQUEST thay vì RAG_QUESTION nối tiếp) - xem chi
+    # tiết trong app/router_agent/classifier.py.
+    #
+    # CHỦ Ý CHỈ đọc lịch sử khi đã CÓ SẴN conversation_id (phiên đang
+    # tiếp diễn) - KHÔNG gọi _get_or_create_conversation() ở đây, để
+    # giữ đúng hành vi đã sửa trước đó: câu hỏi ĐẦU TIÊN của 1 phiên
+    # HOÀN TOÀN MỚI mà bị Guardrail chặn ngay sẽ KHÔNG tạo ra 1
+    # Conversation rỗng trong database. Phiên mới thì chắc chắn chưa
+    # có lịch sử nào để tra cứu (history=[] không cần query DB).
+    history: list[dict] = []
+    if conversation_id is not None:
+        history = await _fetch_recent_history(session, conversation_id)
+
+    # --- Bước 1+2 CHẠY SONG SONG: Guardrail input và Router classify ---
+    # PHÁT HIỆN QUA ĐO THẬT (không phải đoán): 2 bước này tuần tự tốn
+    # ~8s cộng dồn (mỗi bước ~4s, đều là round-trip gọi OpenAI), trong
+    # khi CHÚNG KHÔNG PHỤ THUỘC NHAU - cả 2 chỉ cần đúng `message` +
+    # `history`, Router không cần biết Guardrail đã cho qua hay chưa để
+    # BẮT ĐẦU phân loại. Nếu Guardrail chặn, kết quả classify chỉ đơn
+    # giản bị BỎ QUA ở nhánh dưới - lãng phí đúng 1 lượt gọi LLM rẻ cho
+    # trường hợp bị chặn (hiếm), đổi lại tiết kiệm ~4s độ trễ NGƯỜI DÙNG
+    # THẤY ĐƯỢC ở mọi câu hỏi hợp lệ (đa số) - đánh đổi hợp lý.
+    input_check, route = await asyncio.gather(
+        asyncio.to_thread(check_input, message),
+        asyncio.to_thread(classify, message, history),
+    )
+
     if not input_check.allowed:
         await _log_security_block(
             session, user_id, "input", input_check.blocked_by, input_check.reason, message
         )
         # KHÔNG tạo Conversation mới ở đây nếu client chưa có sẵn 1
         # phiên - câu hỏi đầu tiên bị chặn ngay không nên tạo ra 1
-        # phiên hội thoại RỖNG (0 message) trong database, chỉ để
-        # trống mãi mãi. Nếu client ĐÃ có conversation_id (đang chat
-        # dở), vẫn trả về đúng id đó để họ tiếp tục hỏi câu khác trong
-        # cùng phiên - trả về 0 nếu là phiên hoàn toàn mới, client tự
-        # hiểu là "chưa có phiên nào được tạo".
+        # phiên hội thoại RỖNG (0 message) trong database. Nếu client
+        # ĐÃ có conversation_id (đang chat dở), vẫn trả về đúng id đó.
         return ChatResult(
             conversation_id=conversation_id or 0,
             answer="Câu hỏi của bạn không hợp lệ, vui lòng đặt câu hỏi khác.",
@@ -203,18 +226,12 @@ async def handle_chat(
             block_reason=input_check.reason,
         )
 
+    # Guardrail đã cho qua - giờ mới thật sự cần 1 Conversation để lưu
+    # kết quả (tạo mới nếu client chưa có id, hoặc lấy lại đúng phiên
+    # cũ - hàm này tự tra history đã đọc ở trên vẫn đúng nếu là phiên
+    # cũ, vì conversation.id sẽ khớp với conversation_id đã dùng để
+    # đọc history phía trên).
     conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
-
-    # --- Bước 3 (làm TRƯỚC bước 2 phân loại): đọc lịch sử hội thoại ---
-    # Đảo thứ tự so với thiết kế ban đầu - PHÁT HIỆN QUA TEST THẬT:
-    # phân loại 1 câu hỏi phụ thuộc ngữ cảnh (vd "cho ví dụ cụ thể
-    # được không?") mà KHÔNG có lịch sử trước đó dễ bị hiểu sai (từng
-    # bị xếp nhầm SOCRATIC_REQUEST thay vì RAG_QUESTION nối tiếp) - xem
-    # chi tiết trong app/router_agent/classifier.py.
-    history = await _fetch_recent_history(session, conversation.id)
-
-    # --- Bước 2: Router classify (có kèm ngữ cảnh lịch sử) ---
-    route = await asyncio.to_thread(classify, message, history)
 
     # --- Bước 4: Hybrid Search (chỉ nếu cần) ---
     search_results: list[SearchResult] = []
@@ -277,3 +294,144 @@ async def handle_chat(
         category=route.category,
         citations=citations,
     )
+
+
+async def _run_output_guardrail_in_background(
+    session_factory, user_id: int, answer: str
+) -> None:
+    """
+    Chạy Guardrail output SAU KHI đã stream xong cho user xem - KHÔNG
+    thể ngăn nội dung đã hiển thị (đã trôi qua rồi), chỉ còn tác dụng
+    GHI NHẬN vào SecurityLog để con người xem xét sau nếu phát hiện vi
+    phạm. Đây là đánh đổi CÓ CHỦ Ý đã thảo luận: streaming (hiển thị
+    ngay từng phần) về bản chất KHÔNG THỂ kết hợp với "phải đọc hết rồi
+    mới cho thấy" - chấp nhận rủi ro thấp (system prompt đã giới hạn rõ
+    phạm vi học thuật, gpt-4o-mini hiếm khi tự sinh nội dung độc hại)
+    để đổi lấy trải nghiệm chat thời gian thực.
+
+    Nhận session_factory (không phải session có sẵn) vì hàm này chạy
+    NGOÀI vòng đời của request HTTP gốc (sau khi response đã đóng) -
+    session cũ có thể đã bị đóng, cần tự mở phiên DB mới độc lập.
+    """
+    result = await asyncio.to_thread(check_output, answer)
+    if not result.allowed:
+        async with session_factory() as session:
+            await _log_security_block(session, user_id, "output", result.blocked_by, result.reason, answer)
+
+
+async def handle_chat_stream(
+    session: AsyncSession,
+    session_factory,
+    *,
+    user_id: int,
+    message: str,
+    conversation_id: int | None = None,
+    course_id: int | None = None,
+    force_category: str | None = None,
+):
+    """
+    Biến thể STREAMING của handle_chat() - dùng cho trải nghiệm chat
+    thời gian thực (ChatBubble). Khác handle_chat() ở 2 điểm:
+
+    1. KHÔNG đợi Guardrail output trước khi trả về (xem
+       _run_output_guardrail_in_background).
+    2. Nhận force_category tuỳ chọn ("RAG_QUESTION" hoặc
+       "SOCRATIC_REQUEST") - ChatBubble có 2 tab tường minh "Hỏi đáp"/
+       "Gia sư", người dùng CHỌN chế độ chứ không để Router tự đoán -
+       khi có force_category, BỎ QUA hoàn toàn bước gọi LLM phân loại
+       (Router classify), vừa đúng ý người dùng chọn vừa nhanh hơn
+       (tiết kiệm đúng 1 lượt gọi OpenAI). Guardrail input VẪN luôn
+       chạy dù ép category - không được phép bỏ qua lớp an toàn.
+    """
+    history: list[dict] = []
+    if conversation_id is not None:
+        history = await _fetch_recent_history(session, conversation_id)
+
+    if force_category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
+        input_check, route = await asyncio.gather(
+            asyncio.to_thread(check_input, message),
+            asyncio.sleep(0, result=RouteResult(
+                category=force_category,
+                reasoning="Người dùng chọn tường minh qua tab ChatBubble.",
+                needs_retrieval=True,
+                classified_by="forced",
+            )),
+        )
+    else:
+        input_check, route = await asyncio.gather(
+            asyncio.to_thread(check_input, message),
+            asyncio.to_thread(classify, message, history),
+        )
+
+    if not input_check.allowed:
+        await _log_security_block(
+            session, user_id, "input", input_check.blocked_by, input_check.reason, message
+        )
+        yield {"type": "blocked", "conversation_id": conversation_id or 0, "reason": "invalid"}
+        return
+
+    conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
+
+    search_results: list[SearchResult] = []
+    if route.needs_retrieval:
+        search_query = message
+        if history and _looks_context_dependent(message):
+            search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
+        search_results = await hybrid_search(session, query_text=search_query, user_id=user_id)
+
+    context_text = _build_context_text(search_results)
+    system_prompt = build_system_prompt(route.category, context_text)
+    model = get_model_for_category(route.category)
+    messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
+
+    yield {"type": "start", "conversation_id": conversation.id, "category": route.category}
+
+    # Gọi OpenAI với stream=True - client trả về 1 iterator đồng bộ,
+    # phải duyệt nó trong thread riêng (asyncio.to_thread không phù
+    # hợp cho generator) - dùng vòng lặp đồng bộ bọc trong 1 thread,
+    # đẩy từng mẩu qua asyncio.Queue để generator bất đồng bộ bên
+    # ngoài có thể yield ngay khi có dữ liệu mới.
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
+
+    def _stream_worker():
+        try:
+            stream = _client.chat.completions.create(model=model, messages=messages, stream=True)
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    loop.call_soon_threadsafe(queue.put_nowait, delta)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)  # tín hiệu kết thúc
+
+    import threading
+
+    threading.Thread(target=_stream_worker, daemon=True).start()
+
+    full_answer_parts: list[str] = []
+    while True:
+        piece = await queue.get()
+        if piece is None:
+            break
+        full_answer_parts.append(piece)
+        yield {"type": "chunk", "text": piece}
+
+    answer = "".join(full_answer_parts)
+
+    citations = _build_citations(search_results)
+    session.add(Message(conversation_id=conversation.id, role="user", content=message))
+    session.add(
+        Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=answer,
+            citations=json.dumps(citations, ensure_ascii=False) if citations else None,
+        )
+    )
+    await session.commit()
+
+    yield {"type": "done", "citations": citations}
+
+    # Guardrail output chạy Ở NỀN, KHÔNG chặn response đã stream xong -
+    # xem docstring _run_output_guardrail_in_background để hiểu đánh đổi.
+    asyncio.create_task(_run_output_guardrail_in_background(session_factory, user_id, answer))

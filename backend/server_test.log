@@ -1,0 +1,39 @@
+D:\AI Th\u1ef1c Chi\u1ebfn\Acadmic_Assistant\backend\.venv\Lib\site-packages\starlette\config.py:60: UserWarning: Config file '' not found.
+  warnings.warn(f"Config file '{env_file}' not found.")
+{"timestamp": "2026-08-09T21:25:01", "level": "INFO", "logger": "uvicorn.error", "message": "Started server process [14736]", "request_id": null}
+{"timestamp": "2026-08-09T21:25:01", "level": "INFO", "logger": "uvicorn.error", "message": "Waiting for application startup.", "request_id": null}
+{"timestamp": "2026-08-09T21:25:01", "level": "INFO", "logger": "uvicorn.error", "message": "Application startup complete.", "request_id": null}
+{"timestamp": "2026-08-09T21:25:01", "level": "INFO", "logger": "uvicorn.error", "message": "Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)", "request_id": null}
+{"timestamp": "2026-08-09T21:25:19", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:50638 - \"GET /healthz HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:25:39", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:50642 - \"POST /v1/auth/login HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:25:41", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:50642 - \"POST /v1/chat/stream HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:25:43", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/moderations \"HTTP/1.1 200 OK\"", "request_id": "4bdb6fa500b74342bc7784d793cd3bb1"}
+{"timestamp": "2026-08-09T21:25:45", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\"", "request_id": "4bdb6fa500b74342bc7784d793cd3bb1"}
+{"timestamp": "2026-08-09T21:25:50", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/chat/completions \"HTTP/1.1 200 OK\"", "request_id": null}
+{"timestamp": "2026-08-09T21:25:52", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/moderations \"HTTP/1.1 200 OK\"", "request_id": "4bdb6fa500b74342bc7784d793cd3bb1"}
+{"timestamp": "2026-08-09T21:27:04", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:54997 - \"OPTIONS /v1/auth/me HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:04", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:50140 - \"OPTIONS /v1/auth/me HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:04", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:56131 - \"GET /v1/auth/me HTTP/1.1\" 401", "request_id": null}
+{"timestamp": "2026-08-09T21:27:04", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:56131 - \"GET /v1/auth/me HTTP/1.1\" 401", "request_id": null}
+{"timestamp": "2026-08-09T21:27:30", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:58970 - \"OPTIONS /v1/auth/login HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:32", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:58845 - \"POST /v1/auth/login HTTP/1.1\" 401", "request_id": null}
+{"timestamp": "2026-08-09T21:27:43", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:54597 - \"POST /v1/auth/login HTTP/1.1\" 401", "request_id": null}
+{"timestamp": "2026-08-09T21:27:50", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:54597 - \"POST /v1/auth/login HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:51", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:54597 - \"GET /v1/auth/me HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:52", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:61059 - \"OPTIONS /v1/courses/me HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:52", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:53135 - \"OPTIONS /v1/courses/me HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:55", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:63982 - \"GET /v1/courses/me HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:27:57", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:55591 - \"GET /v1/courses/me HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:28:08", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:56665 - \"OPTIONS /v1/chat/stream HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:28:10", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:64477 - \"POST /v1/chat/stream HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:28:10", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/moderations \"HTTP/1.1 200 OK\"", "request_id": "ec29a30775de4c8ab12a3bdffd05ca2a"}
+{"timestamp": "2026-08-09T21:28:12", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\"", "request_id": "ec29a30775de4c8ab12a3bdffd05ca2a"}
+{"timestamp": "2026-08-09T21:28:14", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/chat/completions \"HTTP/1.1 200 OK\"", "request_id": null}
+{"timestamp": "2026-08-09T21:28:16", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/moderations \"HTTP/1.1 200 OK\"", "request_id": "ec29a30775de4c8ab12a3bdffd05ca2a"}
+{"timestamp": "2026-08-09T21:28:23", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:61857 - \"POST /v1/chat/stream HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:28:24", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/moderations \"HTTP/1.1 200 OK\"", "request_id": "0fd57198a0624e458380c5f558f321da"}
+{"timestamp": "2026-08-09T21:28:26", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/embeddings \"HTTP/1.1 200 OK\"", "request_id": "0fd57198a0624e458380c5f558f321da"}
+{"timestamp": "2026-08-09T21:28:28", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/chat/completions \"HTTP/1.1 200 OK\"", "request_id": null}
+{"timestamp": "2026-08-09T21:28:30", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/moderations \"HTTP/1.1 200 OK\"", "request_id": "0fd57198a0624e458380c5f558f321da"}
+{"timestamp": "2026-08-09T21:28:52", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:54131 - \"POST /v1/chat/stream HTTP/1.1\" 200", "request_id": null}
+{"timestamp": "2026-08-09T21:28:54", "level": "INFO", "logger": "httpx", "message": "HTTP Request: POST https://api.openai.com/v1/moderations \"HTTP/1.1 200 OK\"", "request_id": "2cf278ecc5734645834a287c8efc0670"}

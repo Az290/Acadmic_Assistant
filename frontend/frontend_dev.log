@@ -1,0 +1,130 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.3.0 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.204.1:3000
+- Environments: .env.local
+✓ Ready in 3.3s
+✓ Running next.config.ts took 189ms
+
+○ Compiling / ...
+ GET / 200 in 9.4s (next.js: 9.0s, application-code: 393ms)
+ GET / 200 in 161ms (next.js: 100ms, application-code: 62ms)
+ GET /login 200 in 1111ms (next.js: 890ms, application-code: 221ms)
+ GET /register 200 in 845ms (next.js: 783ms, application-code: 62ms)
+ GET /login 200 in 57ms (next.js: 18ms, application-code: 38ms)
+ GET / 200 in 746ms (next.js: 615ms, application-code: 132ms)
+ GET /login 200 in 89ms (next.js: 17ms, application-code: 72ms)
+[browser] A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload globalError={[...]} webSocket={WebSocket} staticIndicatorState={{pathname:null, ...}}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head>
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <script>
+                      <RootLayout>
+                        <html
+                          lang="vi"
+                          className="geist_a71539c9-module__T19VSG__variable geist_mono_8d43a2aa-module__8Li5zG__varia..."
+-                         data-yd-metadata-content-site="common"
+-                         data-yd-content-ready="true"
+                        >
+                  ...
+ 
+ GET /register 200 in 1210ms (next.js: 1130ms, application-code: 80ms)
+ GET /login 200 in 126ms (next.js: 78ms, application-code: 48ms)
+○ Compiling /chat ...
+ GET /chat 200 in 7.9s (next.js: 7.8s, application-code: 75ms)
+ GET /courses 200 in 862ms (next.js: 822ms, application-code: 40ms)
+ GET /chat 200 in 118ms (next.js: 12ms, application-code: 105ms)
+ GET / 200 in 1493ms (next.js: 776ms, application-code: 717ms)
+⨯ The directory at "D:\AI Thực Chiến\Acadmic_Assistant\frontend\.next\dev" was deleted.
+
+Deleting this directory while Next.js is running can lead to undefined behavior. Restarting the server to recover...
+▲ Next.js 16.3.0 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.204.1:3000
+- Environments: .env.local
+✓ Ready in 31.7s
+✓ Running next.config.ts took 4.2s
+
+○ Compiling /login ...
+ GET /login 200 in 48s (next.js: 47s, application-code: 870ms)
+ GET /courses 200 in 1836ms (next.js: 1615ms, application-code: 221ms)
+○ Compiling / ...
+ GET / 200 in 5.1s (next.js: 4.4s, application-code: 726ms)
+[browser] A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload globalError={[...]} webSocket={WebSocket} staticIndicatorState={{pathname:null, ...}}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head>
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <script>
+                      <RootLayout>
+                        <html
+                          lang="vi"
+                          className="geist_a71539c9-module__T19VSG__variable geist_mono_8d43a2aa-module__8Li5zG__varia..."
+-                         data-yd-metadata-content-site="common"
+-                         data-yd-content-ready="true"
+                        >
+                  ...
+ 
+ GET /login 200 in 263ms (next.js: 24ms, application-code: 239ms)
+ GET /courses 200 in 79ms (next.js: 42ms, application-code: 38ms)
+ GET /courses 200 in 314ms (next.js: 175ms, application-code: 139ms)
+✓ Compiled in 1624ms
+✓ Compiled in 553ms
+ GET /courses 200 in 349ms (next.js: 66ms, application-code: 283ms)
+✓ Compiled in 191ms
+ GET /courses 200 in 84ms (next.js: 18ms, application-code: 66ms)
+✓ Compiled in 1030ms
+ GET /courses 200 in 131ms (next.js: 41ms, application-code: 90ms)
+✓ Compiled in 790ms
+ GET /courses 200 in 505ms (next.js: 18ms, application-code: 487ms)
+✓ Compiled in 1930ms
+✓ Compiled in 2.7s
+ GET /courses 200 in 181ms (next.js: 65ms, application-code: 116ms)
+ GET /courses 200 in 200ms (next.js: 20ms, application-code: 181ms)
+ GET /courses 200 in 66ms (next.js: 12ms, application-code: 53ms)

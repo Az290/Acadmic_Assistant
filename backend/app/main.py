@@ -29,6 +29,42 @@ from app.router_agent.router import router as router_agent_router
 
 configure_logging()
 
+
+def _warm_up_openai_sdk_imports() -> None:
+    """
+    "Chạm" vào các thuộc tính lazy-load của OpenAI SDK (.chat,
+    .moderations, .embeddings) NGAY LÚC KHỞI ĐỘNG, tuần tự trong 1
+    thread duy nhất - PHÁT HIỆN QUA LỖI THẬT: openai-python dùng
+    functools.cached_property để hoãn import các submodule con
+    (openai.resources.chat, .moderations...) tới lần đầu tiên được
+    truy cập, thay vì import hết ngay khi import openai.
+
+    Nếu 2 THREAD KHÁC NHAU (từ app/guardrail/, app/router_agent/,
+    app/academic_agent/ - mỗi module có 1 OpenAI() client riêng) cùng
+    lần đầu truy cập các thuộc tính này GẦN NHƯ ĐỒNG THỜI (đúng tình
+    huống asyncio.gather() chạy Guardrail + Router song song), Python
+    import lock có thể DEADLOCK - đã tái hiện được lỗi này bằng
+    _frozen_importlib._DeadlockError khi đo tốc độ streaming thật.
+
+    Gọi từng client.chat/.moderations/.embeddings 1 LẦN, TUẦN TỰ, ngay
+    khi module này được import (trước khi bất kỳ request nào tới) -
+    sau lần đầu, Python cache lại kết quả (cached_property), các lần
+    truy cập sau (kể cả từ nhiều thread song song) không còn phải
+    import gì nữa, không còn nguy cơ deadlock.
+    """
+    from app.academic_agent.agent import _client as academic_client
+    from app.guardrail.moderation import _client as moderation_client
+    from app.ingestion.embedder import _client as embedder_client
+    from app.router_agent.classifier import _client as router_client
+
+    for client in (academic_client, moderation_client, embedder_client, router_client):
+        client.chat
+        client.moderations
+        client.embeddings
+
+
+_warm_up_openai_sdk_imports()
+
 app = FastAPI(
     title="Academic Assistant API",
     description="Backend cho hệ thống Trợ lý Học thuật đa agent",
