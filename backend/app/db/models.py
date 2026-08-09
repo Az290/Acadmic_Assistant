@@ -344,3 +344,44 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class SecurityLog(Base):
+    """
+    Nhật ký các lần Guardrail (app/guardrail/) CHẶN 1 nội dung - TÁCH
+    RIÊNG khỏi bảng `message` có chủ đích: `message` là lịch sử hội
+    thoại HIỂN THỊ CHO USER thấy, còn bảng này là dữ liệu VẬN HÀNH NỘI
+    BỘ (chỉ ADMIN xem) - lẫn 2 loại dữ liệu này vào chung 1 bảng sẽ
+    khiến lịch sử chat của user bị "rác" bởi những nội dung họ chưa
+    từng thấy AI trả lời (vì đã bị chặn từ trước khi tới bước sinh
+    câu trả lời).
+
+    Mục đích thực dụng: nếu 1 user liên tục gửi injection/nội dung độc
+    hại, ADMIN cần cách phát hiện PATTERN lạm dụng (dò thử phá guardrail
+    nhiều lần, tấn công có chủ đích) - không có log này thì không có
+    bằng chứng nào để nhận ra hành vi đó đang xảy ra.
+
+    Lưu ý bảo mật: KHÔNG dùng bảng này để tự động khoá tài khoản (đó là
+    tính năng riêng, chưa làm ở tác vụ này) - đây chỉ là NHẬT KÝ để con
+    người xem xét, tránh việc tự động hoá sai gây khoá nhầm tài khoản
+    hợp lệ (vd: học sinh vô tình gõ câu hỏi trùng pattern injection vì
+    lý do học thuật thật, không phải tấn công).
+    """
+
+    __tablename__ = "security_log"
+    __table_args__ = (
+        CheckConstraint("direction IN ('input','output')", name="ck_security_log_direction"),
+        CheckConstraint("blocked_by IN ('rules','moderation')", name="ck_security_log_blocked_by"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
+    direction: Mapped[str] = mapped_column(String(10), nullable=False)  # "input" hoặc "output"
+    blocked_by: Mapped[str] = mapped_column(String(20), nullable=False)  # "rules" hoặc "moderation"
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    # Nội dung gốc bị chặn - lưu lại để ADMIN xem xét bối cảnh thật,
+    # không chỉ lý do chung chung. Đây là dữ liệu NHẠY CẢM (có thể
+    # chứa nội dung độc hại) - bảng này KHÔNG có endpoint đọc công khai,
+    # chỉ dùng cho việc tra cứu trực tiếp trên database khi cần điều tra.
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

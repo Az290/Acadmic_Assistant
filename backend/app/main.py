@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.academic_agent.router import router as chat_router
 from app.auth.router import router as auth_router
 from app.config import get_settings
 from app.courses.router import router as courses_router
@@ -24,6 +25,7 @@ from app.logging_config import configure_logging
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 from app.request_id_middleware import RequestIdMiddleware
 from app.retrieval.router import router as retrieval_router
+from app.router_agent.router import router as router_agent_router
 
 configure_logging()
 
@@ -66,6 +68,8 @@ app.include_router(courses_router)
 app.include_router(documents_router)
 app.include_router(retrieval_router)
 app.include_router(guardrail_router)
+app.include_router(router_agent_router)
+app.include_router(chat_router)
 
 
 @app.get("/healthz")
