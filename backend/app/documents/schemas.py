@@ -9,5 +9,6 @@ class DocumentPublic(BaseModel):
     license_status: str
     content_hash: str
     superseded_by_id: int | None = None
+    image_count: int = 0
 
     model_config = {"from_attributes": True}

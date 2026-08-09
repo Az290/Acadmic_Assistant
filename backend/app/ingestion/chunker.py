@@ -45,6 +45,7 @@ class ChunkDraft:
     content: str
     page_number: int
     heading_context: str  # heading gần nhất trước chunk này, hỗ trợ định vị
+    content_type: str = "TEXT"
     ord: int = 0  # thứ tự trong tài liệu - gán ở bước cuối cùng của hàm chunk_document
 
 
@@ -53,29 +54,49 @@ def chunk_document(blocks: list[TextBlock]) -> list[ChunkDraft]:
     Hàm chính - nhận toàn bộ block của 1 tài liệu, trả về danh sách chunk.
 
     Thuật toán 2 giai đoạn:
-    1. Gom các block liên tiếp thành từng "section" (mở đầu bằng 1
-       heading, kết thúc trước heading tiếp theo).
-    2. Với mỗi section: nếu đủ ngắn, giữ nguyên làm 1 chunk. Nếu quá
-       dài, cắt tiếp theo kiểu recursive (chia nhỏ theo block, có
-       overlap) để không vượt TARGET_CHUNK_TOKENS.
+    1. Gom các block TEXT liên tiếp thành từng "section" (mở đầu bằng 1
+       heading, kết thúc trước heading tiếp theo). Block TABLE tách
+       riêng, KHÔNG gộp chung vào section.
+    2. Với mỗi section TEXT: nếu đủ ngắn, giữ nguyên làm 1 chunk. Nếu
+       quá dài, cắt tiếp theo kiểu recursive (chia nhỏ theo block, có
+       overlap) để không vượt TARGET_CHUNK_TOKENS. Mỗi block TABLE
+       LUÔN thành đúng 1 chunk riêng, trọn vẹn - không bao giờ bị cắt
+       ngang hay gộp lẫn với văn bản xung quanh, vì cắt giữa 1 bảng sẽ
+       phá vỡ hoàn toàn ý nghĩa hàng-cột của nó.
     """
     sections = _group_into_sections(blocks)
 
     drafts: list[ChunkDraft] = []
     for heading_text, section_blocks in sections:
-        section_text = "\n".join(b.text for b in section_blocks)
-        first_page = section_blocks[0].page_number
+        # Bảng luôn tách thành chunk riêng - xử lý trước, không lẫn
+        # vào bước "gộp thành section" ở dưới.
+        text_blocks = [b for b in section_blocks if b.content_type != "TABLE"]
+        table_blocks = [b for b in section_blocks if b.content_type == "TABLE"]
+
+        for table_block in table_blocks:
+            drafts.append(
+                ChunkDraft(
+                    content=table_block.text,
+                    page_number=table_block.page_number,
+                    heading_context=heading_text,
+                    content_type="TABLE",
+                )
+            )
+
+        if not text_blocks:
+            continue
+
+        section_text = "\n".join(b.text for b in text_blocks)
+        first_page = text_blocks[0].page_number
 
         if count_tokens(section_text) <= TARGET_CHUNK_TOKENS:
             # Section đủ ngắn - giữ nguyên khối, không cắt vụn thêm.
-            # Điều này khớp nguyên tắc "bảng/công thức giữ nguyên khối,
-            # không cắt" khi section đã tự nhiên ngắn gọn.
             drafts.append(
                 ChunkDraft(content=section_text, page_number=first_page, heading_context=heading_text)
             )
         else:
             drafts.extend(
-                _recursive_split(section_blocks, heading_context=heading_text)
+                _recursive_split(text_blocks, heading_context=heading_text)
             )
 
     for i, draft in enumerate(drafts):
@@ -91,6 +112,10 @@ def _group_into_sections(
     Gom danh sách block phẳng thành các nhóm (section), mỗi nhóm bắt
     đầu ngay tại 1 heading. Nội dung TRƯỚC heading đầu tiên (vd: trang
     bìa) được gom vào 1 section "(mở đầu)" riêng.
+
+    Block TABLE vẫn được gom vào đúng section theo vị trí xuất hiện
+    (để biết nó thuộc mục nào) - việc TÁCH nó ra thành chunk riêng xảy
+    ra ở chunk_document(), không phải ở đây.
     """
     sections: list[tuple[str, list[TextBlock]]] = []
     current_heading = "(mở đầu)"

@@ -236,6 +236,12 @@ class Document(Base):
         BigInteger, ForeignKey("document.id"), nullable=True
     )
 
+    # Số lượng ảnh/hình vẽ đã GẶP nhưng KHÔNG xử lý được nội dung (chưa
+    # có OCR/vision) - dùng để biết tài liệu có bao nhiêu phần "trống"
+    # về mặt thông tin, làm cơ sở quyết định có cần đầu tư OCR sau này
+    # không, thay vì làm mù quáng ngay từ đầu.
+    image_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
 
@@ -266,6 +272,9 @@ class Chunk(Base):
         CheckConstraint(
             "visibility IN ('PUBLIC','COURSE','INSTRUCTOR_ONLY')", name="ck_chunk_visibility"
         ),
+        CheckConstraint(
+            "content_type IN ('TEXT','TABLE')", name="ck_chunk_content_type"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -274,6 +283,10 @@ class Chunk(Base):
     ord: Mapped[int] = mapped_column(Integer, nullable=False)  # thứ tự chunk trong tài liệu
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # TABLE: nội dung ở dạng markdown table (giữ cấu trúc hàng-cột),
+    # tự thành 1 chunk riêng trọn vẹn, không bị cắt/gộp với văn bản
+    # xung quanh - xem app/ingestion/chunker.py để biết lý do.
+    content_type: Mapped[str] = mapped_column(String(20), nullable=False, default="TEXT")
     context_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)  # heading/mục gần nhất chứa chunk này
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

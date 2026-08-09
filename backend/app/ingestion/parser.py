@@ -21,6 +21,24 @@ import pymupdf
 
 
 @dataclass
+class ParseResult:
+    """
+    Kết quả đầy đủ của việc parse 1 file PDF - không chỉ danh sách
+    block văn bản, mà kèm cả thống kê về phần KHÔNG xử lý được (ảnh).
+
+    image_count: tổng số ảnh/hình vẽ trong toàn tài liệu - KHÔNG trích
+    xuất hay mô tả nội dung ảnh (không làm OCR/vision ở giai đoạn này,
+    xem lý do trong docstring parse_pdf() bên dưới), chỉ ĐẾM để hệ
+    thống biết "tài liệu này có N phần chưa xử lý được" - dữ liệu này
+    dùng để quyết định sau này có đáng đầu tư thêm OCR/vision hay
+    không, thay vì làm mù quáng ngay từ đầu.
+    """
+
+    blocks: list["TextBlock"]
+    image_count: int
+
+
+@dataclass
 class TextBlock:
     """
     Một khối văn bản trên 1 trang - đơn vị nhỏ nhất parser trả ra.
@@ -29,24 +47,35 @@ class TextBlock:
     (dựa trên cỡ chữ lớn hơn hẳn văn bản thường) - chunker.py dùng cờ
     này để cắt heading-aware (ưu tiên cắt ngay trước 1 heading mới,
     thay vì cắt giữa chừng 1 đoạn văn).
+
+    content_type: "TEXT" (mặc định) hoặc "TABLE". Một block TABLE có
+    `text` ở dạng markdown table (hàng phân cách bằng "\\n", cột phân
+    cách bằng " | ") thay vì văn bản chạy dài - giữ được cấu trúc
+    hàng-cột thay vì để PyMuPDF đọc lộn xộn theo thứ tự toạ độ.
     """
 
     page_number: int  # đánh số từ 1 (khớp cách người đọc thường nói "trang 5")
     text: str
     is_heading: bool
     font_size: float
+    content_type: str = "TEXT"
 
 
-def parse_pdf(file_path: str) -> list[TextBlock]:
+def parse_pdf(file_path: str) -> ParseResult:
     """
     Đọc toàn bộ PDF, trả về danh sách TextBlock theo đúng thứ tự xuất
-    hiện trong tài liệu.
+    hiện trong tài liệu, kèm số lượng ảnh đã gặp (không xử lý nội dung).
 
     Cách phát hiện heading: so cỡ chữ (font size) của từng khối văn bản
     với cỡ chữ PHỔ BIẾN NHẤT trong toàn tài liệu (coi là "cỡ chữ thân
     bài"). Khối nào có cỡ chữ lớn hơn rõ rệt (> 20%) được coi là heading.
     Đây là cách đơn giản, không cần AI, nhưng hoạt động tốt với hầu hết
     giáo trình/slide có phân cấp tiêu đề rõ ràng bằng cỡ chữ.
+
+    Vì sao KHÔNG làm OCR/mô tả ảnh bằng AI ở đây: tốn chi phí (gọi
+    thêm 1 API vision cho mỗi ảnh) và độ phức tạp không tương xứng khi
+    chưa biết thực tế có bao nhiêu tài liệu THẬT SỰ cần tới nó. Đếm số
+    ảnh trước, dùng con số đó để đưa ra quyết định đầu tư đúng chỗ sau.
     """
     doc = pymupdf.open(file_path)
 
@@ -65,7 +94,7 @@ def parse_pdf(file_path: str) -> list[TextBlock]:
                     size_char_count[size] = size_char_count.get(size, 0) + len(span["text"])
 
     if not size_char_count:
-        return []
+        return ParseResult(blocks=[], image_count=0)
 
     body_font_size = max(size_char_count, key=size_char_count.get)
     # Ngưỡng 1.4x (thay vì 1.2x ban đầu): thử nghiệm thật trên PDF
@@ -77,10 +106,54 @@ def parse_pdf(file_path: str) -> list[TextBlock]:
 
     # --- Bước chính: duyệt lại, gom từng "block" PDF thành TextBlock ---
     blocks: list[TextBlock] = []
+    image_count = 0
     for page_index, page in enumerate(doc):
+        # Phát hiện vùng có bảng TRƯỚC khi duyệt text block thường của
+        # trang này - dùng find_tables() có sẵn trong PyMuPDF (không
+        # cần thư viện ngoài nào khác). Đây là cách rẻ, không hoàn hảo
+        # với bảng phức tạp (ô gộp, không có đường kẻ rõ ràng) nhưng đủ
+        # dùng cho bảng có cấu trúc rõ ràng (kẻ ô hoặc căn cột đều đặn)
+        # thường gặp trong giáo trình.
+        table_finder = page.find_tables()
+        table_bboxes = [pymupdf.Rect(t.bbox) for t in table_finder.tables]
+
+        for table in table_finder.tables:
+            rows = table.extract()
+            # Bỏ qua bảng "rỗng" (find_tables() thỉnh thoảng phát hiện
+            # nhầm 1 khung kẻ trang trí không chứa dữ liệu thật).
+            if not rows or not any(any(cell for cell in row) for row in rows):
+                continue
+            markdown_rows = [
+                " | ".join(cell or "" for cell in row) for row in rows
+            ]
+            blocks.append(
+                TextBlock(
+                    page_number=page_index + 1,
+                    text="\n".join(markdown_rows),
+                    is_heading=False,
+                    font_size=body_font_size,
+                    content_type="TABLE",
+                )
+            )
+
         for block in page.get_text("dict")["blocks"]:
             if "lines" not in block:
-                continue  # bỏ qua block không phải text (ảnh, hình vẽ...)
+                # block không phải text - trong PyMuPDF, "type=1" là
+                # ảnh raster (không phải hình vẽ vector như đường kẻ
+                # bảng, những cái đó không tạo ra block riêng ở đây).
+                # KHÔNG trích xuất nội dung, chỉ đếm để biết tài liệu
+                # có bao nhiêu phần chưa xử lý được (xem ParseResult).
+                if block.get("type") == 1:
+                    image_count += 1
+                continue
+
+            block_rect = pymupdf.Rect(block["bbox"])
+            # Bỏ qua text block nằm TRONG vùng đã xử lý thành bảng ở
+            # trên - tránh nội dung bảng bị đọc/lưu 2 LẦN (một lần dạng
+            # markdown table có cấu trúc, một lần dạng text chạy dài
+            # lộn xộn từ chính những ô đó).
+            if any(block_rect in bbox or bbox.intersects(block_rect) for bbox in table_bboxes):
+                continue
 
             block_text_parts = []
             max_size_in_block = 0.0
@@ -102,4 +175,4 @@ def parse_pdf(file_path: str) -> list[TextBlock]:
                 )
             )
 
-    return blocks
+    return ParseResult(blocks=blocks, image_count=image_count)

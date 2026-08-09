@@ -68,7 +68,8 @@ async def ingest_document(
         raise ValueError("Tài liệu này (cùng nội dung) đã được ingest trước đó.")
 
     # --- Bước 1+2: Parse rồi Chunk ---
-    blocks = parse_pdf(file_path)
+    parse_result = parse_pdf(file_path)
+    blocks = parse_result.blocks
     if not blocks:
         raise ValueError("Không đọc được nội dung nào từ file - có thể là PDF scan (ảnh), chưa hỗ trợ ở tác vụ này.")
 
@@ -101,6 +102,7 @@ async def ingest_document(
         license_status=license_status,
         status="DRAFT",  # chuyển sang APPROVED sau khi giáo viên duyệt (luồng duyệt tài liệu)
         uploaded_by=uploaded_by,
+        image_count=parse_result.image_count,
     )
     session.add(document)
     await session.flush()  # để document.id có giá trị, dùng gán cho các chunk bên dưới
@@ -133,6 +135,7 @@ async def ingest_document(
                 course_id=course_id,
                 ord=draft.ord,
                 content=draft.content,
+                content_type=draft.content_type,
                 context_prefix=draft.heading_context,
                 page_number=draft.page_number,
                 embedding=vector,
