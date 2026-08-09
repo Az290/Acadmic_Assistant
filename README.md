@@ -20,10 +20,18 @@ Acadmic_Assistant/
 │   │   │   ├── dependencies.py  # get_current_user, require_role(...)
 │   │   │   ├── schemas.py       # Định dạng dữ liệu ra/vào API auth
 │   │   │   └── router.py        # 5 endpoint /v1/auth/*
-│   │   └── courses/            # "Kênh lớp" của giáo viên
-│   │       ├── schemas.py
-│   │       └── router.py        # 3 endpoint /v1/courses/*
+│   │   ├── courses/            # "Kênh lớp" của giáo viên
+│   │   │   ├── schemas.py
+│   │   │   └── router.py        # 3 endpoint /v1/courses/*
+│   │   ├── ingestion/           # Biến file PDF thành chunk có thể tìm kiếm
+│   │   │   ├── parser.py          # Đọc PDF, phát hiện heading (PyMuPDF)
+│   │   │   ├── chunker.py         # Cắt heading-aware + fallback recursive
+│   │   │   ├── embedder.py        # Gọi OpenAI embedding theo batch
+│   │   │   └── pipeline.py        # Điều phối parse → chunk → embed → lưu DB
+│   │   └── documents/           # Endpoint upload tài liệu
+│   │       └── router.py         # POST /v1/documents/upload
 │   ├── migrations/            # Lịch sử thay đổi cấu trúc database (Alembic)
+│   ├── sample_data/            # Tài liệu OpenStax dùng để test Ingestion (không commit)
 │   ├── .env.example           # Mẫu file cấu hình — copy thành .env rồi điền giá trị thật
 │   └── requirements.txt
 ├── docs/
@@ -36,7 +44,8 @@ Acadmic_Assistant/
 - [x] **Tác vụ #1**: Khung xương dự án (backend skeleton, cấu trúc thư mục, learning log)
 - [x] **Tác vụ #2**: Database schema (6 bảng, pgvector, Alembic migration)
 - [x] **Tác vụ #3**: Auth + Enrollment (đăng nhập/đăng ký/JWT, phân quyền theo role, kênh lớp)
-- [ ] Tác vụ #4: Ingestion pipeline (crawl + xử lý tài liệu)
+- [x] **Tác vụ #4**: Ingestion pipeline (Parse → Chunk → Embed → Lưu DB) — đã test thật 379 chunk trên Neon
+- [ ] Tác vụ #5: Embedding + Hybrid Search (BM25 + vector + RRF)
 - [ ] ... (cập nhật dần — xem lộ trình đầy đủ trong `docs/learning-log.html`)
 
 ## API hiện có (Tác vụ #3)
@@ -51,6 +60,7 @@ Acadmic_Assistant/
 | `POST /v1/courses` | INSTRUCTOR/ADMIN | Tạo lớp/kênh mới |
 | `POST /v1/courses/{id}/enroll` | Giáo viên sở hữu lớp đó | Thêm học sinh (theo email) vào lớp |
 | `GET /v1/courses/me` | Đã đăng nhập | Danh sách lớp mình thuộc về |
+| `POST /v1/documents/upload?course_id=` | Giáo viên sở hữu lớp đó | Upload PDF → chạy Ingestion Pipeline (parse, chunk, embed, lưu chunk) |
 
 ## Chạy thử backend ở máy local
 

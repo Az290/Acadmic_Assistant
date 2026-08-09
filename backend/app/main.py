@@ -19,13 +19,24 @@ from app.config import get_settings
 from app.courses.router import router as courses_router
 from app.db.session import get_db
 from app.documents.router import router as documents_router
+from app.logging_config import configure_logging
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
+from app.request_id_middleware import RequestIdMiddleware
+
+configure_logging()
 
 app = FastAPI(
     title="Academic Assistant API",
     description="Backend cho hệ thống Trợ lý Học thuật đa agent",
     version="0.1.0",
 )
+
+# Request ID PHẢI được gắn TRƯỚC (ngoài cùng) mọi middleware khác -
+# Starlette chạy middleware theo thứ tự khai báo NGƯỢC (middleware
+# thêm sau cùng chạy TRƯỚC TIÊN) - đặt add_middleware này trước
+# CORSMiddleware bên dưới nghĩa là request_id có sẵn sớm nhất có thể,
+# để cả những lỗi xảy ra ở tầng CORS cũng được log kèm đúng id.
+app.add_middleware(RequestIdMiddleware)
 
 # Rate limiting: gắn limiter vào app + đăng ký handler xử lý khi vượt
 # giới hạn (tự động trả lỗi 429 "Too Many Requests" đúng chuẩn HTTP

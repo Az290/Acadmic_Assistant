@@ -223,6 +223,19 @@ class Document(Base):
     uploaded_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    # Tự trỏ tới document MỚI HƠN đã thay thế document này (cùng course,
+    # cùng title, upload sau). NULL nghĩa là đây vẫn là bản mới nhất.
+    #
+    # Vì sao không XOÁ bản cũ khi có bản mới: (1) chunk cũ có thể đang
+    # được trích dẫn trong lịch sử chat cũ (message.citations) - xoá
+    # sẽ làm trích dẫn cũ trỏ vào hư không; (2) giữ lại cho phép truy
+    # vết/khôi phục nếu bản mới upload nhầm. Việc dọn dữ liệu cũ (xoá
+    # hẳn chunk + vector không dùng nữa) để dành cho một job nền định
+    # kỳ sau này, tách khỏi luồng upload cho nhanh.
+    superseded_by_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("document.id"), nullable=True
+    )
+
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
 

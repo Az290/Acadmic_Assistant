@@ -17,6 +17,15 @@ from app.ingestion.embedder import EMBEDDING_VERSION, embed_texts
 from app.ingestion.parser import parse_pdf
 
 
+# Ngưỡng phát hiện "PDF khả năng là bản scan" (ảnh chụp trang sách,
+# không có text layer thật): số ký tự trích được trung bình mỗi trang.
+# Một trang giáo trình bình thường có hàng trăm tới hàng nghìn ký tự;
+# một trang scan thuần (dù PyMuPDF vẫn có thể bắt được vài ký tự rác
+# từ watermark/số trang in kiểu vector) hiếm khi vượt qua vài chục.
+# Con số 50 là ước lượng thực dụng, không phải ngưỡng khoa học tuyệt đối.
+MIN_AVG_CHARS_PER_PAGE = 50
+
+
 def compute_content_hash(file_bytes: bytes) -> str:
     """
     Băm SHA-256 nội dung file - dùng để chống việc ingest trùng lặp
@@ -63,6 +72,21 @@ async def ingest_document(
     if not blocks:
         raise ValueError("Không đọc được nội dung nào từ file - có thể là PDF scan (ảnh), chưa hỗ trợ ở tác vụ này.")
 
+    # Phát hiện PDF SCAN "một phần": khác với trường hợp 0 block ở trên
+    # (chặn được ngay), một file scan vẫn có thể lọt qua bước đó nếu
+    # PyMuPDF bắt được vài mẩu text vector rải rác (watermark, số trang,
+    # chữ ký...). Không chặn dựa trên "có block hay không" mà dựa trên
+    # MẬT ĐỘ ký tự trung bình mỗi trang - phản ánh đúng bản chất "trang
+    # này có nội dung đọc được hay chỉ là ảnh".
+    pages_with_text = {block.page_number for block in blocks}
+    total_chars = sum(len(block.text) for block in blocks)
+    avg_chars_per_page = total_chars / len(pages_with_text)
+    if avg_chars_per_page < MIN_AVG_CHARS_PER_PAGE:
+        raise ValueError(
+            "File có vẻ là bản scan (ảnh chụp trang sách, không có lớp văn bản thật) "
+            "- hệ thống chưa hỗ trợ OCR ở giai đoạn này."
+        )
+
     chunk_drafts = chunk_document(blocks)
 
     # --- Bước 3: Embed toàn bộ chunk trong 1 loạt batch call ---
@@ -80,6 +104,27 @@ async def ingest_document(
     )
     session.add(document)
     await session.flush()  # để document.id có giá trị, dùng gán cho các chunk bên dưới
+
+    # Versioning: nếu cùng course đã có (các) document TRÙNG TIÊU ĐỀ và
+    # CHƯA bị thay thế, coi bản mới này là bản kế tiếp - đánh dấu các
+    # bản cũ đó "đã thay thế", để Retrieval sau này chỉ tìm trong bản
+    # mới nhất (WHERE superseded_by_id IS NULL), tránh trộn lẫn nội
+    # dung cũ/mới của cùng 1 tài liệu trong câu trả lời AI.
+    #
+    # So khớp bằng TIÊU ĐỀ (không phải content_hash - hash chắc chắn
+    # khác nhau vì nội dung đã đổi): đây là suy đoán thực dụng dựa trên
+    # thói quen đặt tên file giữ nguyên khi upload bản chỉnh sửa, không
+    # phải nhận diện ngữ nghĩa "đây có phải cùng 1 tài liệu không".
+    previous_versions = await session.execute(
+        select(Document).where(
+            Document.course_id == course_id,
+            Document.title == title,
+            Document.superseded_by_id.is_(None),
+            Document.id != document.id,
+        )
+    )
+    for old_document in previous_versions.scalars().all():
+        old_document.superseded_by_id = document.id
 
     for draft, vector in zip(chunk_drafts, vectors):
         session.add(

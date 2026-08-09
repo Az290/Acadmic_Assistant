@@ -23,8 +23,8 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Nhật ký học tập cá nhân - KHÔNG đưa lên git (repo public là "sản phẩm",
-# file này là sổ tay cá nhân để tự học, không phải thứ công khai cho ai
-# cũng đọc và nắm được toàn bộ cách dự án được xây). Vẫn tồn tại trên máy,
-# vẫn được cập nhật sau mỗi tác vụ - chỉ không vào lịch sử git.
 docs/learning-log.html
+
+backend/sample_data/
+
+backend/uploaded_files/
