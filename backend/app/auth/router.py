@@ -10,11 +10,14 @@ import secrets
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
 from app.auth.refresh import RefreshTokenError, issue_refresh_token, revoke_all_refresh_tokens, rotate_refresh_token
 from app.auth.schemas import (
+    CreateInstructorRequest,
+    CreateInstructorResponse,
     LoginRequest,
     RegisterRequest,
     ResetPasswordRequest,
@@ -102,7 +105,22 @@ async def register(request: Request, body: RegisterRequest, session: AsyncSessio
         role="STUDENT",
     )
     session.add(user)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # 2 request đăng ký CÙNG email tới gần như đồng thời có thể cả
+        # 2 đều "vượt qua" bước kiểm tra existing ở trên (kiểm tra xong
+        # ở request A, INSERT của A chưa kịp commit thì request B cũng
+        # đã kiểm tra xong) - đây là race condition kiểu TOCTOU
+        # (time-of-check to time-of-use). Ràng buộc UNIQUE ở tầng
+        # database (không phải điều kiện if ở tầng ứng dụng) mới là nơi
+        # THẬT SỰ ngăn được 2 dòng trùng email lọt vào - request thua
+        # cuộc sẽ nhận IntegrityError ở đây, cần rollback rồi trả lỗi
+        # nghiệp vụ rõ ràng thay vì để lỗi 500 rơi tự do.
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký."
+        )
     await session.refresh(user)
     return user
 
@@ -241,3 +259,46 @@ async def reset_password(
     await session.commit()
 
     return ResetPasswordResponse(target_email=user.email, temporary_password=temporary_password)
+
+
+@router.post("/admin/create-instructor", response_model=CreateInstructorResponse, status_code=status.HTTP_201_CREATED)
+async def create_instructor(
+    body: CreateInstructorRequest,
+    session: AsyncSession = Depends(get_db),
+    _actor: AppUser = Depends(require_role("ADMIN")),
+):
+    """
+    Admin tạo trực tiếp 1 tài khoản giảng viên - KHÔNG có luồng tự đăng
+    ký làm giảng viên (register công khai luôn tạo role STUDENT, xem
+    hàm register() phía trên). Đúng mô hình vận hành thực tế của 1 cơ
+    sở giáo dục nhỏ: giảng viên là người được nhà trường/quản trị viên
+    thêm vào hệ thống, không phải người tự xưng.
+
+    Cùng khuôn mẫu với reset_password(): sinh mật khẩu tạm ngẫu nhiên,
+    trả về cho admin đọc/gửi lại cho giảng viên qua kênh ngoài hệ
+    thống (nhắn tin, gặp trực tiếp...), không gửi email tự động (chưa
+    có hạ tầng gửi email ở giai đoạn này).
+    """
+    existing = await session.execute(select(AppUser).where(AppUser.email == body.email))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký.")
+
+    temporary_password = secrets.token_urlsafe(9)
+    instructor = AppUser(
+        email=body.email,
+        password_hash=hash_password(temporary_password),
+        full_name=body.full_name,
+        role="INSTRUCTOR",
+    )
+    session.add(instructor)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Cùng lý do với register() - 2 admin (hoặc 1 admin bấm 2 lần
+        # do double-click) tạo trùng email gần như đồng thời.
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email này đã được đăng ký.")
+
+    return CreateInstructorResponse(
+        email=body.email, full_name=body.full_name, temporary_password=temporary_password
+    )

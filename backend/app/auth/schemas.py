@@ -36,6 +36,17 @@ class ResetPasswordResponse(BaseModel):
     temporary_password: str  # giáo viên đọc/gửi tay cho học sinh
 
 
+class CreateInstructorRequest(BaseModel):
+    email: EmailStr
+    full_name: str = Field(min_length=1, max_length=200)
+
+
+class CreateInstructorResponse(BaseModel):
+    email: str
+    full_name: str
+    temporary_password: str  # admin đọc/gửi tay cho giảng viên qua kênh ngoài hệ thống
+
+
 class UserPublic(BaseModel):
     """Thông tin user được phép trả ra ngoài - KHÔNG có password_hash."""
 

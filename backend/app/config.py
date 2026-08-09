@@ -13,6 +13,7 @@ chạy ngầm rồi lỗi khó hiểu lúc xử lý request.
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +30,14 @@ class Settings(BaseSettings):
     # Bí mật dùng để ký JWT. PHẢI điền giá trị ngẫu nhiên thật trong
     # .env trước khi chạy - sinh bằng lệnh:
     #   python -c "import secrets; print(secrets.token_hex(32))"
+    #
+    # KHÔNG có giá trị mặc định an toàn cho biến này - _validate_not_blank
+    # bên dưới CHỦ ĐỘNG chặn server khởi động nếu nó bị bỏ trống. Một
+    # chuỗi rỗng "trông giống" giá trị hợp lệ về mặt kiểu dữ liệu
+    # (vẫn là str) nhưng jwt.encode(payload, "", ...) vẫn ký được token
+    # bình thường - nghĩa là "bí mật" ký token lúc đó là công khai, ai
+    # cũng tự ký được JWT giả mạo bất kỳ role nào. Việc "để dành trống,
+    # tự set sau" là điều KHÔNG được phép xảy ra âm thầm.
     jwt_secret: str = ""
 
     # JWT dùng thuật toán nào để ký - HS256 là chuẩn phổ biến, đủ an
@@ -67,6 +76,29 @@ class Settings(BaseSettings):
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
+    @field_validator("jwt_secret", "openai_api_key")
+    @classmethod
+    def _validate_not_blank(cls, value: str, info) -> str:
+        """
+        Chặn server khởi động nếu 1 bí mật bắt buộc bị bỏ trống trong
+        .env/biến môi trường - "fail fast" thật sự, thay vì chỉ ghi
+        chú bằng lời rồi hy vọng không ai quên set.
+
+        Đặc biệt quan trọng với jwt_secret: khác openai_api_key (thiếu
+        thì chỉ hỏng tính năng ingestion, báo lỗi rõ ràng lúc gọi API),
+        jwt_secret rỗng khiến TOÀN BỘ hệ thống xác thực mất tác dụng
+        bảo vệ một cách ÂM THẦM - server vẫn chạy, mọi request vẫn có
+        vẻ hoạt động bình thường, chỉ khác là ai cũng tự ký được JWT
+        giả mạo. Lỗi kiểu "âm thầm vẫn chạy nhưng mất an toàn" nguy
+        hiểm hơn nhiều so với server không khởi động được.
+        """
+        if not value.strip():
+            raise ValueError(
+                f"Biến môi trường '{info.field_name.upper()}' đang trống - "
+                "bắt buộc phải điền giá trị thật trong .env trước khi chạy server."
+            )
+        return value
 
 
 @lru_cache

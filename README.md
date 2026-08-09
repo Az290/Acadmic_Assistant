@@ -13,7 +13,7 @@ Acadmic_Assistant/
 │   │   ├── main.py          # Điểm khởi động server, lắp ráp các router
 │   │   ├── config.py         # Đọc cấu hình bí mật từ .env (DB url, API key, JWT...)
 │   │   ├── db/
-│   │   │   ├── models.py      # Định nghĩa 7 bảng database (SQLAlchemy)
+│   │   │   ├── models.py      # Định nghĩa 8 bảng database (SQLAlchemy)
 │   │   │   └── session.py     # Quản lý kết nối tới Postgres
 │   │   ├── auth/               # Đăng nhập/đăng ký/JWT/phân quyền
 │   │   │   ├── security.py      # Băm mật khẩu, tạo/kiểm tra JWT
@@ -41,26 +41,31 @@ Acadmic_Assistant/
 
 ## Trạng thái hiện tại
 
-- [x] **Tác vụ #1**: Khung xương dự án (backend skeleton, cấu trúc thư mục, learning log)
-- [x] **Tác vụ #2**: Database schema (6 bảng, pgvector, Alembic migration)
-- [x] **Tác vụ #3**: Auth + Enrollment (đăng nhập/đăng ký/JWT, phân quyền theo role, kênh lớp)
-- [x] **Tác vụ #4**: Ingestion pipeline (Parse → Chunk → Embed → Lưu DB) — đã test thật 379 chunk trên Neon
-- [ ] Tác vụ #5: Embedding + Hybrid Search (BM25 + vector + RRF)
+- [x] **Nền móng dự án**: backend skeleton, cấu trúc thư mục, learning log
+- [x] **Database schema**: 8 bảng, pgvector, Alembic migration
+- [x] **Auth & RBAC**: đăng nhập/đăng ký/JWT (access + refresh token rotation), phân quyền theo role, kênh lớp
+- [x] **Ingestion Pipeline**: Parse → Chunk → Embed → Lưu DB — đã test thật 379 chunk trên Neon
+- [x] **Bảo mật vận hành**: file upload validation, CORS whitelist, rate limiting, document versioning, phát hiện PDF scan, structured logging, admin-managed instructor accounts, bắt buộc JWT secret hợp lệ khi khởi động
+- [ ] Embedding + Hybrid Search (BM25 + vector + RRF)
 - [ ] ... (cập nhật dần — xem lộ trình đầy đủ trong `docs/learning-log.html`)
 
-## API hiện có (Tác vụ #3)
+## API hiện có
 
 | Endpoint | Ai gọi được | Việc gì |
 |---|---|---|
 | `POST /v1/auth/register` | Ai cũng được | Đăng ký email + mật khẩu, role mặc định STUDENT |
-| `POST /v1/auth/login` | Ai cũng được | Đăng nhập → JWT trong HttpOnly Cookie |
-| `POST /v1/auth/logout` | Đã đăng nhập | Xoá cookie |
+| `POST /v1/auth/login` | Ai cũng được | Đăng nhập → access + refresh token trong HttpOnly Cookie |
+| `POST /v1/auth/refresh` | Có refresh token hợp lệ | Xin cấp access token mới, không cần đăng nhập lại |
+| `POST /v1/auth/logout` | Đã đăng nhập | Xoá cookie + thu hồi mọi refresh token |
 | `GET /v1/auth/me` | Đã đăng nhập | Thông tin + role — frontend dùng để điều hướng giao diện |
 | `POST /v1/auth/admin/reset-password` | ADMIN/INSTRUCTOR | Reset mật khẩu giúp học sinh (giải pháp "quên mật khẩu" không cần email) |
+| `POST /v1/auth/admin/create-instructor` | ADMIN | Tạo trực tiếp tài khoản giảng viên (sinh mật khẩu tạm) |
 | `POST /v1/courses` | INSTRUCTOR/ADMIN | Tạo lớp/kênh mới |
 | `POST /v1/courses/{id}/enroll` | Giáo viên sở hữu lớp đó | Thêm học sinh (theo email) vào lớp |
 | `GET /v1/courses/me` | Đã đăng nhập | Danh sách lớp mình thuộc về |
 | `POST /v1/documents/upload?course_id=` | Giáo viên sở hữu lớp đó | Upload PDF → chạy Ingestion Pipeline (parse, chunk, embed, lưu chunk) |
+
+Tài khoản ADMIN đầu tiên được tạo bằng script `backend/scripts/create_admin.py` (chạy tay, một lần, lúc deploy) — không có endpoint API công khai nào tạo được ADMIN.
 
 ## Chạy thử backend ở máy local
 

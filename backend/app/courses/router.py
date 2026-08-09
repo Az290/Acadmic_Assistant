@@ -11,6 +11,7 @@ Retrieval hoạt động, mọi câu truy vấn tìm tài liệu sẽ join qua b
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
@@ -46,7 +47,13 @@ async def create_course(
 
     course = Course(code=body.code, name=body.name, owner_id=user.id)
     session.add(course)
-    await session.flush()  # để course.id có giá trị trước khi tạo enrollment bên dưới
+    try:
+        await session.flush()  # để course.id có giá trị trước khi tạo enrollment bên dưới
+    except IntegrityError:
+        # Cùng lý do TOCTOU đã ghi ở register() - 2 giáo viên (hoặc 1
+        # giáo viên double-click) tạo lớp trùng mã gần như đồng thời.
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Mã lớp này đã tồn tại.")
 
     session.add(Enrollment(user_id=user.id, course_id=course.id, role_in_course="INSTRUCTOR"))
     await session.commit()
@@ -96,7 +103,14 @@ async def enroll_student(
 
     enrollment = Enrollment(user_id=student.id, course_id=course_id, role_in_course="STUDENT")
     session.add(enrollment)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Cùng lý do TOCTOU - khoá chính CẶP (user_id, course_id) của
+        # Enrollment tự nó đã là ràng buộc duy nhất, đủ để chặn 2 dòng
+        # trùng lọt vào dù request đến gần như đồng thời.
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Học sinh này đã ở trong lớp.")
     return enrollment
 
 

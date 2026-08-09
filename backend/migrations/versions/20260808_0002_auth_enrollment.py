@@ -1,4 +1,4 @@
-"""add owner_id to course + create enrollment table (Tác vụ #3 - Auth)
+"""add owner_id to course + create enrollment table
 
 Migration này NỐI TIẾP migration đầu tiên (20260807_0001), không sửa
 lại nó - đúng nguyên tắc "Alembic là Git cho database": mỗi thay đổi

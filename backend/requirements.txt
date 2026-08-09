@@ -4,24 +4,24 @@
 fastapi==0.115.0            # Framework xử lý API (nhận request, trả response)
 uvicorn[standard]==0.32.0   # "Máy chủ" thực sự chạy FastAPI (ASGI server)
 
-# --- Database (Tác vụ #2) ---
+# --- Database ---
 sqlalchemy[asyncio]==2.0.35 # ORM - định nghĩa bảng bằng Python, chống SQL injection mặc định
 asyncpg==0.30.0             # Driver kết nối Postgres bất đồng bộ
 pgvector==0.3.6             # Hỗ trợ kiểu dữ liệu "vector" cho SQLAlchemy (tìm kiếm ngữ nghĩa)
 alembic==1.13.3             # Quản lý "lịch sử thay đổi" cấu trúc database (như Git cho schema)
 pydantic-settings==2.6.0    # Đọc cấu hình từ file .env một cách an toàn, có kiểm tra kiểu dữ liệu
 
-# --- Auth (Tác vụ #3) ---
+# --- Auth ---
 passlib==1.7.4               # Băm mật khẩu bằng bcrypt - băm CHẬM CÓ CHỦ ĐÍCH để chống dò mật khẩu hàng loạt
 bcrypt==4.0.1                # Ghim phiên bản cụ thể - bcrypt 5.x đổi cấu trúc nội bộ, không tương thích passlib 1.7.4
 python-jose[cryptography]==3.3.0   # Tạo & kiểm tra JWT (vé đăng nhập có chữ ký chống giả mạo)
 pydantic[email]==2.9.2       # Kiểm tra định dạng email hợp lệ khi đăng ký
 python-multipart==0.0.12    # FastAPI cần thư viện này để đọc dữ liệu form (không chỉ JSON)
 
-# --- Ingestion Pipeline (Tác vụ #4) ---
+# --- Ingestion Pipeline ---
 pymupdf==1.28.2              # Đọc PDF, lấy text sạch + font size (để phát hiện heading) - nhanh, miễn phí
 tiktoken==0.13.0              # Đếm token CHÍNH XÁC theo đúng cách model OpenAI đếm, dùng khi chunking
 openai==2.53.0                # Gọi API OpenAI (embedding ở tác vụ này, LLM agent ở các tác vụ sau)
 
-# --- Vá gap rủi ro cao (Tác vụ #4.5) ---
+# --- Bảo mật vận hành ---
 slowapi==0.1.10               # Rate limiting theo IP (chống spam/DoS cơ bản, chống brute-force login)
