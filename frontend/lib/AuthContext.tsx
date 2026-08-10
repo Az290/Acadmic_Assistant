@@ -18,7 +18,10 @@ import { api, ApiError, UserPublic } from "./api";
 interface AuthContextValue {
   user: UserPublic | null;
   loading: boolean;
-  refreshUser: () => Promise<void>;
+  // Trả về user vừa lấy được (hoặc null) - trang login/register cần
+  // biết NGAY role để điều hướng đúng dashboard, không thể đợi state
+  // React cập nhật xong ở lượt render sau.
+  refreshUser: () => Promise<UserPublic | null>;
   logout: () => Promise<void>;
 }
 
@@ -28,10 +31,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserPublic | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refreshUser = async () => {
+  const refreshUser = async (): Promise<UserPublic | null> => {
     try {
       const me = await api.get<UserPublic>("/v1/auth/me");
       setUser(me);
+      return me;
     } catch (err) {
       // 401 nghĩa là chưa đăng nhập/hết hạn - đây là trạng thái BÌNH
       // THƯỜNG (không phải lỗi hệ thống), không log ra console gây
@@ -40,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error("Không thể tải thông tin người dùng:", err);
       }
       setUser(null);
+      return null;
     } finally {
       setLoading(false);
     }

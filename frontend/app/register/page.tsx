@@ -28,7 +28,9 @@ export default function RegisterPage() {
       // nghiệm liền mạch, không bắt user gõ lại thông tin lần 2.
       await api.post("/v1/auth/login", { email, password });
       await refreshUser();
-      router.push("/courses");
+      // Đăng ký công khai luôn là STUDENT (backend ép), nên đích đến
+      // chắc chắn là dashboard sinh viên.
+      router.push("/student");
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Không thể đăng ký, vui lòng thử lại.");
     } finally {

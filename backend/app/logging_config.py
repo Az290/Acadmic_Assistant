@@ -61,6 +61,14 @@ def configure_logging() -> None:
     trực tiếp vào từng logger con này để chúng không tự in ra theo
     format riêng của uvicorn nữa.
     """
+    # Ép stdout dùng UTF-8 - console Windows mặc định dùng bảng mã cũ
+    # (cp1258/cp437) không biểu diễn được tiếng Việt có dấu. PHÁT HIỆN
+    # QUA LỖI THẬT: khi 1 exception xảy ra, việc ghi log lỗi đó lại tự
+    # gây ra UnicodeEncodeError (vì đường dẫn file dự án có tiếng Việt),
+    # khiến lỗi GỐC bị che hoàn toàn - rất khó tìm nguyên nhân thật.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
 

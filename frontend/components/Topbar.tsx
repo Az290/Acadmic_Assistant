@@ -19,6 +19,9 @@ const ROLE_AVATAR: Record<UserRole, string> = {
 // Tiêu đề trang theo route - đơn giản hơn NAV có group của prototype
 // (app hiện chỉ có 2 trang chính), mở rộng dict này khi thêm trang mới.
 const PAGE_TITLE: Record<string, string> = {
+  "/student": "Trang chủ",
+  "/instructor": "Thống kê lớp",
+  "/admin": "Quản trị hệ thống",
   "/courses": "Lớp học",
   "/documents": "Tài liệu",
 };

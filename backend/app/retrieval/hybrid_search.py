@@ -79,6 +79,7 @@ RRF_K = 60
 class SearchResult:
     chunk_id: int
     document_id: int
+    course_id: int  # môn học chứa chunk này - dùng để suy ra Conversation thuộc lớp nào (thống kê Dashboard giảng viên)
     content: str
     content_type: str
     page_number: int | None
@@ -193,13 +194,24 @@ def _reciprocal_rank_fusion(
 
 
 async def hybrid_search(
-    session: AsyncSession, query_text: str, user_id: int, top_k: int = TOP_K_FINAL
+    session: AsyncSession,
+    query_text: str,
+    user_id: int,
+    top_k: int = TOP_K_FINAL,
+    query_vector: list[float] | None = None,
 ) -> list[SearchResult]:
     """
     Hàm chính - nhận câu hỏi dạng text, trả về danh sách chunk liên
     quan nhất, đã lọc đúng quyền truy cập của user_id.
+
+    query_vector: TUỲ CHỌN - nếu caller ĐÃ tính sẵn vector của chính
+    query_text này cho mục đích khác (vd xác định khái niệm cho gia sư
+    Socratic, xem app/learning/concept_matcher.py), truyền vào đây để
+    KHÔNG phải gọi API embedding lần thứ 2 cho cùng 1 câu - tiết kiệm
+    cả tiền lẫn ~1s độ trễ người dùng phải chờ.
     """
-    query_vector = embed_texts([query_text])[0]
+    if query_vector is None:
+        query_vector = embed_texts([query_text])[0]
 
     vector_ranked = await _vector_search(session, query_vector, user_id, TOP_K_PER_BRANCH)
     fulltext_ranked = await _fulltext_search(session, query_text, user_id, TOP_K_PER_BRANCH)
@@ -220,7 +232,7 @@ async def hybrid_search(
     result = await session.execute(
         text(
             """
-            SELECT id, document_id, content, content_type, page_number, context_prefix
+            SELECT id, document_id, course_id, content, content_type, page_number, context_prefix
             FROM chunk
             WHERE id = ANY(:chunk_ids)
             """
@@ -234,6 +246,7 @@ async def hybrid_search(
         SearchResult(
             chunk_id=chunk_id,
             document_id=rows_by_id[chunk_id].document_id,
+            course_id=rows_by_id[chunk_id].course_id,
             content=rows_by_id[chunk_id].content,
             content_type=rows_by_id[chunk_id].content_type,
             page_number=rows_by_id[chunk_id].page_number,

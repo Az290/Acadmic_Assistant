@@ -32,10 +32,18 @@ from openai import OpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.academic_agent.prompts import build_system_prompt, get_model_for_category
+from app.academic_agent.citation_verifier import verify_citations
+from app.academic_agent.prompts import (
+    build_student_model_block,
+    build_system_prompt,
+    get_model_for_category,
+)
 from app.config import get_settings
 from app.db.models import Conversation, Message, SecurityLog
 from app.guardrail.guardrail import check_input, check_output
+from app.ingestion.embedder import embed_texts
+from app.learning.concept_matcher import find_best_concept
+from app.learning.student_context import StudentContext, load_student_context
 from app.retrieval.hybrid_search import SearchResult, hybrid_search
 from app.router_agent.classifier import RouteResult, classify
 
@@ -161,10 +169,88 @@ def _build_context_text(search_results: list[SearchResult]) -> str:
 
 
 def _build_citations(search_results: list[SearchResult]) -> list[dict]:
+    """
+    Dùng RIÊNG cho handle_chat_stream() - trả về TOÀN BỘ chunk đã đưa
+    vào context (KHÔNG verify) vì streaming không tương thích với JSON
+    output contract cần cho Citation Verification (xem docstring
+    _build_verified_citations bên dưới, dùng cho handle_chat() thường).
+    """
     return [
         {"chunk_id": r.chunk_id, "document_id": r.document_id, "page_number": r.page_number}
         for r in search_results
     ]
+
+
+def _infer_course_id(search_results: list[SearchResult]) -> int | None:
+    """
+    Suy ra Conversation này thuộc lớp nào từ chính các chunk đã tra cứu
+    được - lấy course_id XUẤT HIỆN NHIỀU NHẤT trong kết quả tìm kiếm.
+
+    VÌ SAO CẦN: Dashboard giảng viên (app/instructor/) thống kê theo
+    Conversation.course_id - nếu cột đó luôn NULL thì mọi số liệu bằng
+    0 dù sinh viên hỏi bao nhiêu đi nữa (PHÁT HIỆN QUA TEST THẬT: mọi
+    hội thoại trước đó đều có course_id=NULL vì client không gửi kèm).
+
+    GIỚI HẠN CÓ CHỦ Ý: câu CHITCHAT/OFF_TOPIC không tra cứu tài liệu
+    nên không suy ra được gì (trả None, Conversation giữ NULL) - chấp
+    nhận được vì những câu đó không mang ý nghĩa thống kê học thuật.
+    Nếu client CÓ gửi course_id tường minh, giá trị đó được ưu tiên,
+    không dùng hàm này.
+    """
+    if not search_results:
+        return None
+
+    counts: dict[int, int] = {}
+    for r in search_results:
+        counts[r.course_id] = counts.get(r.course_id, 0) + 1
+    return max(counts, key=counts.get)
+
+
+def _parse_llm_response(raw_content: str) -> tuple[str, list[dict]]:
+    """
+    Parse output của LLM khi đã yêu cầu JSON contract (CITATION_OUTPUT_
+    CONTRACT trong prompts.py) - trả về (answer_text, raw_citations).
+
+    raw_citations ở đây CHƯA qua verify (xem citation_verifier.py) và
+    CHƯA có document_id/page_number - chỉ có {"chunk_id", "quote"} như
+    LLM tự khai.
+    """
+    try:
+        parsed = json.loads(raw_content)
+        answer = parsed.get("answer", "")
+        raw_citations = parsed.get("citations", [])
+        if not answer:
+            raise ValueError("Thiếu trường 'answer' trong JSON")
+        return answer, raw_citations
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        # LLM đôi khi không tuân thủ đúng JSON contract (hiếm nhưng có
+        # thể xảy ra) - KHÔNG để lỗi này làm sập cả request, coi toàn
+        # bộ raw_content là câu trả lời thô, không có citation nào (an
+        # toàn hơn là cố gắng "đoán" parse 1 JSON có thể bị hỏng).
+        return raw_content, []
+
+
+def _build_verified_citations(raw_citations: list[dict], search_results: list[SearchResult]) -> list[dict]:
+    """
+    Citation Verification (Tác vụ #10) - xem docstring đầy đủ trong
+    app/academic_agent/citation_verifier.py. Sau khi verify (chỉ giữ
+    citation có quote khớp thật với chunk), bổ sung document_id/
+    page_number để khớp đúng schema CitationPublic trả về client.
+    """
+    chunk_contents = {r.chunk_id: r.content for r in search_results}
+    chunk_lookup = {r.chunk_id: r for r in search_results}
+
+    verified = verify_citations(raw_citations, chunk_contents)
+
+    result = []
+    for c in verified:
+        chunk = chunk_lookup.get(c["chunk_id"])
+        if chunk is None:
+            continue
+        result.append(
+            {"chunk_id": chunk.chunk_id, "document_id": chunk.document_id, "page_number": chunk.page_number}
+        )
+    return result
 
 
 async def handle_chat(
@@ -241,6 +327,16 @@ async def handle_chat(
             search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
         search_results = await hybrid_search(session, query_text=search_query, user_id=user_id)
 
+    # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - phải
+    # làm SAU Hybrid Search vì course_id được suy ra từ chính các chunk
+    # tra cứu được (xem _infer_course_id). Chỉ gán 1 lần cho mỗi phiên:
+    # các lượt hỏi sau trong cùng phiên giữ nguyên lớp đã xác định ở
+    # lượt đầu, tránh 1 câu hỏi lạc chủ đề làm đổi lớp của cả hội thoại.
+    if conversation.course_id is None:
+        inferred_course_id = _infer_course_id(search_results)
+        if inferred_course_id is not None:
+            conversation.course_id = inferred_course_id
+
     # --- Bước 5: Sinh câu trả lời - Dynamic Model Routing ---
     context_text = _build_context_text(search_results)
     system_prompt = build_system_prompt(route.category, context_text)
@@ -248,11 +344,23 @@ async def handle_chat(
 
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
 
+    # needs_retrieval=True -> prompt đã yêu cầu JSON contract (answer +
+    # citations kèm quote) để Citation Verification hoạt động - CHITCHAT/
+    # OFF_TOPIC không cần citation, giữ nguyên text thường (không tốn
+    # thêm độ phức tạp parse JSON cho câu không cần trích dẫn nào).
     def _call_llm() -> str:
-        response = _client.chat.completions.create(model=model, messages=messages)
+        kwargs = {"model": model, "messages": messages}
+        if route.needs_retrieval:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = _client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
-    answer = await asyncio.to_thread(_call_llm)
+    raw_response = await asyncio.to_thread(_call_llm)
+
+    if route.needs_retrieval:
+        answer, raw_citations = _parse_llm_response(raw_response)
+    else:
+        answer, raw_citations = raw_response, []
 
     # --- Bước 6: Guardrail output ---
     output_check = await asyncio.to_thread(check_output, answer)
@@ -276,7 +384,15 @@ async def handle_chat(
         )
 
     # --- Bước 7: Lưu Message + trả về ---
-    citations = _build_citations(search_results)
+    # Citation Verification (Tác vụ #10) - CHỈ áp dụng ở đây (endpoint
+    # không streaming): LLM đã được yêu cầu tự khai citations kèm quote
+    # nguyên văn ngay trong response JSON (route.needs_retrieval=True),
+    # giờ verify lại quote đó có thật trong chunk hay không. KHÔNG áp
+    # dụng ở handle_chat_stream() vì JSON output không stream đẹp từng
+    # chữ như text thường (đánh đổi đã thảo luận và chốt cùng người
+    # dùng - xem app/academic_agent/citation_verifier.py).
+    citations = _build_verified_citations(raw_citations, search_results)
+
     session.add(Message(conversation_id=conversation.id, role="user", content=message))
     session.add(
         Message(
@@ -284,6 +400,8 @@ async def handle_chat(
             role="assistant",
             content=answer,
             citations=json.dumps(citations, ensure_ascii=False) if citations else None,
+            category=route.category,
+            needs_retrieval=route.needs_retrieval,
         )
     )
     await session.commit()
@@ -328,10 +446,11 @@ async def handle_chat_stream(
     conversation_id: int | None = None,
     course_id: int | None = None,
     force_category: str | None = None,
+    concept_id: int | None = None,
 ):
     """
     Biến thể STREAMING của handle_chat() - dùng cho trải nghiệm chat
-    thời gian thực (ChatBubble). Khác handle_chat() ở 2 điểm:
+    thời gian thực (ChatBubble). Khác handle_chat() ở 3 điểm:
 
     1. KHÔNG đợi Guardrail output trước khi trả về (xem
        _run_output_guardrail_in_background).
@@ -342,13 +461,32 @@ async def handle_chat_stream(
        (Router classify), vừa đúng ý người dùng chọn vừa nhanh hơn
        (tiết kiệm đúng 1 lượt gọi OpenAI). Guardrail input VẪN luôn
        chạy dù ép category - không được phép bỏ qua lớp an toàn.
+    3. Chế độ gia sư (SOCRATIC_REQUEST) đọc mức độ nắm vững của sinh
+       viên để điều chỉnh cách dẫn dắt - xem chú thích ở bước tải
+       StudentContext bên dưới.
+
+    concept_id: sinh viên CÓ THỂ chỉ định tường minh mình đang hỏi về
+    khái niệm nào (sửa lại nếu hệ thống tự đoán sai); None -> hệ thống
+    tự xác định bằng so khớp ngữ nghĩa.
     """
     history: list[dict] = []
     if conversation_id is not None:
         history = await _fetch_recent_history(session, conversation_id)
 
+    # Tải hồ sơ học tập (khái niệm của lớp + mức độ nắm vững) SONG SONG
+    # với Guardrail và Router - 3 việc này KHÔNG phụ thuộc kết quả của
+    # nhau, chạy nối tiếp là lãng phí thời gian người dùng phải chờ.
+    # Chỉ cần cho chế độ gia sư; các chế độ khác bỏ qua để không tốn
+    # truy vấn thừa.
+    needs_student_context = force_category == "SOCRATIC_REQUEST"
+
+    async def _load_context_if_needed():
+        if not needs_student_context:
+            return StudentContext()
+        return await load_student_context(session, user_id=user_id, course_id=course_id)
+
     if force_category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
-        input_check, route = await asyncio.gather(
+        input_check, route, student_context = await asyncio.gather(
             asyncio.to_thread(check_input, message),
             asyncio.sleep(0, result=RouteResult(
                 category=force_category,
@@ -356,11 +494,13 @@ async def handle_chat_stream(
                 needs_retrieval=True,
                 classified_by="forced",
             )),
+            _load_context_if_needed(),
         )
     else:
-        input_check, route = await asyncio.gather(
+        input_check, route, student_context = await asyncio.gather(
             asyncio.to_thread(check_input, message),
             asyncio.to_thread(classify, message, history),
+            _load_context_if_needed(),
         )
 
     if not input_check.allowed:
@@ -373,18 +513,72 @@ async def handle_chat_stream(
     conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
 
     search_results: list[SearchResult] = []
+    query_vector: list[float] | None = None
     if route.needs_retrieval:
         search_query = message
         if history and _looks_context_dependent(message):
             search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
-        search_results = await hybrid_search(session, query_text=search_query, user_id=user_id)
+        # Tính vector câu hỏi 1 LẦN DUY NHẤT rồi dùng cho CẢ 2 việc:
+        # tìm tài liệu (Hybrid Search) và xác định khái niệm đang hỏi
+        # (concept_matcher) - không gọi API embedding lần thứ hai.
+        query_vector = await asyncio.to_thread(lambda: embed_texts([search_query])[0])
+        search_results = await hybrid_search(
+            session, query_text=search_query, user_id=user_id, query_vector=query_vector
+        )
+
+    # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - xem
+    # docstring _infer_course_id (cùng logic với handle_chat()).
+    if conversation.course_id is None:
+        inferred_course_id = _infer_course_id(search_results)
+        if inferred_course_id is not None:
+            conversation.course_id = inferred_course_id
+
+    # Chế độ gia sư: xác định câu hỏi thuộc khái niệm nào để đọc mức độ
+    # nắm vững của sinh viên. Ưu tiên lựa chọn TƯỜNG MINH của sinh viên
+    # (họ sửa lại khi hệ thống đoán sai); không có thì tự đoán bằng so
+    # khớp vector - phép tính trong bộ nhớ, không gọi API, ~0ms.
+    student_model_block = ""
+    matched_concept_id: int | None = None
+    if needs_student_context and student_context.concepts:
+        if concept_id is not None:
+            matched_concept_id = concept_id
+            concept_name = next(
+                (name for cid, name, _ in student_context.concepts if cid == concept_id), None
+            )
+        elif query_vector is not None:
+            match = find_best_concept(query_vector, student_context.concepts)
+            matched_concept_id = match.concept_id if match else None
+            concept_name = match.concept_name if match else None
+        else:
+            concept_name = None
+
+        if matched_concept_id is not None and concept_name is not None:
+            m = student_context.mastery_for(matched_concept_id)
+            student_model_block = build_student_model_block(
+                concept_name=concept_name,
+                mastered=m.mastered,
+                n_obs=m.n_obs,
+                n_correct=m.n_correct,
+                streak=m.streak,
+            )
 
     context_text = _build_context_text(search_results)
-    system_prompt = build_system_prompt(route.category, context_text)
+    # with_citation_contract=False: luồng streaming đẩy thẳng text ra
+    # màn hình, không parse JSON - xem docstring build_system_prompt.
+    system_prompt = build_system_prompt(
+        route.category, context_text, student_model_block, with_citation_contract=False
+    )
     model = get_model_for_category(route.category)
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
 
-    yield {"type": "start", "conversation_id": conversation.id, "category": route.category}
+    yield {
+        "type": "start",
+        "conversation_id": conversation.id,
+        "category": route.category,
+        # Cho Frontend biết hệ thống đã hiểu câu hỏi thuộc khái niệm
+        # nào, để sinh viên nhìn thấy và sửa lại nếu đoán sai.
+        "concept_id": matched_concept_id,
+    }
 
     # Gọi OpenAI với stream=True - client trả về 1 iterator đồng bộ,
     # phải duyệt nó trong thread riêng (asyncio.to_thread không phù
@@ -426,6 +620,8 @@ async def handle_chat_stream(
             role="assistant",
             content=answer,
             citations=json.dumps(citations, ensure_ascii=False) if citations else None,
+            category=route.category,
+            needs_retrieval=route.needs_retrieval,
         )
     )
     await session.commit()

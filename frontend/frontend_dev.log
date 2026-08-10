@@ -128,3 +128,7 @@ https://react.dev/link/hydration-mismatch
  GET /courses 200 in 181ms (next.js: 65ms, application-code: 116ms)
  GET /courses 200 in 200ms (next.js: 20ms, application-code: 181ms)
  GET /courses 200 in 66ms (next.js: 12ms, application-code: 53ms)
+ GET /courses 200 in 109ms (next.js: 28ms, application-code: 81ms)
+○ Compiling /documents ...
+ GET /documents 200 in 5.9s (next.js: 5.7s, application-code: 211ms)
+✓ Finished filesystem cache database compaction in 10.9s

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./.venv/Scripts/python.exe -c \"import ast; ast.parse\\(open\\('app/academic_agent/agent.py', encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('app/retrieval/hybrid_search.py', encoding='utf-8'\\).read\\(\\)\\)\")"
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ApiError, CitationPublic, streamChat } from "@/lib/api";
+import { api, ApiError, CitationPublic, ConceptPublic, CoursePublic, streamChat } from "@/lib/api";
 
 /**
  * ChatBubble - panel chat nổi kiểu Messenger, hiện ở MỌI trang (được
@@ -60,6 +60,18 @@ export default function ChatBubble() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [courses, setCourses] = useState<CoursePublic[]>([]);
+  // Lớp đang hỏi - gửi kèm mỗi request để hội thoại được gắn ĐÚNG lớp
+  // (phục vụ thống kê Dashboard giảng viên). Nếu để trống, backend tự
+  // suy ra từ tài liệu tra cứu được (xem _infer_course_id ở backend).
+  const [courseId, setCourseId] = useState<number | undefined>(undefined);
+  // Chế độ Gia sư: khái niệm đang học. `detectedConceptId` là kết quả
+  // hệ thống TỰ NHẬN DIỆN từ câu hỏi; `conceptId` là lựa chọn TƯỜNG
+  // MINH của sinh viên (khi họ sửa lại vì hệ thống đoán sai) - lựa
+  // chọn tường minh luôn được ưu tiên khi gửi lên server.
+  const [concepts, setConcepts] = useState<ConceptPublic[]>([]);
+  const [conceptId, setConceptId] = useState<number | undefined>(undefined);
+  const [detectedConceptId, setDetectedConceptId] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isOpen = size !== "closed";
@@ -68,6 +80,28 @@ export default function ChatBubble() {
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [tabs, tab]);
+
+  useEffect(() => {
+    api
+      .get<CoursePublic[]>("/v1/courses/me")
+      .then(setCourses)
+      .catch(() => setCourses([]));
+  }, []);
+
+  // Danh sách khái niệm chỉ có ý nghĩa khi đã chọn 1 lớp cụ thể - mỗi
+  // lớp có bộ khái niệm riêng do giảng viên lớp đó tạo.
+  useEffect(() => {
+    setConceptId(undefined);
+    setDetectedConceptId(null);
+    if (courseId === undefined) {
+      setConcepts([]);
+      return;
+    }
+    api
+      .get<ConceptPublic[]>(`/v1/concepts?course_id=${courseId}`)
+      .then(setConcepts)
+      .catch(() => setConcepts([]));
+  }, [courseId]);
 
   function updateCurrentTab(updater: (state: TabState) => TabState) {
     setTabs((prev) => ({ ...prev, [tab]: updater(prev[tab]) }));
@@ -94,7 +128,11 @@ export default function ChatBubble() {
         {
           message: text,
           conversation_id: tabs[activeTab].conversationId,
+          course_id: courseId,
           force_category: activeTab,
+          // Chỉ gửi khi ở chế độ Gia sư - chế độ Hỏi đáp không dùng
+          // khái niệm để điều chỉnh cách trả lời.
+          concept_id: activeTab === "SOCRATIC_REQUEST" ? conceptId : undefined,
         },
         (event) => {
           setTabs((prev) => {
@@ -130,6 +168,12 @@ export default function ChatBubble() {
             }
             return prev;
           });
+
+          // Cho sinh viên thấy hệ thống hiểu câu hỏi thuộc khái niệm
+          // nào, để họ sửa lại nếu đoán sai.
+          if (event.type === "start") {
+            setDetectedConceptId(event.concept_id);
+          }
 
           // Badge chỉ tăng khi panel ĐANG ĐÓNG và tin nhắn đã hoàn tất -
           // đúng ý "thông báo chủ động" của prototype (bong bóng số đỏ),
@@ -211,6 +255,60 @@ export default function ChatBubble() {
               </button>
             ))}
           </div>
+
+          {/* Chọn lớp đang hỏi - để trống thì hệ thống tự nhận diện */}
+          {courses.length > 0 && (
+            <div className="border-b px-3 py-1.5" style={{ borderColor: "var(--border)", background: "#F8F9FE" }}>
+              <select
+                value={courseId ?? ""}
+                onChange={(e) => setCourseId(e.target.value ? Number(e.target.value) : undefined)}
+                className="w-full bg-transparent text-[11px] focus:outline-none"
+                style={{ color: "var(--ink-soft)" }}
+              >
+                <option value="">Tất cả lớp (tự nhận diện)</option>
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} — {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Chế độ Gia sư: khái niệm đang học - hệ thống tự nhận diện,
+              sinh viên sửa lại được nếu đoán sai */}
+          {tab === "SOCRATIC_REQUEST" && concepts.length > 0 && (
+            <div
+              className="flex items-center gap-2 border-b px-3 py-1.5"
+              style={{ borderColor: "var(--border)", background: "#F8F9FE" }}
+            >
+              <span className="whitespace-nowrap text-[10.5px]" style={{ color: "var(--ink-faint)" }}>
+                Chủ đề:
+              </span>
+              <select
+                value={conceptId ?? ""}
+                onChange={(e) => setConceptId(e.target.value ? Number(e.target.value) : undefined)}
+                className="flex-1 bg-transparent text-[11px] focus:outline-none"
+                style={{ color: "var(--ink-soft)" }}
+              >
+                <option value="">Tự nhận diện</option>
+                {concepts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {conceptId === undefined && detectedConceptId !== null && (
+                <span
+                  className="whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{ background: "var(--accent-bg)", color: "var(--accent-ink)" }}
+                  title="Hệ thống nhận diện chủ đề này từ câu hỏi của bạn - chọn lại ở ô bên trái nếu không đúng"
+                >
+                  {concepts.find((c) => c.id === detectedConceptId)?.name ?? "?"}
+                </span>
+              )}
+            </div>
+          )}
 
           {/* Nội dung chat */}
           <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">

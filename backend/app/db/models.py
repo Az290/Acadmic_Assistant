@@ -329,6 +329,15 @@ class Message(Base):
     (vd: [{"chunk_id": 123, "file": "...", "page": 45}]) - dùng cột
     kiểu Text ở giai đoạn này để đơn giản, có thể nâng lên JSONB thật
     của Postgres khi cần truy vấn sâu vào nội dung trích dẫn.
+
+    category + needs_retrieval: CHỈ có ý nghĩa với message role=
+    'assistant' (NULL với role='user') - lưu lại quyết định của Router
+    Agent tại THỜI ĐIỂM trả lời, phục vụ thống kê cho Dashboard giảng
+    viên (app/instructor/). needs_retrieval=True nhưng citations rỗng
+    nghĩa là Hybrid Search KHÔNG tìm thấy tài liệu liên quan nào - đây
+    chính là "điểm mù tài liệu" (insufficient_context) theo đặc tả gốc
+    Phần 7.3, giá trị thống kê lớn nhất của dashboard: biết CHƯƠNG NÀO
+    sinh viên hỏi nhiều mà tài liệu chưa đủ.
     """
 
     __tablename__ = "message"
@@ -341,6 +350,8 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
+    category: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    needs_retrieval: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
@@ -384,4 +395,114 @@ class SecurityLog(Base):
     # chứa nội dung độc hại) - bảng này KHÔNG có endpoint đọc công khai,
     # chỉ dùng cho việc tra cứu trực tiếp trên database khi cần điều tra.
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Concept(Base):
+    """
+    Một "khái niệm" học thuật thuộc 1 môn (vd: "Recursion", "Tuple") -
+    nền tảng cho Learning Assistant (quiz + theo dõi mức độ nắm vững).
+
+    GIỚI HẠN CÓ CHỦ Ý ở giai đoạn này: concept do GIẢNG VIÊN tự tạo tay
+    qua API, KHÔNG tự động trích xuất từ tài liệu bằng AI - việc trích
+    xuất tự động là công việc của 1 "Curator Agent" riêng (chưa làm),
+    tốn thêm 1 lượt gọi LLM cho mỗi chunk và cần có bước duyệt riêng.
+    Tạo tay là hạn chế thực tế thật (giảng viên phải nhớ tự thêm), đổi
+    lấy việc không phải xây thêm 1 pipeline AI mới ở giai đoạn MVP này.
+
+    complexity: độ khó 1-5, GIẢNG VIÊN tự đánh giá (chủ quan) - dùng
+    làm "giá trị khởi điểm" hợp lý hơn con số cố định cho mọi khái niệm
+    khi CHƯA có đủ dữ liệu tương tác thật (xem StudentMastery).
+    """
+
+    __tablename__ = "concept"
+    __table_args__ = (
+        CheckConstraint("complexity BETWEEN 1 AND 5", name="ck_concept_complexity"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    course_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    complexity: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Vector ngữ nghĩa của TÊN khái niệm - tính ĐÚNG 1 LẦN lúc giảng
+    # viên tạo khái niệm (lúc đó không người dùng nào phải chờ), để khi
+    # sinh viên chat, việc "câu hỏi này thuộc khái niệm nào" chỉ còn là
+    # phép nhân vector TRONG BỘ NHỚ với vector câu hỏi (vốn đã được
+    # tính sẵn cho Hybrid Search) - KHÔNG tốn thêm lượt gọi API nào,
+    # không thêm mili giây nào vào thời gian người dùng chờ.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+
+
+class StudentMastery(Base):
+    """
+    Mức độ nắm vững 1 concept của 1 sinh viên - dùng chiến lược
+    HEURISTIC (đếm streak trả lời đúng liên tiếp), KHÔNG PHẢI BKT thật
+    (Bayesian Knowledge Tracing với tham số fit bằng EM).
+
+    LÝ DO KHÔNG DÙNG BKT NGAY: BKT cần fit tham số riêng cho từng
+    concept từ dữ liệu tương tác THẬT (khuyến nghị ≥2000 lượt quan sát
+    để tham số có ý nghĩa thống kê, tránh hội tụ về "degenerate
+    parameters" vô nghĩa sư phạm) - dự án hiện chưa có bất kỳ lượt
+    tương tác quiz nào (giai đoạn "cold start" hoàn toàn). Heuristic
+    đơn giản, minh bạch, đủ dùng cho tới khi đủ dữ liệu thật.
+
+    streak: số câu ĐÚNG liên tiếp gần nhất (reset về 0 nếu trả lời sai)
+    mastered: đạt True khi streak >= 3 (ngưỡng cố định, đơn giản)
+    """
+
+    __tablename__ = "student_mastery"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), primary_key=True)
+    concept_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("concept.id"), primary_key=True)
+    streak: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    n_obs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    n_correct: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mastered: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class QuizQuestion(Base):
+    """
+    1 câu hỏi trắc nghiệm cho 1 concept - sinh bằng LLM (gpt-4o-mini)
+    từ nội dung chunk thuộc concept đó, rồi LƯU LẠI (cache) để tái
+    dùng cho các lượt quiz sau, thay vì gọi LLM sinh mới mỗi lần.
+
+    Đánh đổi đã chốt: tiết kiệm chi phí LLM đáng kể khi nhiều sinh
+    viên cùng làm quiz 1 concept, đổi lại 1 sinh viên làm quiz nhiều
+    lần có thể gặp lại câu hỏi cũ (chấp nhận được cho MVP - có thể
+    thêm "sinh thêm câu mới" sau nếu 1 concept có quá ít câu hỏi).
+
+    options: lưu dạng JSON string (giống Message.citations) - danh
+    sách 4 lựa chọn, vd ["A. ...", "B. ...", "C. ...", "D. ..."].
+    correct_index: vị trí đáp án đúng trong options (0-3).
+    """
+
+    __tablename__ = "quiz_question"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    concept_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("concept.id"), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[str] = mapped_column(Text, nullable=False)  # JSON list[str], 4 phần tử
+    correct_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class QuizAttempt(Base):
+    """
+    1 lượt sinh viên trả lời 1 QuizQuestion - lịch sử thô, dùng để suy
+    ra StudentMastery (không phải nguồn dữ liệu chính user đọc trực
+    tiếp, tương tự quan hệ SecurityLog/Message: đây là log vận hành).
+    """
+
+    __tablename__ = "quiz_attempt"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
+    quiz_question_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quiz_question.id"), nullable=False)
+    selected_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -40,7 +40,40 @@ function IconDocuments() {
   );
 }
 
+function IconHome() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  );
+}
+
+function IconChart() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
+function IconShield() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+// Mỗi role vào ĐÚNG dashboard của mình (yêu cầu đã chốt từ Tác vụ #3):
+// trang chủ khác nhau hoàn toàn theo vai trò, không phải 1 giao diện
+// chung có nút chuyển role.
 const NAV_ITEMS: NavItem[] = [
+  { href: "/student", label: "Trang chủ", icon: <IconHome />, roles: ["STUDENT"] },
+  { href: "/instructor", label: "Thống kê lớp", icon: <IconChart />, roles: ["INSTRUCTOR", "ADMIN"] },
+  { href: "/admin", label: "Quản trị", icon: <IconShield />, roles: ["ADMIN"] },
   { href: "/courses", label: "Lớp học", icon: <IconCourses /> },
   { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, roles: ["INSTRUCTOR", "ADMIN"] },
 ];

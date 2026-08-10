@@ -21,6 +21,8 @@ from app.courses.router import router as courses_router
 from app.db.session import get_db
 from app.documents.router import router as documents_router
 from app.guardrail.router import router as guardrail_router
+from app.instructor.router import router as instructor_router
+from app.learning.router import router as learning_router
 from app.logging_config import configure_logging
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 from app.request_id_middleware import RequestIdMiddleware
@@ -55,9 +57,10 @@ def _warm_up_openai_sdk_imports() -> None:
     from app.academic_agent.agent import _client as academic_client
     from app.guardrail.moderation import _client as moderation_client
     from app.ingestion.embedder import _client as embedder_client
+    from app.learning.quiz_generator import _client as quiz_client
     from app.router_agent.classifier import _client as router_client
 
-    for client in (academic_client, moderation_client, embedder_client, router_client):
+    for client in (academic_client, moderation_client, embedder_client, router_client, quiz_client):
         client.chat
         client.moderations
         client.embeddings
@@ -106,6 +109,8 @@ app.include_router(retrieval_router)
 app.include_router(guardrail_router)
 app.include_router(router_agent_router)
 app.include_router(chat_router)
+app.include_router(learning_router)
+app.include_router(instructor_router)
 
 
 @app.get("/healthz")

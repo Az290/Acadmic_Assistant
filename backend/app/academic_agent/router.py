@@ -76,6 +76,7 @@ async def chat_stream(
             conversation_id=body.conversation_id,
             course_id=body.course_id,
             force_category=body.force_category,
+            concept_id=body.concept_id,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, dashboardPathForRole } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
 export default function LoginPage() {
@@ -20,8 +20,10 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await api.post("/v1/auth/login", { email, password });
-      await refreshUser();
-      router.push("/courses");
+      // Điều hướng theo ĐÚNG vai trò - mỗi role có dashboard riêng,
+      // không dùng chung 1 trang đích cho mọi người.
+      const me = await refreshUser();
+      router.push(me ? dashboardPathForRole(me.role) : "/student");
     } catch (err) {
       // Backend cố tình trả cùng 1 thông báo chung cho "sai email" lẫn
       // "sai mật khẩu" (chống dò email đã đăng ký) - hiển thị nguyên

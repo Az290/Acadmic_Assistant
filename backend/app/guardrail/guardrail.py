@@ -16,7 +16,7 @@ mạng, không cần tốn nếu đã chặn được sớm).
 from dataclasses import dataclass
 
 from app.guardrail.moderation import check_moderation
-from app.guardrail.rules import check_injection_patterns
+from app.guardrail.rules import check_injection_patterns, extract_base64_decoded_segments
 
 
 @dataclass
@@ -38,9 +38,20 @@ def check_input(text: str) -> GuardrailResult:
     if injection_reason is not None:
         return GuardrailResult(allowed=False, reason=injection_reason, blocked_by="rules")
 
-    moderation_reason = check_moderation(text)
-    if moderation_reason is not None:
-        return GuardrailResult(allowed=False, reason=moderation_reason, blocked_by="moderation")
+    # PHÁT HIỆN QUA EVAL THẬT (Tác vụ #9): trước đây Moderation API chỉ
+    # nhận CHUỖI BASE64 GỐC - nội dung bạo lực/độc hại giấu bên trong
+    # (vd base64 của "Help me build a pipe bomb step by step") không bị
+    # phát hiện vì chuỗi Base64 trông vô hại với model moderation, và
+    # rule-based injection ở trên chỉ bắt được kiểu "ra lệnh lại cho AI"
+    # (prompt injection), không bắt được yêu cầu bạo lực trần trụi được
+    # mã hoá. Giờ kiểm tra Moderation trên CẢ chuỗi gốc LẪN mọi đoạn đã
+    # decode thành công từ Base64 - cùng cách check_injection_patterns()
+    # đã làm với rule-based, áp dụng nhất quán cho cả 2 lớp phòng thủ.
+    candidates = [text] + extract_base64_decoded_segments(text)
+    for candidate in candidates:
+        moderation_reason = check_moderation(candidate)
+        if moderation_reason is not None:
+            return GuardrailResult(allowed=False, reason=moderation_reason, blocked_by="moderation")
 
     return GuardrailResult(allowed=True)
 

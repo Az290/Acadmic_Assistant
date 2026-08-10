@@ -71,6 +71,21 @@ export interface UserPublic {
   role: UserRole;
 }
 
+/**
+ * Mỗi vai trò có 1 dashboard riêng - dùng chung ở login, register và
+ * trang gốc "/" để 3 nơi không bao giờ lệch nhau khi thêm role mới.
+ */
+export function dashboardPathForRole(role: UserRole): string {
+  switch (role) {
+    case "INSTRUCTOR":
+      return "/instructor";
+    case "ADMIN":
+      return "/admin";
+    default:
+      return "/student";
+  }
+}
+
 export interface CoursePublic {
   id: number;
   code: string;
@@ -105,8 +120,18 @@ export interface ChatResponse {
 
 /* ---------- Streaming chat (SSE) - dùng cho ChatBubble ---------- */
 
+export interface ConceptPublic {
+  id: number;
+  course_id: number;
+  name: string;
+  complexity: number;
+}
+
 export type ChatStreamEvent =
-  | { type: "start"; conversation_id: number; category: string }
+  // concept_id: khái niệm hệ thống nhận diện được từ câu hỏi (chế độ
+  // Gia sư) - null nếu không khớp khái niệm nào. Hiển thị cho sinh
+  // viên biết để họ sửa lại nếu đoán sai.
+  | { type: "start"; conversation_id: number; category: string; concept_id: number | null }
   | { type: "chunk"; text: string }
   | { type: "done"; citations: CitationPublic[] }
   | { type: "blocked"; conversation_id: number; reason: string };
@@ -121,7 +146,13 @@ export type ChatStreamEvent =
  * khung "data: ...\n\n" giống hệt chuẩn SSE.
  */
 export async function streamChat(
-  body: { message: string; conversation_id?: number; force_category?: "RAG_QUESTION" | "SOCRATIC_REQUEST" },
+  body: {
+    message: string;
+    conversation_id?: number;
+    course_id?: number;
+    force_category?: "RAG_QUESTION" | "SOCRATIC_REQUEST";
+    concept_id?: number;
+  },
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
@@ -165,4 +196,30 @@ export async function streamChat(
       onEvent(JSON.parse(line.slice(6)) as ChatStreamEvent);
     }
   }
+}
+
+/* ---------- Dashboard giảng viên (analytics tổng hợp theo lớp) ---------- */
+
+export interface CategoryCount {
+  category: string;
+  count: number;
+}
+
+export interface InsufficientContextRate {
+  total_rag_questions: number;
+  insufficient_count: number;
+  rate: number; // 0.0 - 1.0
+}
+
+export interface SecurityAlertSummary {
+  blocked_by: string;
+  count: number;
+}
+
+export interface InstructorAnalytics {
+  course_id: number;
+  total_messages: number;
+  category_breakdown: CategoryCount[];
+  insufficient_context: InsufficientContextRate;
+  security_alerts: SecurityAlertSummary[];
 }
