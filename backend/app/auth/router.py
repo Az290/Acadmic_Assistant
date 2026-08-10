@@ -25,6 +25,7 @@ from app.auth.schemas import (
     UserPublic,
 )
 from app.auth.security import create_access_token, hash_password, verify_password
+from app.config import get_settings
 from app.db.models import AppUser
 from app.db.session import get_db
 from app.rate_limit import LOGIN_RATE_LIMIT, limiter
@@ -45,13 +46,14 @@ def _set_access_cookie(response: Response, token: str) -> None:
     frontend tự gọi /v1/auth/refresh để xin cái mới, KHÔNG bắt user
     đăng nhập lại bằng mật khẩu.
     """
+    settings = get_settings()
     response.set_cookie(
         key=ACCESS_COOKIE_NAME,
         value=token,
-        httponly=True,       # JavaScript không đọc được
-        secure=True,          # chỉ gửi qua HTTPS (production luôn dùng HTTPS)
-        samesite="lax",       # chống một dạng tấn công CSRF cơ bản
-        max_age=30 * 60,      # 30 phút - khớp jwt_expire_minutes
+        httponly=True,                          # JavaScript không đọc được
+        secure=settings.cookie_secure,          # chỉ gửi qua HTTPS
+        samesite=settings.cookie_samesite,      # xem giải thích đầy đủ trong app/config.py
+        max_age=30 * 60,                        # 30 phút - khớp jwt_expire_minutes
     )
 
 
@@ -64,12 +66,13 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     logout) - không cần gửi kèm ở MỌI request khác, giảm thiểu bề mặt
     có thể bị lộ nếu 1 endpoint nào đó có lỗ hổng khác trong tương lai.
     """
+    settings = get_settings()
     response.set_cookie(
         key=REFRESH_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=True,
-        samesite="lax",
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
         max_age=7 * 24 * 60 * 60,  # 7 ngày - khớp refresh_token_expire_days
         path="/v1/auth",
     )
@@ -210,8 +213,20 @@ async def logout(
     hiện tại.
     """
     await revoke_all_refresh_tokens(session, user.id)
-    response.delete_cookie(ACCESS_COOKIE_NAME)
-    response.delete_cookie(REFRESH_COOKIE_NAME, path="/v1/auth")
+    # Phải truyền ĐÚNG samesite/secure như lúc set cookie: trình duyệt
+    # chỉ chấp nhận lệnh xoá khi các thuộc tính này khớp - nếu không,
+    # cookie vẫn nằm lại trên máy người dùng (dù refresh token phía
+    # server đã bị thu hồi nên không dùng được nữa).
+    settings = get_settings()
+    response.delete_cookie(
+        ACCESS_COOKIE_NAME, secure=settings.cookie_secure, samesite=settings.cookie_samesite
+    )
+    response.delete_cookie(
+        REFRESH_COOKIE_NAME,
+        path="/v1/auth",
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+    )
     return {"message": "Đã đăng xuất."}
 
 

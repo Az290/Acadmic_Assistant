@@ -1,0 +1,78 @@
+# Cấu hình triển khai backend lên Fly.io.
+# Đổi "app" thành tên bạn chọn khi chạy `fly launch` (tên phải là duy
+# nhất trên toàn Fly.io - sẽ thành địa chỉ <tên>.fly.dev).
+app = "academic-assistant-api"
+
+# Singapore - trung tâm dữ liệu gần Việt Nam nhất trong hệ thống
+# Fly.io, giảm độ trễ mạng cho người dùng trong nước.
+primary_region = "sin"
+
+[build]
+
+[env]
+  # Các giá trị KHÔNG bí mật, có thể để lộ trong file này.
+  # Bí mật (API key, mật khẩu DB) đặt bằng lệnh `fly secrets set`,
+  # KHÔNG BAO GIỜ viết vào đây vì file này nằm trong Git.
+  #
+  # cookie_samesite = "none" là BẮT BUỘC khi frontend (Vercel) và
+  # backend (Fly.io) ở 2 domain khác nhau - xem giải thích đầy đủ
+  # trong app/config.py. Đặt sai giá trị này sẽ khiến đăng nhập im
+  # lặng không hoạt động dù mọi thứ khác đều đúng.
+  COOKIE_SAMESITE = "none"
+  COOKIE_SECURE = "true"
+
+# Tự động chạy migration TRƯỚC KHI phiên bản mới nhận request. Nếu
+# migration lỗi, Fly.io huỷ lượt triển khai và giữ nguyên phiên bản cũ
+# đang chạy - tránh tình huống code mới chạy trên cấu trúc database cũ
+# (gây lỗi hàng loạt cho người dùng thật).
+[deploy]
+  release_command = "alembic upgrade head"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # auto_stop_machines = false + min_machines_running = 1: LUÔN giữ 1
+  # máy chạy, KHÔNG tự tắt khi rảnh.
+  #
+  # Đây là quyết định ưu tiên TỐC ĐỘ (yêu cầu tường minh xuyên suốt dự
+  # án): nếu để máy tự tắt, người dùng đầu tiên sau thời gian rảnh phải
+  # chờ máy khởi động lại (vài giây) CỘNG THÊM thời gian đánh thức
+  # database Neon - trải nghiệm rất tệ. Đổi lại, chi phí máy chủ phát
+  # sinh liên tục thay vì chỉ khi có người dùng.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    # Fly.io tự gọi endpoint này để biết ứng dụng còn sống; nếu hỏng
+    # sẽ tự khởi động lại máy. Dùng /healthz (chỉ kiểm tra tiến trình)
+    # thay vì /healthz/db - nếu dùng bản có kiểm tra database, mỗi lần
+    # Neon "ngủ" sẽ bị hiểu nhầm là ứng dụng chết và bị khởi động lại
+    # oan.
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+# Ổ đĩa lưu file PDF gốc người dùng tải lên. KHÔNG có ổ đĩa này, file
+# sẽ MẤT mỗi lần máy chủ khởi động lại (hệ thống tệp của container là
+# tạm thời).
+#
+# Lưu ý quan trọng: ổ đĩa gắn với ĐÚNG MỘT máy. Nếu sau này tăng lên
+# nhiều máy chạy song song, mỗi máy sẽ có ổ riêng và không thấy file
+# của nhau - lúc đó phải chuyển sang lưu trữ đối tượng (Cloudflare R2 /
+# S3). Ở quy mô hiện tại (1 máy), cách này đơn giản và rẻ hơn nhiều.
+[mounts]
+  source = "uploaded_files"
+  destination = "/app/uploaded_files"
+
+[[vm]]
+  # 512MB: mức tối thiểu an toàn cho ứng dụng này. Các thư viện xử lý
+  # PDF (PyMuPDF) và đếm token (tiktoken) nạp dữ liệu khá nặng vào bộ
+  # nhớ - mức 256MB nhiều khả năng bị hệ thống tắt giữa chừng khi xử lý
+  # tài liệu lớn.
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

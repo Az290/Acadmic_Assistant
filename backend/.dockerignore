@@ -1,0 +1,28 @@
+# Những thứ KHÔNG được đưa vào ảnh Docker.
+#
+# Quan trọng nhất là .env: chứa API key và mật khẩu database thật. Trên
+# máy chủ, các giá trị này được cấp qua "secret" của Fly.io (mã hoá,
+# không nằm trong ảnh) - nếu vô tình đóng gói .env vào ảnh, bất kỳ ai
+# lấy được ảnh cũng đọc được toàn bộ bí mật.
+.env
+.env.*
+
+# Môi trường ảo Python của máy cá nhân - chứa thư viện đã biên dịch
+# cho Windows, vô dụng (và gây lỗi) trong container Linux.
+.venv/
+venv/
+
+__pycache__/
+*.pyc
+*.pyo
+
+# File người dùng tải lên khi chạy thử ở máy - không thuộc về ảnh
+uploaded_files/
+sample_data/
+
+# Log và báo cáo sinh ra lúc chạy thử
+*.log
+scripts/eval_report.json
+
+.git/
+.gitignore

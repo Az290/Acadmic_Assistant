@@ -73,6 +73,33 @@ class Settings(BaseSettings):
     # dữ liệu qua cross-origin request.
     cors_allowed_origins: str = "http://localhost:3000"
 
+    # Thuộc tính SameSite của cookie đăng nhập - QUYẾT ĐỊNH TRỰC TIẾP
+    # việc đăng nhập có hoạt động trên production hay không:
+    #
+    # - "lax" (mặc định, dùng khi chạy trên máy): trình duyệt CHỈ gửi
+    #   cookie khi request xuất phát từ CÙNG site. Lúc dev, frontend
+    #   (localhost:3000) và backend (localhost:8001) tuy khác cổng
+    #   nhưng vẫn được coi là cùng site -> hoạt động bình thường.
+    #
+    # - "none" (BẮT BUỘC khi frontend và backend nằm ở 2 domain khác
+    #   nhau, vd Vercel + Fly.io): nếu để "lax" trong tình huống này,
+    #   trình duyệt sẽ ÂM THẦM không gửi cookie -> mọi request đều bị
+    #   coi như chưa đăng nhập, dù login vừa thành công.
+    #
+    # ĐÁNH ĐỔI khi dùng "none": cookie được gửi kèm cả request từ site
+    # khác, mở ra khả năng bị tấn công CSRF. Lớp phòng thủ còn lại là
+    # CORS whitelist (chỉ domain trong danh sách mới gọi được API bằng
+    # JavaScript) + việc API chỉ nhận JSON (buộc trình duyệt phải gửi
+    # preflight, vốn bị CORS chặn). An toàn hơn nữa là đặt frontend và
+    # backend CÙNG domain (Vercel proxy /api/* về backend) rồi giữ
+    # "lax" - xem hướng dẫn triển khai trong DEPLOY.md.
+    cookie_samesite: str = "lax"
+
+    # Cookie chỉ gửi qua HTTPS. Luôn để True: trình duyệt có NGOẠI LỆ
+    # cho localhost (vẫn chấp nhận cookie secure trên http://localhost)
+    # nên không cần tắt khi chạy máy cá nhân.
+    cookie_secure: bool = True
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
