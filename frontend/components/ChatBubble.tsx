@@ -24,6 +24,15 @@ interface DisplayMessage {
   citations?: CitationPublic[];
   blocked?: boolean;
   streaming?: boolean;
+  // messageId: id trong database - có sau khi stream xong, dùng để gửi
+  // đánh giá 👍/👎. Tin nhắn đang stream chưa có id nên chưa đánh giá được.
+  messageId?: number;
+  // Độ khớp tài liệu (0-1): mức tương đồng ngữ nghĩa của đoạn tài liệu
+  // khớp nhất với câu hỏi. KHÔNG PHẢI "xác suất trả lời đúng" - xem
+  // app/db/models.py::Message.retrieval_similarity ở backend.
+  retrievalSimilarity?: number | null;
+  // Đánh giá của chính người dùng cho câu trả lời này (undefined = chưa đánh giá).
+  feedback?: boolean;
 }
 
 interface TabState {
@@ -159,7 +168,13 @@ export default function ChatBubble() {
               return { ...prev, [activeTab]: { ...state, messages } };
             }
             if (event.type === "done") {
-              messages[lastIndex] = { ...messages[lastIndex], citations: event.citations, streaming: false };
+              messages[lastIndex] = {
+                ...messages[lastIndex],
+                citations: event.citations,
+                streaming: false,
+                messageId: event.message_id,
+                retrievalSimilarity: event.retrieval_similarity,
+              };
               return { ...prev, [activeTab]: { ...state, messages } };
             }
             if (event.type === "blocked") {
@@ -207,6 +222,35 @@ export default function ChatBubble() {
   function openPanel() {
     setSize((prev) => (prev === "closed" ? "compact" : prev));
     setUnreadCount(0);
+  }
+
+  /**
+   * Gửi đánh giá 👍/👎 cho 1 câu trả lời. Cập nhật giao diện NGAY
+   * (optimistic) rồi mới gọi API - thao tác này nhỏ, phản hồi tức thì
+   * quan trọng hơn việc chờ xác nhận từ server. Nếu API lỗi, trả lại
+   * trạng thái cũ để không hiển thị sai sự thật.
+   */
+  async function sendFeedback(messageId: number, isPositive: boolean) {
+    const applyFeedback = (value: boolean | undefined) =>
+      setTabs((prev) => {
+        const next = { ...prev };
+        (Object.keys(next) as TabMode[]).forEach((t) => {
+          next[t] = {
+            ...next[t],
+            messages: next[t].messages.map((m) =>
+              m.messageId === messageId ? { ...m, feedback: value } : m
+            ),
+          };
+        });
+        return next;
+      });
+
+    applyFeedback(isPositive);
+    try {
+      await api.post(`/v1/messages/${messageId}/feedback`, { is_positive: isPositive });
+    } catch {
+      applyFeedback(undefined);
+    }
   }
 
   // Lắng nghe sự kiện "mở chat ở tab Gia sư với 1 khái niệm cụ thể" -
@@ -384,6 +428,41 @@ export default function ChatBubble() {
                           #{c.chunk_id}
                         </span>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Đánh giá + độ khớp tài liệu - chỉ hiện với câu trả
+                      lời ĐÃ stream xong (có messageId), không hiện với
+                      tin nhắn bị chặn hoặc câu hỏi của chính người dùng. */}
+                  {m.role === "assistant" && !m.blocked && m.messageId !== undefined && (
+                    <div className="mt-1.5 flex items-center gap-1.5 border-t border-slate-200 pt-1.5">
+                      <button
+                        onClick={() => sendFeedback(m.messageId!, true)}
+                        className="rounded px-1 text-[13px] leading-none transition-opacity"
+                        style={{ opacity: m.feedback === true ? 1 : 0.35 }}
+                        title="Câu trả lời này hữu ích"
+                        aria-label="Hữu ích"
+                      >
+                        👍
+                      </button>
+                      <button
+                        onClick={() => sendFeedback(m.messageId!, false)}
+                        className="rounded px-1 text-[13px] leading-none transition-opacity"
+                        style={{ opacity: m.feedback === false ? 1 : 0.35 }}
+                        title="Câu trả lời này chưa hữu ích"
+                        aria-label="Chưa hữu ích"
+                      >
+                        👎
+                      </button>
+                      {m.retrievalSimilarity !== null && m.retrievalSimilarity !== undefined && (
+                        <span
+                          className="ml-auto text-[9.5px]"
+                          style={{ color: "var(--ink-faint)" }}
+                          title={`Độ tương đồng ngữ nghĩa của đoạn tài liệu khớp nhất: ${m.retrievalSimilarity.toFixed(3)}. Đây KHÔNG phải xác suất câu trả lời đúng.`}
+                        >
+                          Độ khớp tài liệu: {(m.retrievalSimilarity * 100).toFixed(0)}%
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

@@ -104,6 +104,23 @@ class SearchResult:
     context_prefix: str | None
     score: float  # điểm RRF cuối cùng - CHỈ để xếp hạng, không có ý nghĩa tuyệt đối
 
+    # Cosine similarity CAO NHẤT của cả lượt tìm kiếm này (giống nhau ở
+    # mọi phần tử trong cùng 1 kết quả trả về) - KHÁC HẲN `score` ở trên:
+    #
+    # - score (RRF)          = tính từ THỨ HẠNG, giá trị ~0.016-0.033,
+    #                          chỉ so sánh được với nhau, KHÔNG có ý
+    #                          nghĩa tuyệt đối, KHÔNG được hiển thị cho
+    #                          người dùng.
+    # - retrieval_similarity = độ tương đồng ngữ nghĩa THẬT (0.0-1.0),
+    #                          so sánh được qua các lượt hỏi khác nhau,
+    #                          hiển thị được (nhãn "Độ khớp tài liệu").
+    #
+    # Mang theo ở đây thay vì đổi kiểu trả về của hybrid_search() thành
+    # tuple: 4 nơi đang gọi hàm này, trong đó 2 nơi (quiz_generator,
+    # retrieval/router) không cần tới giá trị này - thêm 1 field rẻ hơn
+    # và ít rủi ro hơn việc sửa cả 4 chỗ gọi.
+    retrieval_similarity: float
+
 
 # ACL pre-filter DÙNG CHUNG cho cả 2 nhánh tìm kiếm - viết 1 lần, gọi ở
 # cả 2 nơi, tránh 1 nhánh lỡ quên điều kiện khi sau này có ai sửa code.
@@ -303,6 +320,7 @@ async def hybrid_search(
             page_number=rows_by_id[chunk_id].page_number,
             context_prefix=rows_by_id[chunk_id].context_prefix,
             score=scores_by_id[chunk_id],
+            retrieval_similarity=best_similarity,
         )
         for chunk_id in top_chunk_ids
         if chunk_id in rows_by_id

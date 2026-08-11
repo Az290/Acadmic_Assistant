@@ -207,6 +207,21 @@ def _infer_course_id(search_results: list[SearchResult]) -> int | None:
     return max(counts, key=counts.get)
 
 
+def _extract_retrieval_similarity(search_results: list[SearchResult]) -> float | None:
+    """
+    Độ khớp tài liệu của lượt hỏi này - cosine similarity cao nhất giữa
+    câu hỏi và các đoạn tài liệu tìm được (xem SearchResult.
+    retrieval_similarity, mọi phần tử mang cùng 1 giá trị).
+
+    Trả None khi không tra cứu tài liệu (chitchat/off-topic) hoặc không
+    tìm thấy đoạn nào đủ liên quan - đúng ngữ nghĩa "không có gì để đo",
+    KHÁC HẲN giá trị 0.0 (đã tìm và tương đồng bằng 0).
+    """
+    if not search_results:
+        return None
+    return search_results[0].retrieval_similarity
+
+
 def _parse_llm_response(raw_content: str) -> tuple[str, list[dict]]:
     """
     Parse output của LLM khi đã yêu cầu JSON contract (CITATION_OUTPUT_
@@ -403,6 +418,7 @@ async def handle_chat(
             citations=json.dumps(citations, ensure_ascii=False) if citations else None,
             category=route.category,
             needs_retrieval=route.needs_retrieval,
+            retrieval_similarity=_extract_retrieval_similarity(search_results),
         )
     )
     await session.commit()
@@ -669,22 +685,29 @@ async def handle_chat_stream(
 
     citations = _build_citations(search_results)
     session.add(Message(conversation_id=conversation.id, role="user", content=message))
-    session.add(
-        Message(
-            conversation_id=conversation.id,
-            role="assistant",
-            content=answer,
-            citations=json.dumps(citations, ensure_ascii=False) if citations else None,
-            category=route.category,
-            needs_retrieval=route.needs_retrieval,
-            concept_id=matched_concept_id,
-            token_usage=json.dumps(token_usage, ensure_ascii=False),
-            latency_ms=json.dumps(latency, ensure_ascii=False),
-        )
+    assistant_message = Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=answer,
+        citations=json.dumps(citations, ensure_ascii=False) if citations else None,
+        category=route.category,
+        needs_retrieval=route.needs_retrieval,
+        concept_id=matched_concept_id,
+        token_usage=json.dumps(token_usage, ensure_ascii=False),
+        latency_ms=json.dumps(latency, ensure_ascii=False),
+        retrieval_similarity=_extract_retrieval_similarity(search_results),
     )
+    session.add(assistant_message)
     await session.commit()
 
-    yield {"type": "done", "citations": citations}
+    # message_id + retrieval_similarity gửi kèm để giao diện biết đánh
+    # giá 👍/👎 thuộc về tin nhắn nào và hiển thị "Độ khớp tài liệu".
+    yield {
+        "type": "done",
+        "citations": citations,
+        "message_id": assistant_message.id,
+        "retrieval_similarity": assistant_message.retrieval_similarity,
+    }
 
     # Guardrail output chạy Ở NỀN, KHÔNG chặn response đã stream xong -
     # xem docstring _run_output_guardrail_in_background để hiểu đánh đổi.

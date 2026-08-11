@@ -2,11 +2,16 @@
 Dashboard giảng viên (Tác vụ #9, phần thống kê) - thống kê TỔNG HỢP
 theo LỚP, KHÔNG cá nhân hoá theo từng sinh viên.
 
-NGUYÊN TẮC QUYỀN RIÊNG TƯ (đã chốt từ đầu dự án): giảng viên KHÔNG
-được đọc nội dung hội thoại cá nhân của sinh viên - chỉ xem được số
-liệu TỔNG HỢP (bao nhiêu câu thuộc category nào, tỷ lệ không tìm thấy
-tài liệu, bao nhiêu lần bị Guardrail chặn) - không endpoint nào ở đây
-trả về nội dung `message.content` gắn với 1 user_id cụ thể.
+RANH GIỚI QUYỀN RIÊNG TƯ (cập nhật khi thêm /class-analytics):
+
+ĐƯỢC PHÉP - dữ liệu SƯ PHẠM gắn với danh tính sinh viên: tên, mastery,
+khái niệm đang yếu, số câu đã hỏi. Chỉ có ở /class-analytics, phục vụ
+mục đích duy nhất là giúp giảng viên biết ai cần hỗ trợ.
+
+KHÔNG BAO GIỜ - nội dung riêng tư: `message.content` gắn với 1 user_id
+cụ thể, lịch sử hội thoại, câu trả lời AI đã sinh cho từng cá nhân.
+Không endpoint nào trong file này trả về những dữ liệu đó, kể cả khi
+giảng viên là chủ sở hữu lớp.
 """
 
 import json
@@ -24,7 +29,9 @@ from app.db.models import (
     Document,
     Enrollment,
     Message,
+    MessageFeedback,
     SecurityLog,
+    StudentMastery,
 )
 from app.db.session import get_db
 from app.documents.schemas import DocumentPublic, PendingDocumentPublic, RejectDocumentRequest
@@ -36,8 +43,12 @@ from app.instructor.schemas import (
     PipelineTiming,
     ConceptGap,
     InstructorAnalytics,
+    ClassAnalytics,
     InsufficientContextRate,
+    MasteryDistributionBucket,
+    PopularConcept,
     SecurityAlertSummary,
+    StudentNeedingSupport,
 )
 
 router = APIRouter(prefix="/v1/instructor", tags=["instructor"])
@@ -441,4 +452,235 @@ async def get_pipeline_timing(
         total_messages_measured=len(rows),
         steps=steps,
         avg_total_ms=round(sum(totals) / len(totals), 1) if totals else 0.0,
+    )
+
+
+# ---------- Câu hỏi phổ biến ----------
+#
+# NGƯỠNG MẪU TỐI THIỂU - lý do tồn tại: nếu cảnh báo ngay từ 1 câu hỏi
+# đầu tiên có điểm thấp, giảng viên sẽ nhận hàng loạt báo động sai từ
+# những chủ đề chỉ mới có 1-2 lượt hỏi ngẫu nhiên. Cảnh báo mất giá trị
+# khi nó kêu quá thường xuyên.
+MIN_QUESTIONS_FOR_ALERT = 3
+MIN_FEEDBACK_FOR_RATE = 3
+
+# Dưới ngưỡng này coi là hệ thống không tìm được tài liệu đủ khớp. Cao
+# hơn MIN_RELEVANCE_SIMILARITY (0.30 - ngưỡng CHẶN, dưới đó trả rỗng
+# hẳn): ở đây đang xét vùng "tìm được gì đó nhưng chưa thật sự khớp".
+LOW_SIMILARITY_THRESHOLD = 0.5
+
+# Dưới 60% phiếu tích cực = đa số sinh viên thấy câu trả lời chưa giúp được họ.
+LOW_POSITIVE_RATE_THRESHOLD = 0.6
+
+
+@router.get("/popular-concepts", response_model=list[PopularConcept])
+async def get_popular_concepts(
+    course_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Các khái niệm được hỏi nhiều nhất trong lớp, kèm 2 tín hiệu chất
+    lượng: độ khớp tài liệu (máy đo) và tỷ lệ đánh giá tích cực (người
+    đánh giá).
+
+    KHÔNG trả về nội dung câu hỏi cụ thể của bất kỳ sinh viên nào - chỉ
+    số liệu gom nhóm theo khái niệm, giữ đúng ranh giới riêng tư đã áp
+    dụng cho toàn bộ Dashboard giảng viên.
+    """
+    await _require_course_owner(session, user=user, course_id=course_id)
+
+    rows = (
+        await session.execute(
+            select(
+                Message.concept_id,
+                Concept.name,
+                func.count(Message.id).label("question_count"),
+                func.avg(Message.retrieval_similarity).label("avg_similarity"),
+            )
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .join(Concept, Concept.id == Message.concept_id)
+            .where(
+                Conversation.course_id == course_id,
+                Message.role == "assistant",
+                Message.concept_id.is_not(None),
+            )
+            .group_by(Message.concept_id, Concept.name)
+            .order_by(func.count(Message.id).desc())
+        )
+    ).all()
+
+    # Đếm phiếu đánh giá theo khái niệm - truy vấn RIÊNG thay vì JOIN
+    # chung ở trên: 1 câu trả lời có thể có nhiều phiếu, JOIN thẳng sẽ
+    # nhân bản dòng và làm sai chính question_count.
+    feedback_rows = (
+        await session.execute(
+            select(
+                Message.concept_id,
+                func.count(MessageFeedback.message_id).label("feedback_count"),
+                func.sum(case((MessageFeedback.is_positive.is_(True), 1), else_=0)).label("positive_count"),
+            )
+            .join(Message, Message.id == MessageFeedback.message_id)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(Conversation.course_id == course_id, Message.concept_id.is_not(None))
+            .group_by(Message.concept_id)
+        )
+    ).all()
+    feedback_by_concept = {
+        concept_id: (int(feedback_count), int(positive_count or 0))
+        for concept_id, feedback_count, positive_count in feedback_rows
+    }
+
+    result: list[PopularConcept] = []
+    for concept_id, concept_name, question_count, avg_similarity in rows:
+        feedback_count, positive_count = feedback_by_concept.get(concept_id, (0, 0))
+
+        # Chưa đủ phiếu -> None ("chưa đủ dữ liệu"), KHÔNG phải 0.0
+        # ("đã có phiếu và toàn bộ đều tiêu cực") - 2 tình huống hoàn
+        # toàn khác nhau, hiển thị lẫn lộn sẽ khiến giảng viên kết luận
+        # sai về chất lượng.
+        positive_rate = (
+            positive_count / feedback_count if feedback_count >= MIN_FEEDBACK_FOR_RATE else None
+        )
+        avg_sim = float(avg_similarity) if avg_similarity is not None else None
+
+        needs_attention = (
+            question_count >= MIN_QUESTIONS_FOR_ALERT
+            and feedback_count >= MIN_FEEDBACK_FOR_RATE
+            and avg_sim is not None
+            and avg_sim < LOW_SIMILARITY_THRESHOLD
+            and positive_rate is not None
+            and positive_rate < LOW_POSITIVE_RATE_THRESHOLD
+        )
+
+        result.append(
+            PopularConcept(
+                concept_id=concept_id,
+                concept_name=concept_name,
+                question_count=question_count,
+                avg_retrieval_similarity=round(avg_sim, 3) if avg_sim is not None else None,
+                feedback_count=feedback_count,
+                positive_rate=round(positive_rate, 3) if positive_rate is not None else None,
+                needs_attention=needs_attention,
+            )
+        )
+
+    return result
+
+
+# ---------- Phân tích lớp ----------
+
+# Dưới ngưỡng này coi là cần hỗ trợ - CHỈ áp dụng cho sinh viên ĐÃ có
+# dữ liệu (n_obs > 0). Sinh viên chưa làm quiz nào không phải "yếu",
+# họ chỉ là "chưa bắt đầu" - 2 tình huống cần 2 cách xử lý khác nhau.
+NEEDS_SUPPORT_MASTERY_THRESHOLD = 0.4
+
+# 5 khoảng phân bố, khớp đúng biểu đồ trong thiết kế giao diện.
+_DISTRIBUTION_BUCKETS = [(0.0, 0.2, "0-20%"), (0.2, 0.4, "20-40%"), (0.4, 0.6, "40-60%"), (0.6, 0.8, "60-80%"), (0.8, 1.01, "80-100%")]
+
+
+@router.get("/class-analytics", response_model=ClassAnalytics)
+async def get_class_analytics(
+    course_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Tình hình học tập của TỪNG sinh viên trong lớp - ai đang cần hỗ trợ.
+
+    ĐÂY LÀ ENDPOINT DUY NHẤT trong app/instructor/ trả về dữ liệu gắn
+    với danh tính sinh viên cụ thể, và chỉ giới hạn ở dữ liệu SƯ PHẠM
+    (tên, mastery, khái niệm yếu, số câu đã hỏi). Xem docstring
+    StudentNeedingSupport trong schemas.py về quyết định chính sách này.
+
+    KHÔNG trả về: nội dung câu hỏi, câu trả lời, hay bất kỳ đoạn hội
+    thoại nào của sinh viên.
+    """
+    await _require_course_owner(session, user=user, course_id=course_id)
+
+    students = (
+        await session.execute(
+            select(AppUser.id, AppUser.full_name)
+            .join(Enrollment, Enrollment.user_id == AppUser.id)
+            .where(Enrollment.course_id == course_id, Enrollment.role_in_course == "STUDENT")
+        )
+    ).all()
+
+    # Mastery theo từng sinh viên, CHỈ tính trên concept thuộc lớp này -
+    # sinh viên có thể học nhiều lớp, không được trộn tiến độ lớp khác vào.
+    mastery_rows = (
+        await session.execute(
+            select(StudentMastery.user_id, StudentMastery.n_correct, StudentMastery.n_obs, Concept.name)
+            .join(Concept, Concept.id == StudentMastery.concept_id)
+            .where(Concept.course_id == course_id, StudentMastery.n_obs > 0)
+        )
+    ).all()
+
+    # Số câu đã hỏi trong lớp này theo từng sinh viên (chỉ đếm, không đọc nội dung).
+    question_rows = (
+        await session.execute(
+            select(Conversation.user_id, func.count(Message.id))
+            .join(Message, Message.conversation_id == Conversation.id)
+            .where(Conversation.course_id == course_id, Message.role == "user")
+            .group_by(Conversation.user_id)
+        )
+    ).all()
+    questions_by_user = {user_id: count for user_id, count in question_rows}
+
+    # Gom theo sinh viên: tổng đúng/tổng làm + tìm concept yếu nhất
+    per_student: dict[int, dict] = {}
+    for user_id, n_correct, n_obs, concept_name in mastery_rows:
+        entry = per_student.setdefault(user_id, {"correct": 0, "obs": 0, "weakest": None, "weakest_acc": 2.0})
+        entry["correct"] += n_correct
+        entry["obs"] += n_obs
+        accuracy = n_correct / n_obs
+        if accuracy < entry["weakest_acc"]:
+            entry["weakest_acc"] = accuracy
+            entry["weakest"] = concept_name
+
+    bucket_counts = {label: 0 for _, _, label in _DISTRIBUTION_BUCKETS}
+    needing_support: list[StudentNeedingSupport] = []
+    mastery_values: list[float] = []
+
+    for user_id, full_name in students:
+        entry = per_student.get(user_id)
+        if entry is None or entry["obs"] == 0:
+            continue  # chưa có dữ liệu - đếm riêng bên dưới, không vào phân bố
+
+        # SUM(correct)/SUM(obs) - cùng công thức đã dùng ở /v1/profile/stats
+        # và /v1/learn/mastery/overview, để mọi nơi trong hệ thống nói
+        # cùng một con số cho cùng một sinh viên.
+        mastery = entry["correct"] / entry["obs"]
+        mastery_values.append(mastery)
+
+        for low, high, label in _DISTRIBUTION_BUCKETS:
+            if low <= mastery < high:
+                bucket_counts[label] += 1
+                break
+
+        if mastery < NEEDS_SUPPORT_MASTERY_THRESHOLD:
+            needing_support.append(
+                StudentNeedingSupport(
+                    user_id=user_id,
+                    full_name=full_name,
+                    mastery=round(mastery, 3),
+                    weakest_concept_name=entry["weakest"],
+                    question_count=questions_by_user.get(user_id, 0),
+                )
+            )
+
+    needing_support.sort(key=lambda s: s.mastery)
+
+    return ClassAnalytics(
+        course_id=course_id,
+        total_students=len(students),
+        students_with_data=len(mastery_values),
+        students_without_data=len(students) - len(mastery_values),
+        avg_mastery=round(sum(mastery_values) / len(mastery_values), 3) if mastery_values else None,
+        needing_support_count=len(needing_support),
+        distribution=[
+            MasteryDistributionBucket(label=label, student_count=bucket_counts[label])
+            for _, _, label in _DISTRIBUTION_BUCKETS
+        ],
+        students_needing_support=needing_support,
     )

@@ -63,6 +63,85 @@ class PipelineTiming(BaseModel):
     avg_total_ms: float
 
 
+class StudentNeedingSupport(BaseModel):
+    """
+    1 sinh viên đang gặp khó trong lớp.
+
+    THAY ĐỔI CHÍNH SÁCH RIÊNG TƯ CÓ CHỦ Ý (đã thảo luận và chốt cùng
+    người dùng): trước đây Dashboard giảng viên CHỈ hiển thị số liệu
+    tổng hợp ẩn danh. Từ đây, giảng viên xem được TÊN + tiến độ học tập
+    của từng sinh viên yếu - vì không biết ai đang gặp khó thì không
+    thể hỗ trợ kịp thời, mà hỗ trợ kịp thời chính là mục đích của cả hệ
+    thống.
+
+    RANH GIỚI VẪN GIỮ NGUYÊN: chỉ dữ liệu SƯ PHẠM (mastery, khái niệm
+    yếu, số câu đã hỏi). TUYỆT ĐỐI KHÔNG lộ nội dung câu hỏi, câu trả
+    lời, hay lịch sử hội thoại của sinh viên - những thứ đó vẫn không
+    có endpoint nào trả về cho giảng viên.
+    """
+
+    user_id: int
+    full_name: str
+    mastery: float
+    weakest_concept_name: str | None  # None nếu mọi concept đều đã mastered
+    question_count: int
+
+
+class MasteryDistributionBucket(BaseModel):
+    """1 cột trong biểu đồ phân bố - label dạng '0-20%', '20-40%'..."""
+
+    label: str
+    student_count: int
+
+
+class ClassAnalytics(BaseModel):
+    """
+    Phân tích 1 lớp cụ thể - ai đang cần giúp, phân bố trình độ ra sao.
+
+    students_without_data: sinh viên CHƯA làm quiz nào (n_obs = 0) -
+    tách riêng, KHÔNG tính vào phân bố và KHÔNG đưa vào danh sách cần
+    hỗ trợ. Lý do: mastery 0% vì "chưa học gì" hoàn toàn khác 0% vì
+    "học mà không hiểu" - gộp chung sẽ khiến giảng viên hiểu sai tình
+    hình lớp và hỗ trợ nhầm người.
+    """
+
+    course_id: int
+    total_students: int
+    students_with_data: int
+    students_without_data: int
+    avg_mastery: float | None  # None nếu chưa sinh viên nào có dữ liệu
+    needing_support_count: int
+    distribution: list[MasteryDistributionBucket]
+    students_needing_support: list[StudentNeedingSupport]
+
+
+class PopularConcept(BaseModel):
+    """
+    1 dòng trong trang "Câu hỏi phổ biến" - gom theo KHÁI NIỆM, không
+    phải theo chuỗi câu hỏi thô.
+
+    VÌ SAO GOM THEO KHÁI NIỆM: sinh viên diễn đạt cùng 1 thắc mắc bằng
+    vô số cách khác nhau ("SGD khác GD sao?", "tại sao SGD nhanh hơn?",
+    "so sánh 2 thuật toán tối ưu này")  - gom theo chuỗi văn bản sẽ ra
+    hàng trăm nhóm 1-phần-tử vô nghĩa. Gom theo concept_id (đã có sẵn
+    từ Gap Analysis) cho ra nhóm đúng bản chất và tái dùng hạ tầng cũ.
+
+    positive_rate = None nghĩa là CHƯA ĐỦ DỮ LIỆU đánh giá (ít hơn
+    MIN_FEEDBACK_FOR_RATE phiếu) - KHÁC HẲN 0.0 (đã có phiếu và toàn
+    bộ đều tiêu cực). Không được hiển thị "0%" cho trường hợp đầu.
+    """
+
+    concept_id: int
+    concept_name: str
+    question_count: int
+    avg_retrieval_similarity: float | None  # None nếu chưa câu nào tra cứu tài liệu
+    feedback_count: int
+    positive_rate: float | None
+    # True khi hội đủ MỌI điều kiện cảnh báo (xem MIN_* trong router.py) -
+    # dấu hiệu kho tài liệu có thể thiếu nội dung về chủ đề này.
+    needs_attention: bool
+
+
 class InstructorAnalytics(BaseModel):
     """
     Thống kê TỔNG HỢP theo lớp - KHÔNG cá nhân hoá, không lộ nội dung

@@ -407,6 +407,20 @@ class Message(Base):
     token_usage: Mapped[str | None] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Cosine similarity CAO NHẤT giữa câu hỏi và các đoạn tài liệu tìm
+    # được (0.0-1.0) - đo "hệ thống tìm được tài liệu khớp tới mức nào",
+    # KHÔNG PHẢI "xác suất câu trả lời đúng" (LLM không cung cấp con số
+    # đó, và không nên bịa ra một con số như vậy).
+    #
+    # ĐẶT TÊN CÓ CHỦ Ý: không gọi là "confidence" - tên đó sẽ khiến
+    # người đọc code sau này (và người dùng trên giao diện) hiểu nhầm
+    # thành mức độ tự tin của AI về tính đúng đắn của câu trả lời. Trên
+    # giao diện hiển thị với nhãn "Độ khớp tài liệu".
+    #
+    # NULL với câu hỏi không cần tra cứu (chitchat, off-topic) hoặc câu
+    # trả lời được tạo trước khi cột này tồn tại.
+    retrieval_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
@@ -627,6 +641,35 @@ class QuizAttempt(Base):
     selected_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MessageFeedback(Base):
+    """
+    Sinh viên đánh giá 1 câu trả lời của AI là hữu ích (👍) hay không (👎).
+
+    Khoá chính CẶP (message_id, user_id): mỗi người CHỈ có 1 phiếu cho
+    mỗi câu trả lời - đổi ý thì UPDATE dòng cũ, không tạo dòng mới
+    (cùng nguyên tắc đã dùng ở StudentMastery, AssignmentSubmission).
+
+    GIÁ TRỊ THẬT của bảng này: đây là tín hiệu chất lượng do CON NGƯỜI
+    đánh giá - đáng tin hơn mọi chỉ số máy tự chấm. Dùng cho trang "Câu
+    hỏi phổ biến" của giảng viên: khái niệm nào bị nhiều phản hồi tiêu
+    cực là dấu hiệu kho tài liệu thiếu nội dung về chủ đề đó.
+
+    updated_at: cần thiết để phân biệt "vừa đánh giá" với "đánh giá từ
+    lâu rồi đổi ý" - hữu ích khi sau này muốn so sánh chất lượng trước/
+    sau một thay đổi hệ thống (vd đổi model, bổ sung tài liệu).
+    """
+
+    __tablename__ = "message_feedback"
+
+    message_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("message.id"), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), primary_key=True)
+    is_positive: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class EvalRun(Base):

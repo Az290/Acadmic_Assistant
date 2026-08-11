@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.academic_agent.feedback_router import router as feedback_router
 from app.academic_agent.router import router as chat_router
 from app.auth.router import router as auth_router
 from app.config import get_settings
@@ -112,6 +113,7 @@ app.include_router(retrieval_router)
 app.include_router(guardrail_router)
 app.include_router(router_agent_router)
 app.include_router(chat_router)
+app.include_router(feedback_router)
 app.include_router(learning_router)
 app.include_router(assignment_router)
 app.include_router(instructor_router)

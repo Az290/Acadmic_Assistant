@@ -238,7 +238,15 @@ export type ChatStreamEvent =
   // viên biết để họ sửa lại nếu đoán sai.
   | { type: "start"; conversation_id: number; category: string; concept_id: number | null }
   | { type: "chunk"; text: string }
-  | { type: "done"; citations: CitationPublic[] }
+  // message_id: id câu trả lời vừa lưu - cần để gửi đánh giá 👍/👎.
+  // retrieval_similarity: độ khớp tài liệu (0-1), null nếu câu hỏi
+  // không cần tra cứu tài liệu (chitchat/off-topic).
+  | {
+      type: "done";
+      citations: CitationPublic[];
+      message_id: number;
+      retrieval_similarity: number | null;
+    }
   | { type: "blocked"; conversation_id: number; reason: string };
 
 /**
@@ -327,6 +335,42 @@ export interface ConceptGap {
   total_questions: number;
   unanswered_questions: number;
   gap_rate: number; // 0.0 - 1.0
+}
+
+export interface StudentNeedingSupport {
+  user_id: number;
+  full_name: string;
+  mastery: number;
+  weakest_concept_name: string | null;
+  question_count: number;
+}
+
+export interface MasteryDistributionBucket {
+  label: string;
+  student_count: number;
+}
+
+export interface ClassAnalytics {
+  course_id: number;
+  total_students: number;
+  students_with_data: number;
+  // Sinh viên chưa làm quiz nào - KHÔNG tính vào phân bố/nhóm cần hỗ trợ
+  students_without_data: number;
+  avg_mastery: number | null;
+  needing_support_count: number;
+  distribution: MasteryDistributionBucket[];
+  students_needing_support: StudentNeedingSupport[];
+}
+
+export interface PopularConcept {
+  concept_id: number;
+  concept_name: string;
+  question_count: number;
+  avg_retrieval_similarity: number | null;
+  feedback_count: number;
+  // null = CHƯA ĐỦ dữ liệu đánh giá (khác 0 = đã có phiếu, toàn tiêu cực)
+  positive_rate: number | null;
+  needs_attention: boolean;
 }
 
 export interface InstructorAnalytics {
