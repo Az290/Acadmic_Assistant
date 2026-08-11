@@ -86,17 +86,46 @@ function IconShield() {
   );
 }
 
+function IconUser() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
+function IconHistory() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
+function IconTrend() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  );
+}
+
 // Mỗi role vào ĐÚNG dashboard của mình (yêu cầu đã chốt từ Tác vụ #3):
 // trang chủ khác nhau hoàn toàn theo vai trò, không phải 1 giao diện
 // chung có nút chuyển role.
 const NAV_ITEMS: NavItem[] = [
   { href: "/student", label: "Trang chủ", icon: <IconHome />, roles: ["STUDENT"] },
+  { href: "/mastery", label: "Tiến độ học tập", icon: <IconTrend />, roles: ["STUDENT"] },
+  { href: "/history", label: "Lịch sử hỏi đáp", icon: <IconHistory />, roles: ["STUDENT"] },
   { href: "/instructor", label: "Thống kê lớp", icon: <IconChart />, roles: ["INSTRUCTOR", "ADMIN"] },
   { href: "/assignments", label: "Bài tập", icon: <IconAssignment /> },
   { href: "/review", label: "Duyệt tài liệu", icon: <IconCheck />, roles: ["INSTRUCTOR", "ADMIN"] },
   { href: "/admin", label: "Quản trị", icon: <IconShield />, roles: ["ADMIN"] },
   { href: "/courses", label: "Lớp học", icon: <IconCourses /> },
   { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, roles: ["INSTRUCTOR", "ADMIN"] },
+  { href: "/profile", label: "Hồ sơ cá nhân", icon: <IconUser /> },
 ];
 
 const ROLE_LABEL: Record<UserRole, string> = {

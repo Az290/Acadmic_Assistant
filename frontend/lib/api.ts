@@ -86,6 +86,64 @@ export function dashboardPathForRole(role: UserRole): string {
   }
 }
 
+/* ---------- Hồ sơ cá nhân ---------- */
+
+export interface ProfileStats {
+  total_questions: number;
+  questions_this_week: number;
+  quizzes_taken: number;
+  avg_mastery: number | null;
+}
+
+export type MessageCategory = "RAG_QUESTION" | "SOCRATIC_REQUEST" | "CHITCHAT" | "OFF_TOPIC";
+
+export interface ConversationHistoryItem {
+  question: string;
+  category: MessageCategory;
+  created_at: string;
+  source_count: number | null;
+}
+
+/* ---------- Tiến độ học tập ---------- */
+
+export interface CourseMasteryPublic {
+  course_id: number;
+  course_code: string;
+  avg_mastery: number;
+}
+
+export interface WeakConceptPublic {
+  concept_id: number;
+  concept_name: string;
+  course_id: number;
+  course_code: string;
+  accuracy: number;
+  level: "LOW" | "MID";
+}
+
+export interface MasteryOverview {
+  overall_mastery: number | null;
+  by_course: CourseMasteryPublic[];
+  weak_concepts: WeakConceptPublic[];
+}
+
+/* ---------- Quiz ôn tập ---------- */
+
+export interface QuizQuestionPublic {
+  id: number;
+  concept_id: number;
+  question: string;
+  options: string[];
+}
+
+export interface AnswerResponse {
+  is_correct: boolean;
+  correct_index: number;
+  explanation: string;
+  streak: number;
+  mastered: boolean;
+}
+
 export interface CoursePublic {
   id: number;
   code: string;

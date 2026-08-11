@@ -1,0 +1,29 @@
+name: Deploy backend to Fly.io
+
+# Chỉ chạy khi có thay đổi THẬT trong backend/ - tránh deploy lãng phí
+# khi chỉ sửa frontend hoặc tài liệu (README, learning-log...).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch: # cho phép bấm nút "Run workflow" thủ công trên GitHub khi cần deploy lại không đổi code
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency: deploy-backend-group # chặn 2 lần deploy chạy song song nếu push liên tiếp nhanh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        # --remote-only: build image ngay trên máy chủ Fly.io, không cần
+        # Docker cài sẵn trên GitHub Actions runner - đúng cách mọi lần
+        # deploy thủ công trước đây đã dùng.
+        run: flyctl deploy --remote-only
+        working-directory: backend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
