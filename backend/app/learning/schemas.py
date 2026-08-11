@@ -69,3 +69,29 @@ class WeakestConceptPublic(BaseModel):
     n_obs: int
     n_correct: int
     accuracy: float
+
+
+class CourseMasteryPublic(BaseModel):
+    course_id: int
+    course_code: str
+    avg_mastery: float  # SUM(n_correct)/SUM(n_obs) trên mọi concept của course này
+
+
+class WeakConceptPublic(BaseModel):
+    concept_id: int
+    concept_name: str
+    course_id: int
+    course_code: str
+    accuracy: float
+    level: str  # "LOW" | "MID" - concept HIGH không đáng để "gợi ý ôn tập"
+
+
+class MasteryOverview(BaseModel):
+    """
+    Trang Tiến độ học tập (/mastery) - tổng thể + theo môn + danh sách
+    gợi ý ôn tập, KHÁC WeakestConceptPublic (Toast chỉ cần 1 kết quả).
+    """
+
+    overall_mastery: float | None  # None nếu chưa có lượt quan sát nào
+    by_course: list[CourseMasteryPublic]
+    weak_concepts: list[WeakConceptPublic]

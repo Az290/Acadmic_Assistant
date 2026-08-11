@@ -26,6 +26,7 @@ from app.instructor.router import router as instructor_router
 from app.learning.assignment_router import router as assignment_router
 from app.learning.router import router as learning_router
 from app.logging_config import configure_logging
+from app.profile.router import router as profile_router
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 from app.request_id_middleware import RequestIdMiddleware
 from app.retrieval.router import router as retrieval_router
@@ -115,6 +116,7 @@ app.include_router(learning_router)
 app.include_router(assignment_router)
 app.include_router(instructor_router)
 app.include_router(eval_dashboard_router)
+app.include_router(profile_router)
 
 
 @app.get("/healthz")

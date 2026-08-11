@@ -18,15 +18,23 @@ from app.db.models import AppUser, Concept, Course, Enrollment, QuizAttempt, Qui
 from app.db.session import get_db
 from app.ingestion.embedder import embed_texts
 from app.learning.mastery import apply_answer, get_or_create_mastery
+from app.learning.mastery_overview import (
+    MASTERY_HIGH_THRESHOLD,
+    MASTERY_LOW_THRESHOLD,
+    compute_weak_concepts,
+)
 from app.learning.quiz_generator import QuizGenerationError, generate_quiz_question
 from app.learning.schemas import (
     AnswerResponse,
     ConceptPublic,
+    CourseMasteryPublic,
     CreateConceptRequest,
+    MasteryOverview,
     MasteryPublic,
     QuizQuestionPublic,
     QuizQuestionRequest,
     SubmitAnswerRequest,
+    WeakConceptPublic,
     WeakestConceptPublic,
 )
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
@@ -281,31 +289,89 @@ async def get_weakest_concept(
     Trả None nếu không có concept nào thoả điều kiện (sinh viên đang ổn,
     hoặc chưa làm quiz nào) - frontend im lặng, KHÔNG hiện Toast.
     """
-    rows = (
-        await session.execute(
-            select(StudentMastery, Concept.name, Concept.course_id)
-            .join(Concept, Concept.id == StudentMastery.concept_id)
-            .join(Enrollment, (Enrollment.course_id == Concept.course_id) & (Enrollment.user_id == user.id))
-            .where(StudentMastery.user_id == user.id, StudentMastery.n_obs >= 1, StudentMastery.mastered.is_(False))
-        )
-    ).all()
-
-    candidates = [
-        (mastery, concept_name, course_id, mastery.n_correct / mastery.n_obs)
-        for mastery, concept_name, course_id in rows
-    ]
-    candidates = [c for c in candidates if c[3] < 0.5]
+    weak_concepts = await compute_weak_concepts(session, user_id=user.id)
+    # Ngưỡng TRIGGER của Toast (< 50%) CỐ Ý khác ngưỡng phân loại LOW/
+    # MID/HIGH dùng ở trang Tiến độ (xem app/learning/mastery_overview.py)
+    # - giữ Toast nghiêm ngặt hơn để tránh làm phiền quá thường xuyên.
+    candidates = [w for w in weak_concepts if w.accuracy < 0.5]
     if not candidates:
         return None
 
-    # accuracy thấp nhất trước, hoà thì n_obs lớn hơn trước (đáng tin hơn).
-    mastery, concept_name, course_id, accuracy = min(candidates, key=lambda c: (c[3], -c[0].n_obs))
-
+    weakest = candidates[0]  # đã sắp accuracy tăng dần, hoà thì n_obs giảm dần
     return WeakestConceptPublic(
-        concept_id=mastery.concept_id,
-        concept_name=concept_name,
-        course_id=course_id,
-        n_obs=mastery.n_obs,
-        n_correct=mastery.n_correct,
-        accuracy=round(accuracy, 3),
+        concept_id=weakest.concept_id,
+        concept_name=weakest.concept_name,
+        course_id=weakest.course_id,
+        n_obs=weakest.n_obs,
+        n_correct=weakest.n_correct,
+        accuracy=round(weakest.accuracy, 3),
     )
+
+
+# Số concept tối đa hiện trong "Gợi ý ôn tập" - khớp đúng prototype (3-5
+# mục), tránh danh sách quá dài nếu sinh viên yếu ở nhiều chỗ cùng lúc.
+MAX_WEAK_CONCEPTS_SHOWN = 5
+
+
+@router.get("/v1/learn/mastery/overview", response_model=MasteryOverview)
+async def get_mastery_overview(
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Tổng quan tiến độ học tập của sinh viên trên MỌI course đã enroll -
+    khác /v1/learn/mastery (yêu cầu course_id, xem 1 lớp cụ thể).
+
+    overall_mastery và avg_mastery từng course đều dùng công thức
+    SUM(n_correct)/SUM(n_obs) - KHÔNG phải trung bình cộng các tỷ lệ %
+    riêng lẻ, để 1 concept đã luyện nhiều câu có trọng số đúng hơn 1
+    concept mới chạm tới vài câu (xem app/profile/router.py::
+    get_profile_stats() - áp dụng cùng nguyên tắc).
+    """
+    mastery_rows = (
+        await session.execute(
+            select(StudentMastery, Concept.course_id, Course.code)
+            .join(Concept, Concept.id == StudentMastery.concept_id)
+            .join(Course, Course.id == Concept.course_id)
+            .join(Enrollment, (Enrollment.course_id == Concept.course_id) & (Enrollment.user_id == user.id))
+            .where(StudentMastery.user_id == user.id, StudentMastery.n_obs >= 1)
+        )
+    ).all()
+
+    total_correct = sum(m.n_correct for m, _, _ in mastery_rows)
+    total_obs = sum(m.n_obs for m, _, _ in mastery_rows)
+    overall_mastery = round(total_correct / total_obs, 3) if total_obs else None
+
+    per_course_totals: dict[int, dict[str, int | str]] = {}
+    for m, course_id, course_code in mastery_rows:
+        entry = per_course_totals.setdefault(course_id, {"code": course_code, "correct": 0, "obs": 0})
+        entry["correct"] += m.n_correct
+        entry["obs"] += m.n_obs
+
+    by_course = [
+        CourseMasteryPublic(
+            course_id=course_id,
+            course_code=str(entry["code"]),
+            avg_mastery=round(entry["correct"] / entry["obs"], 3),
+        )
+        for course_id, entry in per_course_totals.items()
+        if entry["obs"] > 0
+    ]
+    by_course.sort(key=lambda c: c.avg_mastery)
+
+    weak = await compute_weak_concepts(session, user_id=user.id)
+    course_code_by_id = {course_id: str(entry["code"]) for course_id, entry in per_course_totals.items()}
+    weak_concepts = [
+        WeakConceptPublic(
+            concept_id=w.concept_id,
+            concept_name=w.concept_name,
+            course_id=w.course_id,
+            course_code=course_code_by_id.get(w.course_id, ""),
+            accuracy=round(w.accuracy, 3),
+            level="LOW" if w.accuracy < MASTERY_LOW_THRESHOLD else "MID",
+        )
+        for w in weak
+        if w.accuracy < MASTERY_HIGH_THRESHOLD  # HIGH không đáng "gợi ý ôn tập"
+    ][:MAX_WEAK_CONCEPTS_SHOWN]
+
+    return MasteryOverview(overall_mastery=overall_mastery, by_course=by_course, weak_concepts=weak_concepts)
