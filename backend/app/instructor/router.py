@@ -9,6 +9,8 @@ tài liệu, bao nhiêu lần bị Guardrail chặn) - không endpoint nào ở 
 trả về nội dung `message.content` gắn với 1 user_id cụ thể.
 """
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,8 +28,12 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.documents.schemas import DocumentPublic, PendingDocumentPublic, RejectDocumentRequest
+from app.instructor.pricing import estimate_cost_usd
 from app.instructor.schemas import (
     CategoryCount,
+    CostSummary,
+    PipelineStepTiming,
+    PipelineTiming,
     ConceptGap,
     InstructorAnalytics,
     InsufficientContextRate,
@@ -298,3 +304,144 @@ async def reject_document(
     await session.commit()
     await session.refresh(document)
     return document
+
+
+# ---------- Cost Dashboard + Pipeline Visualization ----------
+#
+# Cả 2 endpoint đọc từ Message.token_usage/latency_ms - CHỈ có ở
+# message tạo SAU KHI tính năng đo lường này được thêm vào (xem
+# app/academic_agent/agent.py). Message cũ (trước đó) có 2 cột này là
+# NULL - bị bỏ qua tự động khi lọc is_not(None), không tính vào số
+# liệu (không coi NULL là 0, tránh làm sai lệch trung bình).
+
+DAYS_PER_MONTH = 30
+
+
+@router.get("/costs", response_model=CostSummary)
+async def get_cost_summary(
+    course_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    await _require_course_owner(session, user=user, course_id=course_id)
+
+    rows = (
+        await session.execute(
+            select(Message.token_usage, Message.created_at)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Conversation.course_id == course_id,
+                Message.role == "assistant",
+                Message.token_usage.is_not(None),
+            )
+        )
+    ).all()
+
+    enrolled_students = (
+        await session.execute(
+            select(func.count())
+            .select_from(Enrollment)
+            .where(Enrollment.course_id == course_id, Enrollment.role_in_course == "STUDENT")
+        )
+    ).scalar_one()
+
+    total_input = 0
+    total_output = 0
+    total_cost = 0.0
+    oldest_at = None
+    newest_at = None
+
+    for token_usage_json, created_at in rows:
+        usage = json.loads(token_usage_json)
+        generate = usage.get("generate", {})
+        model = generate.get("model", "")
+        input_tokens = generate.get("input", 0)
+        output_tokens = generate.get("output", 0)
+        total_input += input_tokens
+        total_output += output_tokens
+        total_cost += estimate_cost_usd(model, input_tokens, output_tokens)
+        if oldest_at is None or created_at < oldest_at:
+            oldest_at = created_at
+        if newest_at is None or created_at > newest_at:
+            newest_at = created_at
+
+    n = len(rows)
+    avg_cost = total_cost / n if n else 0.0
+
+    # Dự báo: chi phí/câu x số câu/sinh viên/ngày ĐO ĐƯỢC x giả định
+    # 100 sinh viên x 30 ngày - ước lượng thô (không tính mùa thi hay
+    # biến động thực tế), chỉ để có con số tham khảo. Nếu chưa có sinh
+    # viên nào trong lớp (enrolled_students=0), không chia được cho 0
+    # -> trả về 0 thay vì lỗi.
+    span_days = max((newest_at - oldest_at).days, 1) if oldest_at and newest_at else 1
+    messages_per_student_per_day = (n / span_days / enrolled_students) if enrolled_students else 0.0
+    projected = avg_cost * messages_per_student_per_day * 100 * DAYS_PER_MONTH
+
+    return CostSummary(
+        total_messages_measured=n,
+        total_input_tokens=total_input,
+        total_output_tokens=total_output,
+        total_cost_usd=round(total_cost, 6),
+        avg_cost_per_message_usd=round(avg_cost, 6),
+        projected_monthly_usd_per_100_students=round(projected, 2),
+    )
+
+
+@router.get("/pipeline", response_model=PipelineTiming)
+async def get_pipeline_timing(
+    course_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Thời gian trung bình + p95 của từng bước xử lý - trả lời câu hỏi
+    "bước nào đang làm chậm trải nghiệm người dùng" bằng SỐ LIỆU THẬT
+    thay vì đo thủ công từng lần (như đã làm nhiều lần trước đây).
+    """
+    await _require_course_owner(session, user=user, course_id=course_id)
+
+    rows = (
+        await session.execute(
+            select(Message.latency_ms)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Conversation.course_id == course_id,
+                Message.role == "assistant",
+                Message.latency_ms.is_not(None),
+            )
+        )
+    ).scalars().all()
+
+    step_keys = ["guardrail_router_ms", "retrieval_ms", "generate_ms"]
+    values_by_step: dict[str, list[int]] = {k: [] for k in step_keys}
+    totals: list[int] = []
+
+    for latency_json in rows:
+        latency = json.loads(latency_json)
+        for key in step_keys:
+            if key in latency:
+                values_by_step[key].append(latency[key])
+        if "total_ms" in latency:
+            totals.append(latency["total_ms"])
+
+    def _p95(values: list[int]) -> float:
+        if not values:
+            return 0.0
+        sorted_values = sorted(values)
+        index = min(int(len(sorted_values) * 0.95), len(sorted_values) - 1)
+        return float(sorted_values[index])
+
+    steps = [
+        PipelineStepTiming(
+            step=key,
+            avg_ms=round(sum(vals) / len(vals), 1) if vals else 0.0,
+            p95_ms=_p95(vals),
+        )
+        for key, vals in values_by_step.items()
+    ]
+
+    return PipelineTiming(
+        total_messages_measured=len(rows),
+        steps=steps,
+        avg_total_ms=round(sum(totals) / len(totals), 1) if totals else 0.0,
+    )

@@ -220,12 +220,21 @@ export interface SecurityAlertSummary {
   count: number;
 }
 
+export interface ConceptGap {
+  concept_id: number | null;
+  concept_name: string;
+  total_questions: number;
+  unanswered_questions: number;
+  gap_rate: number; // 0.0 - 1.0
+}
+
 export interface InstructorAnalytics {
   course_id: number;
   total_messages: number;
   category_breakdown: CategoryCount[];
   insufficient_context: InsufficientContextRate;
   security_alerts: SecurityAlertSummary[];
+  concept_gaps: ConceptGap[];
 }
 
 /* ---------- Bài tập (giao bài + chấm tự động) ---------- */
@@ -295,4 +304,27 @@ export interface AssignmentResults {
   total_questions: number;
   students: StudentResultSummary[];
   concept_difficulty: ConceptDifficulty[];
+}
+
+/* ---------- Cost Dashboard + Pipeline Visualization ---------- */
+
+export interface CostSummary {
+  total_messages_measured: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number;
+  avg_cost_per_message_usd: number;
+  projected_monthly_usd_per_100_students: number;
+}
+
+export interface PipelineStepTiming {
+  step: string;
+  avg_ms: number;
+  p95_ms: number;
+}
+
+export interface PipelineTiming {
+  total_messages_measured: number;
+  steps: PipelineStepTiming[];
+  avg_total_ms: number;
 }

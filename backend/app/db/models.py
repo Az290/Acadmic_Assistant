@@ -381,6 +381,21 @@ class Message(Base):
         BigInteger, ForeignKey("concept.id"), nullable=True
     )
 
+    # Đo lường vận hành - CHỈ ghi cho role='assistant' (NULL với
+    # role='user', không có gì để đo ở tin nhắn người dùng gõ).
+    #
+    # token_usage: JSON {"router": {"in":.., "out":..}, "generate": {...},
+    # "embedding_tokens": ..} - đủ chi tiết để tính CHI PHÍ THẬT theo
+    # từng bước (xem app/instructor/cost.py), không chỉ tổng gộp.
+    #
+    # latency_ms: JSON {"guardrail_router_ms":.., "retrieval_ms":..,
+    # "generate_ms":.., "total_ms":..} - phục vụ Pipeline Visualization,
+    # biết bước nào đang là điểm nghẽn tốc độ bằng SỐ LIỆU THẬT thay vì
+    # đoán (đúng bài học từ việc từng đo tốc độ thủ công nhiều lần
+    # trước khi có 2 cột này).
+    token_usage: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latency_ms: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")

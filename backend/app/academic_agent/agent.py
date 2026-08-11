@@ -26,6 +26,7 @@ Eval, không phải đoán trước), đó là lúc cân nhắc lại quyết đ
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field
 
 from openai import OpenAI
@@ -469,6 +470,8 @@ async def handle_chat_stream(
     khái niệm nào (sửa lại nếu hệ thống tự đoán sai); None -> hệ thống
     tự xác định bằng so khớp ngữ nghĩa.
     """
+    request_start = time.monotonic()
+
     history: list[dict] = []
     if conversation_id is not None:
         history = await _fetch_recent_history(session, conversation_id)
@@ -485,6 +488,7 @@ async def handle_chat_stream(
     async def _load_context_if_needed():
         return await load_student_context(session, user_id=user_id, course_id=course_id)
 
+    guardrail_router_start = time.monotonic()
     if force_category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
         input_check, route, student_context = await asyncio.gather(
             asyncio.to_thread(check_input, message),
@@ -502,6 +506,7 @@ async def handle_chat_stream(
             asyncio.to_thread(classify, message, history),
             _load_context_if_needed(),
         )
+    guardrail_router_ms = int((time.monotonic() - guardrail_router_start) * 1000)
 
     if not input_check.allowed:
         await _log_security_block(
@@ -512,6 +517,7 @@ async def handle_chat_stream(
 
     conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
 
+    retrieval_start = time.monotonic()
     search_results: list[SearchResult] = []
     query_vector: list[float] | None = None
     if route.needs_retrieval:
@@ -525,6 +531,7 @@ async def handle_chat_stream(
         search_results = await hybrid_search(
             session, query_text=search_query, user_id=user_id, query_vector=query_vector
         )
+    retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
 
     # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - xem
     # docstring _infer_course_id (cùng logic với handle_chat()).
@@ -598,19 +605,35 @@ async def handle_chat_stream(
     # ngoài có thể yield ngay khi có dữ liệu mới.
     queue: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
+    # Nơi thread nền ghi lại usage token đọc từ chunk CUỐI CÙNG của
+    # stream (xem stream_options bên dưới) - dict rỗng vì thread nền
+    # không return được giá trị trực tiếp cho async generator này.
+    usage_holder: dict = {}
 
     def _stream_worker():
         try:
-            stream = _client.chat.completions.create(model=model, messages=messages, stream=True)
+            # stream_options={"include_usage": True}: BẮT BUỘC để nhận
+            # được token usage khi stream=True - mặc định OpenAI KHÔNG
+            # trả usage cho response dạng stream, chỉ khi bật cờ này
+            # (đã xác nhận bằng test thật, không phải suy đoán từ tài
+            # liệu). Không có nó, Cost Dashboard sẽ luôn thiếu chi phí
+            # của bước ĐẮT NHẤT (sinh câu trả lời).
+            stream = _client.chat.completions.create(
+                model=model, messages=messages, stream=True,
+                stream_options={"include_usage": True},
+            )
             for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    loop.call_soon_threadsafe(queue.put_nowait, delta)
+                if chunk.usage is not None:
+                    usage_holder["input"] = chunk.usage.prompt_tokens
+                    usage_holder["output"] = chunk.usage.completion_tokens
+                if chunk.choices and chunk.choices[0].delta.content:
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk.choices[0].delta.content)
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)  # tín hiệu kết thúc
 
     import threading
 
+    generate_start = time.monotonic()
     threading.Thread(target=_stream_worker, daemon=True).start()
 
     full_answer_parts: list[str] = []
@@ -620,8 +643,29 @@ async def handle_chat_stream(
             break
         full_answer_parts.append(piece)
         yield {"type": "chunk", "text": piece}
+    generate_ms = int((time.monotonic() - generate_start) * 1000)
 
     answer = "".join(full_answer_parts)
+
+    # GIỚI HẠN CÓ CHỦ Ý (nói rõ, không giấu): chỉ đo token của bước
+    # SINH CÂU TRẢ LỜI - bước tốn kém nhất (input gồm toàn bộ ngữ cảnh
+    # tài liệu + lịch sử hội thoại). Router classify và Embedding tìm
+    # kiếm CŨNG tốn token nhưng nhỏ hơn nhiều và chưa được đo ở phiên
+    # bản đầu tiên này - đủ để Cost Dashboard phản ánh đúng XU HƯỚNG
+    # chi phí, dù chưa phải con số tuyệt đối chính xác 100%.
+    token_usage = {
+        "generate": {
+            "model": model,
+            "input": usage_holder.get("input", 0),
+            "output": usage_holder.get("output", 0),
+        }
+    }
+    latency = {
+        "guardrail_router_ms": guardrail_router_ms,
+        "retrieval_ms": retrieval_ms,
+        "generate_ms": generate_ms,
+        "total_ms": int((time.monotonic() - request_start) * 1000),
+    }
 
     citations = _build_citations(search_results)
     session.add(Message(conversation_id=conversation.id, role="user", content=message))
@@ -634,6 +678,8 @@ async def handle_chat_stream(
             category=route.category,
             needs_retrieval=route.needs_retrieval,
             concept_id=matched_concept_id,
+            token_usage=json.dumps(token_usage, ensure_ascii=False),
+            latency_ms=json.dumps(latency, ensure_ascii=False),
         )
     )
     await session.commit()

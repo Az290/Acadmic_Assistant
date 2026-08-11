@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import {
   api,
   ApiError,
+  CostSummary,
   CoursePublic,
   InstructorAnalytics,
+  PipelineTiming,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -29,11 +31,19 @@ const BLOCKED_BY_LABEL: Record<string, string> = {
   moderation: "Nội dung không phù hợp",
 };
 
+const PIPELINE_STEP_LABEL: Record<string, string> = {
+  guardrail_router_ms: "Kiểm duyệt + Phân loại",
+  retrieval_ms: "Tìm tài liệu",
+  generate_ms: "Sinh câu trả lời",
+};
+
 export default function InstructorDashboard() {
   const { user } = useAuth();
   const [courses, setCourses] = useState<CoursePublic[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
   const [analytics, setAnalytics] = useState<InstructorAnalytics | null>(null);
+  const [costs, setCosts] = useState<CostSummary | null>(null);
+  const [pipeline, setPipeline] = useState<PipelineTiming | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +72,16 @@ export default function InstructorDashboard() {
         setError(err instanceof ApiError ? err.detail : "Không tải được thống kê.")
       )
       .finally(() => setLoading(false));
+
+    api
+      .get<CostSummary>(`/v1/instructor/costs?course_id=${selectedCourseId}`)
+      .then(setCosts)
+      .catch(() => setCosts(null));
+
+    api
+      .get<PipelineTiming>(`/v1/instructor/pipeline?course_id=${selectedCourseId}`)
+      .then(setPipeline)
+      .catch(() => setPipeline(null));
   }, [selectedCourseId]);
 
   const insufficientPercent = analytics
@@ -221,6 +241,98 @@ export default function InstructorDashboard() {
                       <span className="font-mono font-semibold">{a.count}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Gap Analysis - chủ đề thiếu tài liệu nhất lên đầu */}
+              {analytics.concept_gaps.length > 0 && (
+                <div className="card" style={{ gridColumn: "1 / -1" }}>
+                  <h3 className="mb-2 text-[12.5px] font-bold">Chủ đề thiếu tài liệu (Gap Analysis)</h3>
+                  {analytics.concept_gaps.map((g) => {
+                    const percent = Math.round(g.gap_rate * 100);
+                    return (
+                      <div key={g.concept_id ?? "unclassified"} className="mb-2">
+                        <div className="flex justify-between text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                          <span>{g.concept_name}</span>
+                          <span>
+                            {g.unanswered_questions}/{g.total_questions} câu không trả lời được ({percent}%)
+                          </span>
+                        </div>
+                        <div className="mt-1 h-2 overflow-hidden rounded-md" style={{ background: "#E8EAF0" }}>
+                          <div
+                            className="h-full rounded-md"
+                            style={{
+                              width: `${percent}%`,
+                              background: percent > 0 ? "var(--red)" : "var(--teal)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Cost Dashboard */}
+              {costs && costs.total_messages_measured > 0 && (
+                <>
+                  <div className="card">
+                    <div
+                      className="text-[10.5px] font-semibold uppercase tracking-wide"
+                      style={{ color: "var(--ink-faint)" }}
+                    >
+                      Chi phí đã phát sinh
+                    </div>
+                    <div className="mt-1.5 font-mono text-[22px] font-extrabold">
+                      ${costs.total_cost_usd.toFixed(4)}
+                    </div>
+                    <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                      {costs.total_messages_measured} câu · trung bình ${costs.avg_cost_per_message_usd.toFixed(6)}/câu
+                    </div>
+                  </div>
+
+                  <div className="card">
+                    <div
+                      className="text-[10.5px] font-semibold uppercase tracking-wide"
+                      style={{ color: "var(--ink-faint)" }}
+                    >
+                      Dự báo/tháng (100 SV)
+                    </div>
+                    <div className="mt-1.5 font-mono text-[22px] font-extrabold">
+                      ${costs.projected_monthly_usd_per_100_students.toFixed(2)}
+                    </div>
+                    <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                      Ước lượng thô, ngoại suy tuyến tính từ mức dùng hiện tại
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Pipeline Visualization */}
+              {pipeline && pipeline.total_messages_measured > 0 && (
+                <div className="card" style={{ gridColumn: "1 / -1" }}>
+                  <h3 className="mb-2 text-[12.5px] font-bold">
+                    Thời gian xử lý từng bước (trung bình {pipeline.avg_total_ms.toFixed(0)}ms/câu)
+                  </h3>
+                  {pipeline.steps.map((s) => {
+                    const percent = pipeline.avg_total_ms > 0 ? Math.round((s.avg_ms / pipeline.avg_total_ms) * 100) : 0;
+                    return (
+                      <div key={s.step} className="mb-2">
+                        <div className="flex justify-between text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                          <span>{PIPELINE_STEP_LABEL[s.step] ?? s.step}</span>
+                          <span>
+                            {s.avg_ms.toFixed(0)}ms (p95: {s.p95_ms.toFixed(0)}ms)
+                          </span>
+                        </div>
+                        <div className="mt-1 h-2 overflow-hidden rounded-md" style={{ background: "#E8EAF0" }}>
+                          <div
+                            className="h-full rounded-md"
+                            style={{ width: `${percent}%`, background: "var(--blue)" }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
