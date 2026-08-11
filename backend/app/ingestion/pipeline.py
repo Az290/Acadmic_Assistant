@@ -11,6 +11,7 @@ import hashlib
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.curator.curator import run_curator_checks
 from app.db.models import Chunk, Document
 from app.ingestion.chunker import chunk_document
 from app.ingestion.embedder import EMBEDDING_VERSION, embed_texts
@@ -51,12 +52,14 @@ async def ingest_document(
     license_status: str = "OPEN",
 ) -> Document:
     """
-    Chạy trọn vẹn pipeline cho 1 file PDF, trả về Document đã lưu.
+    Chạy trọn vẹn pipeline cho 1 file PDF, trả về Document đã lưu với
+    status='PENDING_REVIEW' - CHƯA khả dụng cho Hybrid Search ngay,
+    phải đợi giảng viên duyệt (xem app/instructor/router.py, Tác vụ
+    #13 - HITL).
 
     license_status mặc định "OPEN": phù hợp cho tài liệu mở (vd:
-    OpenStax, CC BY-NC-SA) - khi có luồng duyệt tài liệu (giảng viên
-    xác nhận trước khi công khai), giảng viên sẽ tự chọn đúng
-    license_status lúc upload thay vì dùng giá trị mặc định này.
+    OpenStax, CC BY-NC-SA) - hiện chưa có UI cho giảng viên tự chọn
+    license_status khác lúc upload, dùng giá trị mặc định này.
     """
     content_hash = compute_content_hash(file_bytes)
 
@@ -93,6 +96,13 @@ async def ingest_document(
     # --- Bước 3: Embed toàn bộ chunk trong 1 loạt batch call ---
     vectors = embed_texts([c.content for c in chunk_drafts])
 
+    # Vector "đại diện" cho cả tài liệu = trung bình cộng vector các
+    # chunk - KHÔNG tốn thêm lượt gọi API embedding nào (tái dùng
+    # `vectors` vừa tính ở trên), dùng cho Curator Agent phát hiện gần
+    # trùng lặp (xem app/curator/dedup.py).
+    dimension = len(vectors[0])
+    document_embedding = [sum(v[i] for v in vectors) / len(vectors) for i in range(dimension)]
+
     # --- Bước 4: Ghi vào Database ---
     document = Document(
         course_id=course_id,
@@ -100,12 +110,32 @@ async def ingest_document(
         storage_uri=storage_uri,
         content_hash=content_hash,
         license_status=license_status,
-        status="DRAFT",  # chuyển sang APPROVED sau khi giáo viên duyệt (luồng duyệt tài liệu)
+        # Tác vụ #13 (HITL): tài liệu KHÔNG còn tự động khả dụng ngay -
+        # phải chờ giảng viên duyệt (chuyển sang APPROVED) mới được
+        # Hybrid Search tìm thấy (xem app/retrieval/hybrid_search.py).
+        status="PENDING_REVIEW",
         uploaded_by=uploaded_by,
         image_count=parse_result.image_count,
+        embedding=document_embedding,
     )
     session.add(document)
     await session.flush()  # để document.id có giá trị, dùng gán cho các chunk bên dưới
+
+    # --- Curator Agent: quét chỉ dẫn ẩn + kiểm tra chất lượng + gần
+    # trùng lặp - CHỈ ghi cảnh báo, KHÔNG tự động từ chối (con người
+    # quyết định lúc duyệt, xem docstring app/curator/curator.py). ---
+    full_text = "\n".join(block.text for block in blocks)
+    curator_report = await run_curator_checks(
+        session,
+        course_id=course_id,
+        full_text=full_text,
+        avg_chars_per_page=avg_chars_per_page,
+        image_count=parse_result.image_count,
+        total_pages=len(pages_with_text),
+        document_embedding=document_embedding,
+        exclude_document_id=document.id,
+    )
+    document.curator_notes = curator_report.notes
 
     # Versioning: nếu cùng course đã có (các) document TRÙNG TIÊU ĐỀ và
     # CHƯA bị thay thế, coi bản mới này là bản kế tiếp - đánh dấu các

@@ -242,6 +242,23 @@ class Document(Base):
     # không, thay vì làm mù quáng ngay từ đầu.
     image_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # Vector "đại diện" cho toàn bộ tài liệu - trung bình cộng vector
+    # của mọi chunk (tính miễn phí, tái dùng vector đã embed lúc ingest,
+    # KHÔNG tốn thêm lượt gọi API nào). Dùng để phát hiện tài liệu GẦN
+    # TRÙNG (near-duplicate) với tài liệu khác trong cùng lớp - khác
+    # content_hash (chỉ bắt trùng TUYỆT ĐỐI từng byte).
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+
+    # Ghi chú của Curator Agent (Tác vụ #13) - cảnh báo tự động phát
+    # hiện lúc ingest (nghi ngờ prompt injection ẩn trong file, chất
+    # lượng thấp, gần trùng tài liệu khác...), hiển thị cho giảng viên
+    # THAM KHẢO lúc duyệt. CHỦ Ý không tự động từ chối tài liệu chỉ vì
+    # có cảnh báo - con người vẫn là người quyết định cuối cùng (đúng
+    # tinh thần HITL, và tránh chặn nhầm vì rule-based có thể báo sai
+    # với nội dung học thuật hợp lệ, vd sách có đoạn code mẫu chứa cụm
+    # từ trùng pattern injection).
+    curator_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
 
@@ -352,6 +369,18 @@ class Message(Base):
     citations: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
     category: Mapped[str | None] = mapped_column(String(30), nullable=True)
     needs_retrieval: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    # Khái niệm mà câu hỏi này thuộc về (nhận diện tự động bằng so
+    # khớp vector, xem app/learning/concept_matcher.py) - NULL nếu
+    # không khớp khái niệm nào hoặc lớp chưa có khái niệm.
+    #
+    # Mục đích: Gap Analysis (app/instructor/) trả lời được câu hỏi
+    # "sinh viên hỏi nhiều về CHỦ ĐỀ nào mà tài liệu không đáp ứng
+    # được" - cụ thể hơn nhiều so với chỉ biết tỷ lệ % chung chung.
+    concept_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("concept.id"), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
@@ -489,6 +518,72 @@ class QuizQuestion(Base):
     correct_index: Mapped[int] = mapped_column(Integer, nullable=False)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Assignment(Base):
+    """
+    Một bài tập giảng viên giao cho cả lớp (Tác vụ #13).
+
+    THIẾT KẾ TÁI SỬ DỤNG: bài tập KHÔNG có kho câu hỏi riêng - nó tham
+    chiếu tới chính QuizQuestion đã sinh sẵn cho từng khái niệm (xem
+    bảng assignment_question bên dưới). Nhờ vậy: câu hỏi đã cache được
+    dùng lại (không tốn thêm lượt gọi LLM), và điểm số bài tập cũng
+    cập nhật vào cùng hệ thống mastery như quiz tự luyện.
+
+    due_at: hạn nộp. NULL = không giới hạn thời gian.
+    """
+
+    __tablename__ = "assignment"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    course_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course.id"), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssignmentQuestion(Base):
+    """
+    Liên kết 1 bài tập với 1 câu hỏi cụ thể, kèm thứ tự hiển thị.
+
+    Bảng trung gian (many-to-many) thay vì nhét danh sách id vào 1 cột
+    JSON: cho phép truy vấn ngược ("câu hỏi này thuộc những bài tập
+    nào") và đảm bảo toàn vẹn dữ liệu bằng khoá ngoại thật.
+    """
+
+    __tablename__ = "assignment_question"
+
+    assignment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("assignment.id"), primary_key=True
+    )
+    quiz_question_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("quiz_question.id"), primary_key=True
+    )
+    ord: Mapped[int] = mapped_column(Integer, nullable=False)  # thứ tự câu hỏi trong bài
+
+
+class AssignmentSubmission(Base):
+    """
+    Một lượt sinh viên nộp bài - LƯU ĐIỂM ĐÃ CHẤM, không lưu từng câu
+    trả lời (từng câu đã có trong quiz_attempt, tra được qua user_id +
+    quiz_question_id nếu cần xem chi tiết).
+
+    Khoá chính CẶP (assignment_id, user_id): mỗi sinh viên chỉ nộp 1
+    lần cho mỗi bài - ràng buộc ở tầng database, không dựa vào việc
+    tầng ứng dụng "nhớ" kiểm tra.
+    """
+
+    __tablename__ = "assignment_submission"
+
+    assignment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("assignment.id"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), primary_key=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)  # số câu đúng
+    total: Mapped[int] = mapped_column(Integer, nullable=False)  # tổng số câu
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class QuizAttempt(Base):

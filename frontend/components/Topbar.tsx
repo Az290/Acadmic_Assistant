@@ -21,6 +21,8 @@ const ROLE_AVATAR: Record<UserRole, string> = {
 const PAGE_TITLE: Record<string, string> = {
   "/student": "Trang chủ",
   "/instructor": "Thống kê lớp",
+  "/assignments": "Bài tập",
+  "/review": "Duyệt tài liệu",
   "/admin": "Quản trị hệ thống",
   "/courses": "Lớp học",
   "/documents": "Tài liệu",

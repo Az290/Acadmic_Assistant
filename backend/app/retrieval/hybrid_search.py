@@ -74,6 +74,24 @@ TOP_K_FINAL = 8
 # hoàn toàn kết quả tốt ở nhánh còn lại.
 RRF_K = 60
 
+# Ngưỡng độ tương đồng TỐI THIỂU (cosine) để coi 1 chunk là "thật sự
+# liên quan" tới câu hỏi. Dưới ngưỡng này, KHÔNG trả về kết quả nào -
+# hệ thống thà nói "tài liệu chưa đề cập" còn hơn đưa cho AI đọc những
+# đoạn văn không liên quan rồi để nó cố chắp vá thành câu trả lời.
+#
+# VÌ SAO CẦN (phát hiện qua đo thật): tìm kiếm vector LUÔN trả về N
+# đoạn "gần nhất", kể cả khi tất cả đều không liên quan gì - hỏi "cách
+# nấu phở bò" trong kho tài liệu Python vẫn ra đủ 8 kết quả. Không có
+# ngưỡng thì hệ thống không bao giờ biết mình đang thiếu tài liệu.
+#
+# GIÁ TRỊ 0.30 chọn theo số liệu đo được với model text-embedding-3-large
+# (xem app/ingestion/embedder.py): câu hỏi ĐÚNG chủ đề đạt 0.50-0.74,
+# câu hỏi lạc đề chỉ 0.12-0.13. Ngưỡng 0.30 nằm giữa 2 nhóm, cách xa
+# cả hai nên an toàn. LƯU Ý: ngưỡng này CHỈ đúng với model hiện tại -
+# đổi model embedding thì phải đo và chỉnh lại (model cũ 3-small có 2
+# nhóm chồng lấn nhau, không ngưỡng nào dùng được).
+MIN_RELEVANCE_SIMILARITY = 0.30
+
 
 @dataclass
 class SearchResult:
@@ -89,11 +107,21 @@ class SearchResult:
 
 # ACL pre-filter DÙNG CHUNG cho cả 2 nhánh tìm kiếm - viết 1 lần, gọi ở
 # cả 2 nơi, tránh 1 nhánh lỡ quên điều kiện khi sau này có ai sửa code.
+#
+# document.status = 'APPROVED' (Tác vụ #13, HITL) - PHÁT HIỆN QUA RÀ
+# SOÁT: cột document.status đã tồn tại từ Tác vụ #4 (DRAFT/PROCESSING/
+# PENDING_REVIEW/APPROVED/REJECTED/ARCHIVED) nhưng CHƯA TỪNG được lọc ở
+# đây - nghĩa là tài liệu vừa upload xong (chưa ai duyệt) vẫn bị AI tìm
+# thấy và dùng để trả lời ngay lập tức. Đúng nguyên tắc "chặn ở tầng dữ
+# liệu" xuyên suốt dự án: chỉ tài liệu ĐÃ ĐƯỢC GIẢNG VIÊN DUYỆT mới lọt
+# vào kết quả tìm kiếm, không phụ thuộc AI "tự biết" tài liệu nào đáng
+# tin.
 _ACL_FILTER_SQL = """
     chunk.course_id IN (
         SELECT course_id FROM enrollment WHERE user_id = :user_id
     )
     AND chunk.is_solution = FALSE
+    AND chunk.document_id IN (SELECT id FROM document WHERE status = 'APPROVED')
 """
 
 # Bản sao CÙNG Ý NGHĨA của _ACL_FILTER_SQL, nhưng dùng tham số VỊ TRÍ
@@ -107,15 +135,19 @@ _ACL_FILTER_SQL_POSITIONAL = """
         SELECT course_id FROM enrollment WHERE user_id = $2
     )
     AND chunk.is_solution = FALSE
+    AND chunk.document_id IN (SELECT id FROM document WHERE status = 'APPROVED')
 """
 
 
 async def _vector_search(
     session: AsyncSession, query_vector: list[float], user_id: int, limit: int
-) -> list[tuple[int, int]]:
+) -> tuple[list[tuple[int, int]], float]:
     """
-    Trả về [(chunk_id, rank)] xếp theo khoảng cách cosine tăng dần
-    (gần nhất trước).
+    Trả về ([(chunk_id, rank)], similarity_cao_nhat) xếp theo khoảng
+    cách cosine tăng dần (gần nhất trước).
+
+    similarity_cao_nhat dùng để quyết định "có tài liệu nào thật sự
+    liên quan không" - xem MIN_RELEVANCE_SIMILARITY ở đầu file.
 
     Dùng exec_driver_sql() với tham số VỊ TRÍ ($1, $2...) thay vì
     session.execute(text(...), {...}) với tham số TÊN - lý do lịch
@@ -140,7 +172,9 @@ async def _vector_search(
     conn = await session.connection()
     result = await conn.exec_driver_sql(
         f"""
-        SELECT id, ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) AS rank
+        SELECT id,
+               ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) AS rank,
+               1 - (embedding <=> $1::vector) AS similarity
         FROM chunk
         WHERE embedding IS NOT NULL AND {_ACL_FILTER_SQL_POSITIONAL}
         ORDER BY embedding <=> $1::vector
@@ -148,7 +182,10 @@ async def _vector_search(
         """,
         (str(query_vector), user_id, limit),
     )
-    return [(row.id, row.rank) for row in result]
+    rows = list(result)
+    ranked = [(row.id, row.rank) for row in rows]
+    best_similarity = max((row.similarity for row in rows), default=0.0)
+    return ranked, best_similarity
 
 
 async def _fulltext_search(
@@ -213,7 +250,21 @@ async def hybrid_search(
     if query_vector is None:
         query_vector = embed_texts([query_text])[0]
 
-    vector_ranked = await _vector_search(session, query_vector, user_id, TOP_K_PER_BRANCH)
+    vector_ranked, best_similarity = await _vector_search(
+        session, query_vector, user_id, TOP_K_PER_BRANCH
+    )
+
+    # CHỐT SỚM: không đoạn tài liệu nào đủ liên quan tới câu hỏi -> trả
+    # về RỖNG ngay, KHÔNG chạy tiếp nhánh tìm theo từ khoá.
+    #
+    # Đây là điều kiện làm cho hệ thống BIẾT KHI NÀO NÓ KHÔNG BIẾT: nếu
+    # cứ trả về "N đoạn gần nhất" bất chấp độ liên quan (hành vi cũ),
+    # AI sẽ nhận được toàn văn bản lạc đề rồi cố chắp vá thành câu trả
+    # lời, còn giảng viên thì không bao giờ biết kho tài liệu đang
+    # thiếu chủ đề nào (xem MIN_RELEVANCE_SIMILARITY ở đầu file).
+    if best_similarity < MIN_RELEVANCE_SIMILARITY:
+        return []
+
     fulltext_ranked = await _fulltext_search(session, query_text, user_id, TOP_K_PER_BRANCH)
 
     # RRF hoạt động đúng kể cả khi 1 trong 2 danh sách rỗng (vd câu hỏi

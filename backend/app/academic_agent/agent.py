@@ -476,13 +476,13 @@ async def handle_chat_stream(
     # Tải hồ sơ học tập (khái niệm của lớp + mức độ nắm vững) SONG SONG
     # với Guardrail và Router - 3 việc này KHÔNG phụ thuộc kết quả của
     # nhau, chạy nối tiếp là lãng phí thời gian người dùng phải chờ.
-    # Chỉ cần cho chế độ gia sư; các chế độ khác bỏ qua để không tốn
-    # truy vấn thừa.
-    needs_student_context = force_category == "SOCRATIC_REQUEST"
-
+    #
+    # Tải cho MỌI câu hỏi (không chỉ chế độ gia sư): danh sách khái
+    # niệm còn dùng để NHẬN DIỆN câu hỏi thuộc chủ đề nào, phục vụ Gap
+    # Analysis của giảng viên ("sinh viên hỏi nhiều về chủ đề X nhưng
+    # tài liệu không đáp ứng được"). Đây là 1 truy vấn nhỏ chạy song
+    # song, không thêm độ trễ mà người dùng cảm nhận được.
     async def _load_context_if_needed():
-        if not needs_student_context:
-            return StudentContext()
         return await load_student_context(session, user_id=user_id, course_id=course_id)
 
     if force_category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
@@ -533,13 +533,20 @@ async def handle_chat_stream(
         if inferred_course_id is not None:
             conversation.course_id = inferred_course_id
 
-    # Chế độ gia sư: xác định câu hỏi thuộc khái niệm nào để đọc mức độ
-    # nắm vững của sinh viên. Ưu tiên lựa chọn TƯỜNG MINH của sinh viên
-    # (họ sửa lại khi hệ thống đoán sai); không có thì tự đoán bằng so
-    # khớp vector - phép tính trong bộ nhớ, không gọi API, ~0ms.
+    # Xác định câu hỏi thuộc khái niệm nào - phép tính trong bộ nhớ,
+    # không gọi API, ~0ms (vector câu hỏi đã có sẵn từ bước tìm kiếm).
+    # Ưu tiên lựa chọn TƯỜNG MINH của sinh viên (họ sửa lại khi hệ
+    # thống đoán sai).
+    #
+    # Chạy cho MỌI câu hỏi, dùng vào 2 việc khác nhau:
+    # - Chế độ gia sư: đọc mức độ nắm vững để điều chỉnh cách dẫn dắt.
+    # - Mọi chế độ: lưu vào Message để giảng viên biết sinh viên hay
+    #   hỏi chủ đề nào mà tài liệu không đáp ứng được (Gap Analysis).
     student_model_block = ""
     matched_concept_id: int | None = None
-    if needs_student_context and student_context.concepts:
+    concept_name: str | None = None
+
+    if student_context.concepts:
         if concept_id is not None:
             matched_concept_id = concept_id
             concept_name = next(
@@ -549,10 +556,14 @@ async def handle_chat_stream(
             match = find_best_concept(query_vector, student_context.concepts)
             matched_concept_id = match.concept_id if match else None
             concept_name = match.concept_name if match else None
-        else:
-            concept_name = None
 
-        if matched_concept_id is not None and concept_name is not None:
+        # Mô hình người học CHỈ dùng cho chế độ gia sư - chế độ hỏi đáp
+        # thường không cần điều chỉnh theo mức độ nắm vững.
+        if (
+            route.category == "SOCRATIC_REQUEST"
+            and matched_concept_id is not None
+            and concept_name is not None
+        ):
             m = student_context.mastery_for(matched_concept_id)
             student_model_block = build_student_model_block(
                 concept_name=concept_name,
@@ -622,6 +633,7 @@ async def handle_chat_stream(
             citations=json.dumps(citations, ensure_ascii=False) if citations else None,
             category=route.category,
             needs_retrieval=route.needs_retrieval,
+            concept_id=matched_concept_id,
         )
     )
     await session.commit()

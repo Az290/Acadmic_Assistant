@@ -102,6 +102,10 @@ export interface DocumentPublic {
   content_hash: string;
   superseded_by_id: number | null;
   image_count: number;
+  // Cảnh báo tự động từ Curator Agent (nghi ngờ chỉ dẫn ẩn, chất
+  // lượng thấp, gần trùng tài liệu khác) - chỉ THAM KHẢO, giảng viên
+  // vẫn tự quyết định duyệt hay từ chối.
+  curator_notes: string | null;
 }
 
 export interface CitationPublic {
@@ -222,4 +226,73 @@ export interface InstructorAnalytics {
   category_breakdown: CategoryCount[];
   insufficient_context: InsufficientContextRate;
   security_alerts: SecurityAlertSummary[];
+}
+
+/* ---------- Bài tập (giao bài + chấm tự động) ---------- */
+
+export interface AssignmentPublic {
+  id: number;
+  course_id: number;
+  title: string;
+  description: string | null;
+  due_at: string | null;
+  question_count: number;
+  my_score: number | null;
+  my_total: number | null;
+  submitted: boolean;
+}
+
+export interface AssignmentQuestionPublic {
+  quiz_question_id: number;
+  ord: number;
+  question: string;
+  options: string[];
+}
+
+export interface AssignmentDetail {
+  id: number;
+  title: string;
+  description: string | null;
+  due_at: string | null;
+  questions: AssignmentQuestionPublic[];
+}
+
+export interface AnswerResult {
+  quiz_question_id: number;
+  is_correct: boolean;
+  correct_index: number;
+  explanation: string;
+}
+
+export interface SubmitAssignmentResponse {
+  score: number;
+  total: number;
+  results: AnswerResult[];
+}
+
+export interface StudentResultSummary {
+  user_id: number;
+  full_name: string;
+  score: number;
+  total: number;
+  submitted_at: string;
+}
+
+export interface ConceptDifficulty {
+  concept_id: number;
+  concept_name: string;
+  correct_count: number;
+  total_count: number;
+  accuracy: number;
+}
+
+export interface AssignmentResults {
+  assignment_id: number;
+  title: string;
+  submitted_count: number;
+  enrolled_count: number;
+  average_score: number;
+  total_questions: number;
+  students: StudentResultSummary[];
+  concept_difficulty: ConceptDifficulty[];
 }

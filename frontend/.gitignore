@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Ngoại lệ: file MẪU không chứa giá trị bí mật nào, cần đưa lên Git để
+# người khác (hoặc chính mình lúc dựng lại máy) biết cần khai báo
+# những biến nào.
+!.env.example
 
 # vercel
 .vercel

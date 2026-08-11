@@ -3,6 +3,7 @@ Endpoint upload tài liệu - nơi giáo viên đưa 1 file PDF vào hệ thốn
 kích hoạt toàn bộ Ingestion Pipeline: Parse -> Chunk -> Embed -> Lưu Database.
 """
 
+import logging
 import uuid
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, stat
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_role
+from app.auth.dependencies import get_current_user
 from app.db.models import AppUser, Course, Enrollment
 from app.db.session import get_db
 from app.documents.schemas import DocumentPublic
@@ -23,6 +24,8 @@ from app.ingestion.pipeline import ingest_document
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
+
+logger = logging.getLogger(__name__)
 
 # Nơi lưu file gốc TẠM THỜI trên đĩa cục bộ của server.
 #
@@ -41,14 +44,23 @@ async def upload_document(
     course_id: int,
     file: UploadFile,
     session: AsyncSession = Depends(get_db),
-    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+    user: AppUser = Depends(get_current_user),
 ):
     """
-    Giáo viên upload 1 file PDF vào 1 lớp (course) cụ thể.
+    Đưa 1 file PDF vào 1 lớp (course) cụ thể.
 
-    Yêu cầu quyền: chỉ INSTRUCTOR sở hữu lớp đó (hoặc ADMIN) mới được
-    upload - cùng nguyên tắc kiểm tra quyền đã dùng ở endpoint enroll,
-    tránh giáo viên A tự ý thêm tài liệu vào lớp của giáo viên B.
+    AI CÓ QUYỀN GỌI:
+    - Giảng viên phụ trách lớp (hoặc ADMIN): upload tài liệu chính thức.
+    - Sinh viên ĐANG HỌC lớp đó: ĐÓNG GÓP tài liệu (bài giảng chép tay,
+      tài liệu tham khảo tự tìm...).
+
+    An toàn của việc mở cho sinh viên nằm ở chỗ: MỌI tài liệu - bất kể
+    ai upload - đều vào trạng thái PENDING_REVIEW và KHÔNG được Hybrid
+    Search dùng cho tới khi giảng viên duyệt (xem
+    app/ingestion/pipeline.py + app/retrieval/hybrid_search.py). Sinh
+    viên không thể tự đẩy nội dung sai/độc hại vào câu trả lời của AI,
+    vì luôn có người kiểm duyệt ở giữa. Curator Agent cũng tự quét chỉ
+    dẫn ẩn trong file trước khi giảng viên xem.
 
     @limiter.limit(DEFAULT_RATE_LIMIT): mỗi lần upload chạy toàn bộ
     Ingestion Pipeline, gọi OpenAI embedding thật cho có thể hàng trăm
@@ -60,11 +72,21 @@ async def upload_document(
     if course is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lớp này.")
 
-    if course.owner_id != user.id and user.role != "ADMIN":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Bạn không phải giáo viên phụ trách lớp này.",
+    is_owner = course.owner_id == user.id or user.role == "ADMIN"
+    if not is_owner:
+        # Không phải chủ lớp -> phải là người ĐANG HỌC lớp này mới được
+        # đóng góp tài liệu. Người ngoài hoàn toàn không liên quan tới
+        # lớp thì không có lý do gì được đẩy file vào.
+        enrolled = await session.execute(
+            select(Enrollment).where(
+                Enrollment.user_id == user.id, Enrollment.course_id == course_id
+            )
         )
+        if enrolled.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không thuộc lớp học này.",
+            )
 
     # Thứ tự kiểm tra CÓ Ý NGHĨA: kiểm tra tên/định dạng rẻ nhất làm
     # trước, đọc toàn bộ nội dung file (tốn I/O) chỉ sau khi đã qua
@@ -103,9 +125,17 @@ async def upload_document(
         # nhưng nội dung bị hỏng/mã hoá khiến PyMuPDF crash giữa
         # chừng) - vẫn phải dọn file rác, nhưng KHÔNG lộ chi tiết lỗi
         # kỹ thuật nội bộ ra ngoài cho client (rò rỉ thông tin hệ
-        # thống) - chỉ trả thông điệp chung, đồng thời để lỗi gốc
-        # tiếp tục "nổi" lên log server cho việc debug sau này.
+        # thống) - chỉ trả thông điệp chung.
+        #
+        # logger.exception() BẮT BUỘC ở đây - PHÁT HIỆN QUA LỖI THẬT:
+        # trước đây comment nói "lỗi gốc tiếp tục nổi lên log" nhưng
+        # KHÔNG CÓ dòng log nào thật sự - raise HTTPException() không
+        # tự in traceback ra đâu cả (FastAPI xử lý HTTPException êm
+        # xuôi, không coi là lỗi chưa bắt được), khiến nguyên nhân thật
+        # (1 bug code thật ở Curator Agent) hoàn toàn biến mất khỏi log,
+        # phải chạy lại thủ công ngoài server mới thấy được.
         stored_path.unlink(missing_ok=True)
+        logger.exception("Lỗi không lường trước khi ingest tài liệu")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Không thể xử lý file này - có thể file bị hỏng hoặc không đúng định dạng PDF chuẩn.",

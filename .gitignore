@@ -28,3 +28,7 @@ docs/learning-log.html
 backend/sample_data/
 
 backend/uploaded_files/
+
+# Log/báo cáo chạy thử - không phải mã nguồn, thay đổi liên tục
+backend/server_test.log
+backend/scripts/eval_report.json

@@ -10,5 +10,23 @@ class DocumentPublic(BaseModel):
     content_hash: str
     superseded_by_id: int | None = None
     image_count: int = 0
+    curator_notes: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class PendingDocumentPublic(DocumentPublic):
+    """
+    Tài liệu trong hàng chờ duyệt - BỔ SUNG thông tin người đóng góp.
+
+    Cần thiết từ khi sinh viên cũng được đóng góp tài liệu: giảng viên
+    phải biết file này do đồng nghiệp hay do sinh viên gửi lên để cân
+    nhắc mức độ tin cậy khi duyệt.
+    """
+
+    uploader_name: str
+    uploader_role: str
+
+
+class RejectDocumentRequest(BaseModel):
+    reason: str | None = None

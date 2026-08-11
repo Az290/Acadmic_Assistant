@@ -59,6 +59,25 @@ function IconChart() {
   );
 }
 
+function IconAssignment() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 2h6a1 1 0 0 1 1 1v2H8V3a1 1 0 0 1 1-1z" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
+function IconCheck() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </svg>
+  );
+}
+
 function IconShield() {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -73,6 +92,8 @@ function IconShield() {
 const NAV_ITEMS: NavItem[] = [
   { href: "/student", label: "Trang chủ", icon: <IconHome />, roles: ["STUDENT"] },
   { href: "/instructor", label: "Thống kê lớp", icon: <IconChart />, roles: ["INSTRUCTOR", "ADMIN"] },
+  { href: "/assignments", label: "Bài tập", icon: <IconAssignment /> },
+  { href: "/review", label: "Duyệt tài liệu", icon: <IconCheck />, roles: ["INSTRUCTOR", "ADMIN"] },
   { href: "/admin", label: "Quản trị", icon: <IconShield />, roles: ["ADMIN"] },
   { href: "/courses", label: "Lớp học", icon: <IconCourses /> },
   { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, roles: ["INSTRUCTOR", "ADMIN"] },

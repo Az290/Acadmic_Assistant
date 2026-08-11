@@ -1,7 +1,0 @@
-D:\AI Th\u1ef1c Chi\u1ebfn\Acadmic_Assistant\backend\.venv\Lib\site-packages\starlette\config.py:60: UserWarning: Config file '' not found.
-  warnings.warn(f"Config file '{env_file}' not found.")
-{"timestamp": "2026-08-10T10:18:12", "level": "INFO", "logger": "uvicorn.error", "message": "Started server process [624]", "request_id": null}
-{"timestamp": "2026-08-10T10:18:12", "level": "INFO", "logger": "uvicorn.error", "message": "Waiting for application startup.", "request_id": null}
-{"timestamp": "2026-08-10T10:18:12", "level": "INFO", "logger": "uvicorn.error", "message": "Application startup complete.", "request_id": null}
-{"timestamp": "2026-08-10T10:18:12", "level": "INFO", "logger": "uvicorn.error", "message": "Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)", "request_id": null}
-{"timestamp": "2026-08-10T10:18:19", "level": "INFO", "logger": "uvicorn.access", "message": "127.0.0.1:65239 - \"POST /v1/auth/login HTTP/1.1\" 200", "request_id": null}
