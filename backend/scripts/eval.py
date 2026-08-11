@@ -19,12 +19,20 @@ Router, Retrieval, rate limit...), không bỏ qua tầng nào.
    nào) - dùng LLM-as-judge (gpt-4o-mini, RẺ, đã dùng sẵn trong dự án) để chấm
    theo thang 1-5, kèm lý do ngắn giải thích điểm số đó.
 
+Kết quả được GHI VÀO DATABASE (bảng eval_run + eval_case_result) thay
+vì chỉ ra file JSON cục bộ - để xem được XU HƯỚNG chất lượng qua nhiều
+lần chạy trên Eval Dashboard (trang web, chỉ ADMIN xem), không mất
+lịch sử mỗi khi chạy lại. eval_report.json vẫn được ghi song song (tiện
+xem nhanh ngay trên máy, không cần mở web).
+
 Chạy: python scripts/eval.py
 Yêu cầu: backend đang chạy ở BASE_URL (mặc định http://localhost:8001).
 """
 
 import asyncio
+import hashlib
 import json
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -41,6 +49,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.config import get_settings  # noqa: E402
+from app.db.models import EvalCaseResult, EvalRun  # noqa: E402
+from app.db.session import AsyncSessionLocal  # noqa: E402
 
 BASE_URL = "http://localhost:8001"
 DATASET_PATH = Path(__file__).parent / "eval_dataset.json"
@@ -49,6 +59,36 @@ REPORT_PATH = Path(__file__).parent / "eval_report.json"
 _settings = get_settings()
 _judge_client = OpenAI(api_key=_settings.openai_api_key)
 JUDGE_MODEL = "gpt-4o-mini"
+
+# Model dùng để SINH câu trả lời (Academic Agent) - hard-code khớp với
+# app/academic_agent/agent.py, KHÔNG phải JUDGE_MODEL (model chấm điểm)
+# - 2 khái niệm khác nhau, dễ nhầm nếu chỉ ghi 1 "model_version" chung
+# chung. Ghi vào eval_run để biết lượt eval nào chạy với model nào, nếu
+# sau này đổi model sinh câu trả lời (đã từng đổi embedding model vì lý
+# do tương tự - xem app/ingestion/embedder.py).
+ANSWER_MODEL = "gpt-4o-mini"
+
+
+def get_git_commit_hash() -> str | None:
+    """SHA đầy đủ của commit hiện tại - None nếu không lấy được (không phải
+    lỗi nghiêm trọng, không được chặn eval chỉ vì thiếu git)."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parent.parent, capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def get_dataset_version() -> str:
+    """
+    8 ký tự đầu của SHA-256 nội dung eval_dataset.json - tự động đổi
+    mỗi khi bộ câu hỏi mẫu thay đổi (thêm/sửa/xoá case), KHÔNG cần con
+    người tự nhớ tăng số version thủ công (dễ quên, dễ sai).
+    """
+    content = DATASET_PATH.read_bytes()
+    return hashlib.sha256(content).hexdigest()[:8]
 
 _JUDGE_SYSTEM_PROMPT = """Bạn là giám khảo chấm chất lượng câu trả lời của 1 trợ lý học thuật AI.
 Cho bạn: câu hỏi, tóm tắt nội dung ĐÚNG mong đợi (ground truth), và câu trả lời THẬT mà hệ thống đã sinh ra.
@@ -233,6 +273,41 @@ async def main():
     }
 
     REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # ---- Ghi vào DB (Eval Dashboard) ----
+    async with AsyncSessionLocal() as session:
+        eval_run = EvalRun(
+            git_commit_hash=get_git_commit_hash(),
+            model_version=ANSWER_MODEL,
+            dataset_version=get_dataset_version(),
+            total_cases=n,
+            errors=n_errors,
+            category_accuracy=category_accuracy,
+            avg_recall_at_k=avg_recall,
+            avg_judge_score=avg_judge_score,
+            judge_cases_scored=len(judge_cases),
+        )
+        session.add(eval_run)
+        await session.flush()  # để eval_run.id có giá trị, dùng gán cho từng case bên dưới
+
+        for r in results:
+            session.add(
+                EvalCaseResult(
+                    eval_run_id=eval_run.id,
+                    case_id=r.id,
+                    expected_category=r.expected_category,
+                    actual_category=r.actual_category,
+                    category_match=r.category_match,
+                    recall_at_k=r.recall_at_k,
+                    judge_score=r.judge_score,
+                    judge_reasoning=r.judge_reasoning or None,
+                    answer_preview=(r.answer[:500] + "…") if len(r.answer) > 500 else r.answer,
+                    latency_s=round(r.latency_s, 2),
+                    error=r.error,
+                )
+            )
+        await session.commit()
+        print(f"Đã ghi lượt eval #{eval_run.id} vào database (Eval Dashboard).")
 
     print("\n" + "=" * 60)
     print("TỔNG KẾT")

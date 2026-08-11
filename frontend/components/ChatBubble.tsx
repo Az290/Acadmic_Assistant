@@ -72,6 +72,12 @@ export default function ChatBubble() {
   const [concepts, setConcepts] = useState<ConceptPublic[]>([]);
   const [conceptId, setConceptId] = useState<number | undefined>(undefined);
   const [detectedConceptId, setDetectedConceptId] = useState<number | null>(null);
+  // Khái niệm cần CHỌN SẴN ngay khi danh sách concepts của 1 lớp vừa
+  // tải xong (đến từ sự kiện "open-tutor-chat" - đổi courseId ngay lúc
+  // đó sẽ kích hoạt effect load lại concepts VÀ effect đó tự reset
+  // conceptId về undefined, nên không thể set conceptId ngay lập tức
+  // cùng lúc với courseId - phải đợi qua bước trung gian này).
+  const [pendingConceptId, setPendingConceptId] = useState<number | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isOpen = size !== "closed";
@@ -91,7 +97,8 @@ export default function ChatBubble() {
   // Danh sách khái niệm chỉ có ý nghĩa khi đã chọn 1 lớp cụ thể - mỗi
   // lớp có bộ khái niệm riêng do giảng viên lớp đó tạo.
   useEffect(() => {
-    setConceptId(undefined);
+    setConceptId(pendingConceptId);
+    setPendingConceptId(undefined);
     setDetectedConceptId(null);
     if (courseId === undefined) {
       setConcepts([]);
@@ -101,6 +108,7 @@ export default function ChatBubble() {
       .get<ConceptPublic[]>(`/v1/concepts?course_id=${courseId}`)
       .then(setConcepts)
       .catch(() => setConcepts([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId]);
 
   function updateCurrentTab(updater: (state: TabState) => TabState) {
@@ -200,6 +208,34 @@ export default function ChatBubble() {
     setSize((prev) => (prev === "closed" ? "compact" : prev));
     setUnreadCount(0);
   }
+
+  // Lắng nghe sự kiện "mở chat ở tab Gia sư với 1 khái niệm cụ thể" -
+  // phát ra từ Proactive AI Toast (components/WeakestConceptToast.tsx)
+  // khi sinh viên bấm "Hỏi gia sư". Dùng CustomEvent thay vì Context/
+  // props-drilling: ChatBubble và Toast không có quan hệ cha-con trực
+  // tiếp trong cây component (Toast nằm trong từng trang, ChatBubble
+  // nằm trong layout dùng chung) - event trên window là cách đơn giản
+  // nhất để 2 component "xa nhau" giao tiếp mà không phải nâng state
+  // chat lên tận layout (sẽ phá vỡ việc ChatBubble tự quản lý state
+  // riêng của nó).
+  useEffect(() => {
+    function handleOpenTutorChat(e: Event) {
+      const detail = (e as CustomEvent<{ courseId: number; conceptId: number }>).detail;
+      setTab("SOCRATIC_REQUEST");
+      if (detail.courseId === courseId) {
+        // Cùng lớp đang chọn sẵn - effect [courseId] KHÔNG re-run (giá
+        // trị không đổi), nên set thẳng conceptId ở đây thay vì đợi effect.
+        setConceptId(detail.conceptId);
+      } else {
+        setPendingConceptId(detail.conceptId);
+        setCourseId(detail.courseId); // kích hoạt effect load concepts + áp dụng pendingConceptId ở trên
+      }
+      setSize((prev) => (prev === "closed" ? "compact" : prev));
+      setUnreadCount(0);
+    }
+    window.addEventListener("open-tutor-chat", handleOpenTutorChat);
+    return () => window.removeEventListener("open-tutor-chat", handleOpenTutorChat);
+  }, [courseId]);
 
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">

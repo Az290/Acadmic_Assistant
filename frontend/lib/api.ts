@@ -102,10 +102,53 @@ export interface DocumentPublic {
   content_hash: string;
   superseded_by_id: number | null;
   image_count: number;
-  // Cảnh báo tự động từ Curator Agent (nghi ngờ chỉ dẫn ẩn, chất
-  // lượng thấp, gần trùng tài liệu khác) - chỉ THAM KHẢO, giảng viên
-  // vẫn tự quyết định duyệt hay từ chối.
+  // Chuỗi JSON theo CuratorReport (3 bước: injection_scan/quality_gate/
+  // dedup) - cảnh báo tự động từ Curator Agent, chỉ THAM KHẢO, giảng
+  // viên vẫn tự quyết định duyệt hay từ chối. Dùng parseCuratorReport()
+  // bên dưới để đọc an toàn (dữ liệu cũ có thể là text tự do, không
+  // phải JSON).
   curator_notes: string | null;
+  // Lý do giảng viên ghi khi từ chối tài liệu (text tự do, tách khỏi
+  // curator_notes vì khác nguồn/khác cấu trúc).
+  rejection_reason: string | null;
+}
+
+export type CuratorStepStatus = "pass" | "warn";
+
+export interface CuratorStepResult {
+  status: CuratorStepStatus;
+  detail: string;
+}
+
+export interface CuratorReport {
+  injection_scan: CuratorStepResult;
+  quality_gate: CuratorStepResult;
+  dedup: CuratorStepResult;
+}
+
+/**
+ * Parse curator_notes an toàn - dữ liệu cũ (tài liệu ingest TRƯỚC khi
+ * đổi sang schema JSON) vẫn có thể là text tự do nối bằng "\n", không
+ * phải JSON hợp lệ. Trả về null nếu không parse được theo đúng cấu
+ * trúc CuratorReport, để component gọi tự quyết định fallback hiển thị.
+ */
+export function parseCuratorReport(raw: string | null): CuratorReport | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "injection_scan" in parsed &&
+      "quality_gate" in parsed &&
+      "dedup" in parsed
+    ) {
+      return parsed as CuratorReport;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export interface CitationPublic {
@@ -235,6 +278,60 @@ export interface InstructorAnalytics {
   insufficient_context: InsufficientContextRate;
   security_alerts: SecurityAlertSummary[];
   concept_gaps: ConceptGap[];
+}
+
+/* ---------- Proactive AI Toast (gợi ý khái niệm yếu nhất) ---------- */
+
+export interface WeakestConceptPublic {
+  concept_id: number;
+  concept_name: string;
+  course_id: number;
+  n_obs: number;
+  n_correct: number;
+  accuracy: number;
+}
+
+/**
+ * Phát sự kiện cho ChatBubble (component/ChatBubble.tsx) mở panel ở
+ * tab Gia sư với đúng lớp + khái niệm đã điền sẵn - xem comment trong
+ * ChatBubble.tsx lý do dùng CustomEvent thay vì Context.
+ */
+export function openTutorChat(courseId: number, conceptId: number) {
+  window.dispatchEvent(new CustomEvent("open-tutor-chat", { detail: { courseId, conceptId } }));
+}
+
+/* ---------- Eval Dashboard (chỉ ADMIN) ---------- */
+
+export interface EvalRunSummary {
+  id: number;
+  git_commit_hash: string | null;
+  model_version: string;
+  dataset_version: string;
+  total_cases: number;
+  errors: number;
+  category_accuracy: number;
+  avg_recall_at_k: number | null;
+  avg_judge_score: number | null;
+  judge_cases_scored: number;
+  created_at: string;
+}
+
+export interface EvalCaseResultPublic {
+  id: number;
+  case_id: string;
+  expected_category: string;
+  actual_category: string | null;
+  category_match: boolean | null;
+  recall_at_k: number | null;
+  judge_score: number | null;
+  judge_reasoning: string | null;
+  answer_preview: string | null;
+  latency_s: number | null;
+  error: string | null;
+}
+
+export interface EvalRunDetail extends EvalRunSummary {
+  cases: EvalCaseResultPublic[];
 }
 
 /* ---------- Bài tập (giao bài + chấm tự động) ---------- */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, CoursePublic, DocumentPublic } from "@/lib/api";
+import { api, ApiError, CoursePublic, DocumentPublic, parseCuratorReport } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
 /**
@@ -12,6 +12,34 @@ import { useAuth } from "@/lib/AuthContext";
  * thị ngay trên thẻ tài liệu để giảng viên cân nhắc trước khi quyết
  * định, nhưng KHÔNG chặn tự động (xem app/curator/curator.py).
  */
+const CURATOR_STEP_LABELS: Record<string, string> = {
+  injection_scan: "Chỉ dẫn ẩn",
+  quality_gate: "Chất lượng nội dung",
+  dedup: "Trùng lặp",
+};
+
+function CuratorStepRow({ stepKey, status, detail }: { stepKey: string; status: "pass" | "warn"; detail: string }) {
+  const ok = status === "pass";
+  return (
+    <div className="flex items-start gap-2 py-1">
+      <span
+        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+        style={
+          ok
+            ? { background: "var(--teal-bg, #DCF3EC)", color: "var(--teal-ink, #0F7A5C)" }
+            : { background: "var(--amber-bg)", color: "var(--amber-ink)" }
+        }
+      >
+        {ok ? "✓" : "!"}
+      </span>
+      <div className="min-w-0 text-[12px]">
+        <span className="font-semibold">{CURATOR_STEP_LABELS[stepKey] ?? stepKey}: </span>
+        <span style={{ color: ok ? "var(--ink-soft)" : "var(--amber-ink)" }}>{detail}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function ReviewDocumentsPage() {
   const { user } = useAuth();
   const [courses, setCourses] = useState<CoursePublic[]>([]);
@@ -163,16 +191,51 @@ export default function ReviewDocumentsPage() {
                   </span>
                 </div>
 
-                {d.curator_notes && (
+                {d.curator_notes &&
+                  (() => {
+                    const report = parseCuratorReport(d.curator_notes);
+                    if (report) {
+                      return (
+                        <div
+                          className="mt-2.5 rounded-[9px] border px-3 py-1.5"
+                          style={{ background: "var(--bg-soft, #FAFAF8)", borderColor: "var(--border)" }}
+                        >
+                          <CuratorStepRow
+                            stepKey="injection_scan"
+                            status={report.injection_scan.status}
+                            detail={report.injection_scan.detail}
+                          />
+                          <CuratorStepRow
+                            stepKey="quality_gate"
+                            status={report.quality_gate.status}
+                            detail={report.quality_gate.detail}
+                          />
+                          <CuratorStepRow stepKey="dedup" status={report.dedup.status} detail={report.dedup.detail} />
+                        </div>
+                      );
+                    }
+                    // Dữ liệu cũ (ingest trước khi đổi sang schema JSON) - hiển thị thô để không mất thông tin.
+                    return (
+                      <div
+                        className="mt-2.5 whitespace-pre-line rounded-[9px] border px-3 py-2 text-[12px]"
+                        style={{
+                          background: "var(--amber-bg)",
+                          borderColor: "#F0D589",
+                          color: "var(--amber-ink)",
+                        }}
+                      >
+                        {d.curator_notes}
+                      </div>
+                    );
+                  })()}
+
+                {d.rejection_reason && (
                   <div
-                    className="mt-2.5 whitespace-pre-line rounded-[9px] border px-3 py-2 text-[12px]"
-                    style={{
-                      background: "var(--amber-bg)",
-                      borderColor: "#F0D589",
-                      color: "var(--amber-ink)",
-                    }}
+                    className="mt-2 rounded-[9px] border px-3 py-2 text-[12px]"
+                    style={{ background: "var(--red-bg)", borderColor: "#E9B8B8", color: "var(--red-ink)" }}
                   >
-                    {d.curator_notes}
+                    <span className="font-semibold">Lý do từ chối: </span>
+                    {d.rejection_reason}
                   </div>
                 )}
 

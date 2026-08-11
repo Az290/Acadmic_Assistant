@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, CoursePublic } from "@/lib/api";
+import WeakestConceptToast from "@/components/WeakestConceptToast";
 
 interface MasteryPublic {
   concept_id: number;
@@ -45,6 +46,8 @@ export default function StudentDashboard() {
 
   return (
     <div className="max-w-4xl">
+      <WeakestConceptToast />
+
       <p className="mb-4 text-[13px]" style={{ color: "var(--ink-soft)" }}>
         Bấm biểu tượng chat ở góc phải dưới để hỏi bài bất cứ lúc nào.
       </p>

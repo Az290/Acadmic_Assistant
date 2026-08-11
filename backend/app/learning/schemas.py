@@ -53,3 +53,19 @@ class MasteryPublic(BaseModel):
     n_obs: int
     n_correct: int
     mastered: bool
+
+
+class WeakestConceptPublic(BaseModel):
+    """
+    Khái niệm sinh viên đang YẾU NHẤT (accuracy thấp nhất trong số các
+    concept đã có ít nhất 1 lượt quan sát và CHƯA mastered) - dùng cho
+    Proactive AI Toast gợi ý "Hỏi gia sư" (xem app/learning/router.py::
+    get_weakest_concept()).
+    """
+
+    concept_id: int
+    concept_name: str
+    course_id: int
+    n_obs: int
+    n_correct: int
+    accuracy: float

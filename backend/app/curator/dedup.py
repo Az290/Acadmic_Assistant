@@ -17,6 +17,8 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.curator.schemas import CuratorStepResult
+
 # Ngưỡng cosine similarity coi là "gần trùng" - đặc tả gốc đề xuất 0.93.
 # Đây là ngưỡng CAO (rất gần), cố tình tránh báo nhầm 2 tài liệu chỉ
 # CÙNG CHỦ ĐỀ (vd 2 chương khác nhau của cùng môn học cũng có thể có
@@ -70,3 +72,21 @@ async def find_near_duplicate(
         return None
 
     return DuplicateMatch(document_id=row.id, title=row.title, similarity=row.similarity)
+
+
+async def check_dedup(
+    session: AsyncSession, *, course_id: int, new_embedding: list[float], exclude_document_id: int | None = None
+) -> CuratorStepResult:
+    """Bọc find_near_duplicate() thành CuratorStepResult cho Curator Agent - xem app/curator/schemas.py."""
+    duplicate = await find_near_duplicate(
+        session, course_id=course_id, new_embedding=new_embedding, exclude_document_id=exclude_document_id
+    )
+    if duplicate is None:
+        return CuratorStepResult(status="pass", detail="Không tìm thấy tài liệu nào gần trùng trong cùng lớp.")
+    return CuratorStepResult(
+        status="warn",
+        detail=(
+            f"Nội dung giống {duplicate.similarity:.0%} với tài liệu đã có "
+            f"'{duplicate.title}' (#{duplicate.document_id}) - kiểm tra có phải trùng lặp không."
+        ),
+    )

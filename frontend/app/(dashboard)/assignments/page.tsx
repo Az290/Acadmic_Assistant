@@ -12,6 +12,7 @@ import {
   SubmitAssignmentResponse,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import WeakestConceptToast from "@/components/WeakestConceptToast";
 
 /**
  * Trang bài tập - DÙNG CHUNG cho cả 2 vai trò, hiển thị khác nhau:
@@ -142,6 +143,8 @@ export default function AssignmentsPage() {
 
   return (
     <div className="max-w-4xl">
+      {!isInstructor && <WeakestConceptToast />}
+
       {courses.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
           {courses.map((c) => (

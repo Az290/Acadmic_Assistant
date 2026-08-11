@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
-from app.db.models import AppUser, Concept, Course, Enrollment, QuizAttempt, QuizQuestion
+from app.db.models import AppUser, Concept, Course, Enrollment, QuizAttempt, QuizQuestion, StudentMastery
 from app.db.session import get_db
 from app.ingestion.embedder import embed_texts
 from app.learning.mastery import apply_answer, get_or_create_mastery
@@ -27,6 +27,7 @@ from app.learning.schemas import (
     QuizQuestionPublic,
     QuizQuestionRequest,
     SubmitAnswerRequest,
+    WeakestConceptPublic,
 )
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 
@@ -253,3 +254,58 @@ async def list_my_mastery(
         )
     await session.commit()  # get_or_create_mastery có thể đã tạo dòng mới - lưu lại
     return mastery_rows
+
+
+@router.get("/v1/learn/weakest-concept", response_model=WeakestConceptPublic | None)
+async def get_weakest_concept(
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Khái niệm sinh viên đang yếu nhất - phục vụ Proactive AI Toast
+    ("Có vẻ bạn đang gặp khó với X, hỏi gia sư không?").
+
+    QUÉT TOÀN BỘ course sinh viên đã enroll (không giới hạn 1 course cụ
+    thể) - Toast xuất hiện ở /student và /assignments, không có sẵn
+    course_id để lọc, và mục đích là gợi ý CHỦ ĐỘNG bất kể đang xem môn
+    nào.
+
+    ĐIỀU KIỆN: n_obs >= 1 (đã thực sự làm ít nhất 1 câu, không gợi ý
+    khái niệm chưa từng chạm tới - không có gì để nói "đang yếu"),
+    accuracy < 50%, và CHƯA mastered (nếu đã mastered thì dù từng có
+    giai đoạn accuracy thấp, sinh viên đã cải thiện - không nên gợi ý
+    lại). Trong các concept thoả điều kiện, CHỌN accuracy THẤP NHẤT;
+    hoà thì chọn n_obs LỚN HƠN (nhiều bằng chứng hơn, đáng tin hơn để
+    gợi ý, tránh gợi ý dựa trên 1-2 câu ngẫu nhiên).
+
+    Trả None nếu không có concept nào thoả điều kiện (sinh viên đang ổn,
+    hoặc chưa làm quiz nào) - frontend im lặng, KHÔNG hiện Toast.
+    """
+    rows = (
+        await session.execute(
+            select(StudentMastery, Concept.name, Concept.course_id)
+            .join(Concept, Concept.id == StudentMastery.concept_id)
+            .join(Enrollment, (Enrollment.course_id == Concept.course_id) & (Enrollment.user_id == user.id))
+            .where(StudentMastery.user_id == user.id, StudentMastery.n_obs >= 1, StudentMastery.mastered.is_(False))
+        )
+    ).all()
+
+    candidates = [
+        (mastery, concept_name, course_id, mastery.n_correct / mastery.n_obs)
+        for mastery, concept_name, course_id in rows
+    ]
+    candidates = [c for c in candidates if c[3] < 0.5]
+    if not candidates:
+        return None
+
+    # accuracy thấp nhất trước, hoà thì n_obs lớn hơn trước (đáng tin hơn).
+    mastery, concept_name, course_id, accuracy = min(candidates, key=lambda c: (c[3], -c[0].n_obs))
+
+    return WeakestConceptPublic(
+        concept_id=mastery.concept_id,
+        concept_name=concept_name,
+        course_id=course_id,
+        n_obs=mastery.n_obs,
+        n_correct=mastery.n_correct,
+        accuracy=round(accuracy, 3),
+    )

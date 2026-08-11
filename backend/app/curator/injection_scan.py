@@ -18,16 +18,16 @@ lệ (vd sách lập trình có đoạn code mẫu chứa chuỗi "ignore all pr
 errors") - tự động từ chối sẽ chặn oan tài liệu tốt.
 """
 
+from app.curator.schemas import CuratorStepResult
 from app.guardrail.rules import check_injection_patterns
 
 
-def scan_for_hidden_instructions(full_text: str) -> str | None:
-    """
-    full_text: toàn bộ text đã trích xuất từ PDF (nối các block lại).
-
-    Trả về chuỗi cảnh báo nếu phát hiện, None nếu sạch.
-    """
+def scan_for_hidden_instructions(full_text: str) -> CuratorStepResult:
+    """full_text: toàn bộ text đã trích xuất từ PDF (nối các block lại)."""
     reason = check_injection_patterns(full_text)
     if reason is None:
-        return None
-    return f"⚠️ Nghi ngờ chỉ dẫn ẩn trong tài liệu (có thể là prompt injection): {reason}"
+        return CuratorStepResult(status="pass", detail="Không phát hiện chỉ dẫn ẩn nào trong tài liệu.")
+    return CuratorStepResult(
+        status="warn",
+        detail=f"Nghi ngờ chỉ dẫn ẩn trong tài liệu (có thể là prompt injection): {reason}",
+    )

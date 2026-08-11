@@ -297,10 +297,7 @@ async def reject_document(
 
     document.status = "REJECTED"
     if body.reason:
-        rejection_note = f"❌ Bị từ chối: {body.reason}"
-        document.curator_notes = (
-            f"{document.curator_notes}\n{rejection_note}" if document.curator_notes else rejection_note
-        )
+        document.rejection_reason = body.reason
     await session.commit()
     await session.refresh(document)
     return document

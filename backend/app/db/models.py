@@ -26,6 +26,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -257,7 +258,17 @@ class Document(Base):
     # tinh thần HITL, và tránh chặn nhầm vì rule-based có thể báo sai
     # với nội dung học thuật hợp lệ, vd sách có đoạn code mẫu chứa cụm
     # từ trùng pattern injection).
+    #
+    # LƯU DẠNG CHUỖI JSON theo app.curator.schemas.CuratorReport (3 bước
+    # cố định: injection_scan/quality_gate/dedup) - KHÔNG còn là text tự
+    # do. Cột khác (rejection_reason) lưu riêng lý do từ chối của giảng
+    # viên, tránh trộn 2 nguồn dữ liệu khác cấu trúc vào cùng 1 cột.
     curator_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Lý do giảng viên từ chối tài liệu (điền lúc gọi POST .../reject) -
+    # tách khỏi curator_notes vì đó là JSON có schema cố định do máy tạo,
+    # còn đây là text tự do do con người viết.
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
@@ -615,4 +626,75 @@ class QuizAttempt(Base):
     quiz_question_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("quiz_question.id"), nullable=False)
     selected_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EvalRun(Base):
+    """
+    Một lượt chạy scripts/eval.py - lưu vào DB thay vì chỉ ghi ra file
+    JSON cục bộ (eval_report.json cũ), để xem được XU HƯỚNG chất lượng
+    qua thời gian trên Eval Dashboard, không mất lịch sử khi máy dev
+    chạy lại hoặc đổi máy.
+
+    git_commit_hash: SHA của commit đang chạy lúc eval - PHỤC VỤ ĐIỀU
+    TRA khi thấy điểm số tụt xuống ("chất lượng giảm từ commit nào?").
+    NULL nếu chạy ở trạng thái working tree chưa commit hoặc không xác
+    định được (không chặn eval chỉ vì thiếu git).
+
+    model_version / dataset_version: model LLM đang dùng (Router/Academic
+    Agent) và version của bộ câu hỏi mẫu (eval_dataset.json) - cần thiết
+    để so sánh ĐÚNG, tránh hiểu nhầm 1 điểm số tụt là do code tệ đi
+    trong khi thực ra do đổi model hoặc đổi bộ câu hỏi.
+
+    KHÔNG có endpoint xoá EvalRun (xem app/instructor/eval_router.py) -
+    giữ lại toàn bộ lịch sử để xem xu hướng dài hạn, kể cả lượt chạy có
+    điểm thấp (đặc biệt hữu ích để so sánh trước/sau 1 lần sửa lỗi).
+    """
+
+    __tablename__ = "eval_run"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    git_commit_hash: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    model_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    dataset_version: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    total_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    errors: Mapped[int] = mapped_column(Integer, nullable=False)
+    category_accuracy: Mapped[float] = mapped_column(Float, nullable=False)
+    avg_recall_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_judge_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    judge_cases_scored: Mapped[int] = mapped_column(Integer, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    case_results: Mapped[list["EvalCaseResult"]] = relationship(
+        back_populates="eval_run", cascade="all, delete-orphan"
+    )
+
+
+class EvalCaseResult(Base):
+    """
+    Kết quả chi tiết CỦA TỪNG câu hỏi mẫu trong 1 EvalRun - lưu cả
+    judge_reasoning THÔ (câu giải thích của LLM-judge, không rút gọn)
+    để giảng viên/admin đọc lại được LÝ DO cụ thể đằng sau 1 điểm số,
+    không chỉ con số trần trụi (vd "3/5" không tự giải thích được TẠI
+    SAO chỉ 3, nhưng judge_reasoning thì có).
+    """
+
+    __tablename__ = "eval_case_result"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    eval_run_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("eval_run.id"), nullable=False)
+
+    case_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    expected_category: Mapped[str] = mapped_column(String(50), nullable=False)
+    actual_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    category_match: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    recall_at_k: Mapped[float | None] = mapped_column(Float, nullable=True)
+    judge_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    judge_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latency_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    eval_run: Mapped["EvalRun"] = relationship(back_populates="case_results")

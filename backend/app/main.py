@@ -20,6 +20,7 @@ from app.config import get_settings
 from app.courses.router import router as courses_router
 from app.db.session import get_db
 from app.documents.router import router as documents_router
+from app.eval_dashboard.router import router as eval_dashboard_router
 from app.guardrail.router import router as guardrail_router
 from app.instructor.router import router as instructor_router
 from app.learning.assignment_router import router as assignment_router
@@ -113,6 +114,7 @@ app.include_router(chat_router)
 app.include_router(learning_router)
 app.include_router(assignment_router)
 app.include_router(instructor_router)
+app.include_router(eval_dashboard_router)
 
 
 @app.get("/healthz")

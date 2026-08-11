@@ -23,19 +23,24 @@ IMAGE_RATIO_WARNING_THRESHOLD = 0.3
 LOW_TEXT_DENSITY_WARNING_THRESHOLD = 150
 
 
-def check_quality(*, avg_chars_per_page: float, image_count: int, total_pages: int) -> list[str]:
+from app.curator.schemas import CuratorStepResult
+
+
+def check_quality(*, avg_chars_per_page: float, image_count: int, total_pages: int) -> CuratorStepResult:
     warnings: list[str] = []
 
     if avg_chars_per_page < LOW_TEXT_DENSITY_WARNING_THRESHOLD:
         warnings.append(
-            f"⚠️ Mật độ văn bản thấp bất thường (~{avg_chars_per_page:.0f} ký tự/trang) - "
+            f"Mật độ văn bản thấp bất thường (~{avg_chars_per_page:.0f} ký tự/trang) - "
             "tài liệu có thể chứa nhiều nội dung dạng ảnh/bảng biểu hơn văn bản thuần."
         )
 
     if total_pages > 0 and (image_count / total_pages) > IMAGE_RATIO_WARNING_THRESHOLD:
         warnings.append(
-            f"⚠️ {image_count}/{total_pages} trang có ảnh/hình vẽ KHÔNG xử lý được nội dung "
+            f"{image_count}/{total_pages} trang có ảnh/hình vẽ KHÔNG xử lý được nội dung "
             "(chưa hỗ trợ OCR/vision) - có thể thiếu thông tin quan trọng nằm trong hình."
         )
 
-    return warnings
+    if not warnings:
+        return CuratorStepResult(status="pass", detail="Chất lượng văn bản trích xuất bình thường.")
+    return CuratorStepResult(status="warn", detail=" ".join(warnings))

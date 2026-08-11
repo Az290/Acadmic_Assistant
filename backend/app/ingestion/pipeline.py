@@ -135,7 +135,7 @@ async def ingest_document(
         document_embedding=document_embedding,
         exclude_document_id=document.id,
     )
-    document.curator_notes = curator_report.notes
+    document.curator_notes = curator_report.model_dump_json()
 
     # Versioning: nếu cùng course đã có (các) document TRÙNG TIÊU ĐỀ và
     # CHƯA bị thay thế, coi bản mới này là bản kế tiếp - đánh dấu các

@@ -11,20 +11,18 @@ gap analysis (cần syllabus có cấu trúc, dự án chưa có) ở giai đo�
 Không có kiểm tra nào ở đây TỰ ĐỘNG TỪ CHỐI tài liệu - tất cả chỉ ghi
 cảnh báo vào curator_notes, con người (giảng viên) là người quyết định
 cuối cùng lúc duyệt (HITL - Human-In-The-Loop).
-"""
 
-from dataclasses import dataclass
+Kết quả trả về là app.curator.schemas.CuratorReport (JSON có cấu trúc
+cố định) - xem file đó để biết lý do đổi từ 1 chuỗi text tự do sang
+schema 3 bước riêng biệt.
+"""
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.curator.dedup import find_near_duplicate
+from app.curator.dedup import check_dedup
 from app.curator.injection_scan import scan_for_hidden_instructions
 from app.curator.quality_gate import check_quality
-
-
-@dataclass
-class CuratorReport:
-    notes: str | None  # None nếu không có cảnh báo nào - Document.curator_notes để trống, không phải chuỗi rỗng
+from app.curator.schemas import CuratorReport
 
 
 async def run_curator_checks(
@@ -38,23 +36,14 @@ async def run_curator_checks(
     document_embedding: list[float],
     exclude_document_id: int | None = None,
 ) -> CuratorReport:
-    warnings: list[str] = []
+    injection_result = scan_for_hidden_instructions(full_text)
 
-    injection_warning = scan_for_hidden_instructions(full_text)
-    if injection_warning:
-        warnings.append(injection_warning)
-
-    warnings.extend(
-        check_quality(avg_chars_per_page=avg_chars_per_page, image_count=image_count, total_pages=total_pages)
+    quality_result = check_quality(
+        avg_chars_per_page=avg_chars_per_page, image_count=image_count, total_pages=total_pages
     )
 
-    duplicate = await find_near_duplicate(
+    dedup_result = await check_dedup(
         session, course_id=course_id, new_embedding=document_embedding, exclude_document_id=exclude_document_id
     )
-    if duplicate is not None:
-        warnings.append(
-            f"⚠️ Nội dung giống {duplicate.similarity:.0%} với tài liệu đã có "
-            f"'{duplicate.title}' (#{duplicate.document_id}) - kiểm tra có phải trùng lặp không."
-        )
 
-    return CuratorReport(notes="\n".join(warnings) if warnings else None)
+    return CuratorReport(injection_scan=injection_result, quality_gate=quality_result, dedup=dedup_result)
