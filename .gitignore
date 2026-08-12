@@ -8,6 +8,10 @@ venv/
 # Environment secrets - KHÔNG BAO GIỜ commit API key thật
 .env
 .env.local
+# Mọi biến thể .env.* (vd .env.backup-ohio lưu connection string cũ khi
+# chuyển database) - đều chứa mật khẩu thật, không bao giờ được commit.
+.env.*
+!.env.example
 *.env
 
 # Node / frontend

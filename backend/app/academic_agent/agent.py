@@ -308,9 +308,22 @@ async def handle_chat(
     # giản bị BỎ QUA ở nhánh dưới - lãng phí đúng 1 lượt gọi LLM rẻ cho
     # trường hợp bị chặn (hiếm), đổi lại tiết kiệm ~4s độ trễ NGƯỜI DÙNG
     # THẤY ĐƯỢC ở mọi câu hỏi hợp lệ (đa số) - đánh đổi hợp lý.
-    input_check, route = await asyncio.gather(
+    #
+    # Vector câu hỏi cũng được tính NGAY tại đây (song song, không đợi 2
+    # bước trên) vì cùng lý do - xem giải thích đầy đủ ở
+    # handle_chat_stream(). Chỉ bỏ qua khi câu hỏi cần viết lại theo ngữ
+    # cảnh, vì lúc đó vector phụ thuộc kết quả bước viết lại.
+    needs_rewrite = bool(history) and _looks_context_dependent(message)
+
+    async def _embed_early():
+        if needs_rewrite:
+            return None
+        return await asyncio.to_thread(lambda: embed_texts([message])[0])
+
+    input_check, route, early_vector = await asyncio.gather(
         asyncio.to_thread(check_input, message),
         asyncio.to_thread(classify, message, history),
+        _embed_early(),
     )
 
     if not input_check.allowed:
@@ -340,10 +353,16 @@ async def handle_chat(
     search_results: list[SearchResult] = []
     if route.needs_retrieval:
         search_query = message
-        if history and _looks_context_dependent(message):
+        if needs_rewrite:
             search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
         search_results = await hybrid_search(
-            session, query_text=search_query, user_id=user_id, is_admin=is_admin
+            session,
+            query_text=search_query,
+            user_id=user_id,
+            is_admin=is_admin,
+            # Vector đã tính sẵn song song ở trên (None nếu câu hỏi phải
+            # viết lại - khi đó hybrid_search tự embed câu ĐÃ viết lại).
+            query_vector=early_vector,
         )
 
     # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - phải
@@ -492,6 +511,15 @@ async def handle_chat_stream(
     """
     request_start = time.monotonic()
 
+    # Báo tiến trình cho người dùng NGAY LẬP TỨC, trước cả khi làm gì.
+    #
+    # VÌ SAO CẦN: từ lúc gửi câu hỏi tới lúc chữ đầu tiên hiện ra mất
+    # khoảng 2 giây (kiểm tra an toàn + phân loại + tìm tài liệu). Nếu
+    # màn hình im lặng suốt khoảng đó, người dùng không phân biệt được
+    # "đang xử lý" với "bị treo". Các sự kiện status này KHÔNG làm hệ
+    # thống nhanh hơn - chúng làm cho việc chờ đợi có thể hiểu được.
+    yield {"type": "status", "stage": "checking"}
+
     history: list[dict] = []
     if conversation_id is not None:
         history = await _fetch_recent_history(session, conversation_id)
@@ -508,9 +536,32 @@ async def handle_chat_stream(
     async def _load_context_if_needed():
         return await load_student_context(session, user_id=user_id, course_id=course_id)
 
+    # Tính LUÔN vector câu hỏi ở giai đoạn này, song song với Guardrail/
+    # Router - ĐO ĐƯỢC QUA SỐ LIỆU THẬT: trước đây embedding chạy nối
+    # tiếp SAU khi Guardrail/Router xong, cộng thẳng ~1.2s vào khoảng
+    # thời gian người dùng nhìn màn hình trắng (chưa thấy chữ nào).
+    # Embedding KHÔNG phụ thuộc kết quả 2 bước kia nên không có lý do
+    # phải đợi.
+    #
+    # CHỈ làm được khi câu hỏi TỰ ĐẦY ĐỦ Ý NGHĨA: câu ngắn/phụ thuộc
+    # ngữ cảnh ("cho ví dụ?") phải qua bước viết lại bằng LLM trước
+    # (_rewrite_query_with_history) rồi mới embed được - lúc đó vector
+    # thật sự phụ thuộc bước trước, đành chạy nối tiếp như cũ.
+    #
+    # Đánh đổi: câu bị Guardrail chặn vẫn tốn 1 lượt embedding (~$0.000002)
+    # dù kết quả bị bỏ đi - không đáng kể so với vài giây tiết kiệm được
+    # cho MỌI câu hỏi hợp lệ.
+    needs_rewrite = bool(history) and _looks_context_dependent(message)
+    can_embed_early = not needs_rewrite
+
+    async def _embed_early():
+        if not can_embed_early:
+            return None
+        return await asyncio.to_thread(lambda: embed_texts([message])[0])
+
     guardrail_router_start = time.monotonic()
     if force_category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
-        input_check, route, student_context = await asyncio.gather(
+        input_check, route, student_context, early_vector = await asyncio.gather(
             asyncio.to_thread(check_input, message),
             asyncio.sleep(0, result=RouteResult(
                 category=force_category,
@@ -519,12 +570,14 @@ async def handle_chat_stream(
                 classified_by="forced",
             )),
             _load_context_if_needed(),
+            _embed_early(),
         )
     else:
-        input_check, route, student_context = await asyncio.gather(
+        input_check, route, student_context, early_vector = await asyncio.gather(
             asyncio.to_thread(check_input, message),
             asyncio.to_thread(classify, message, history),
             _load_context_if_needed(),
+            _embed_early(),
         )
     guardrail_router_ms = int((time.monotonic() - guardrail_router_start) * 1000)
 
@@ -541,13 +594,23 @@ async def handle_chat_stream(
     search_results: list[SearchResult] = []
     query_vector: list[float] | None = None
     if route.needs_retrieval:
+        yield {"type": "status", "stage": "searching"}
         search_query = message
-        if history and _looks_context_dependent(message):
+        if needs_rewrite:
             search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
+
         # Tính vector câu hỏi 1 LẦN DUY NHẤT rồi dùng cho CẢ 2 việc:
         # tìm tài liệu (Hybrid Search) và xác định khái niệm đang hỏi
         # (concept_matcher) - không gọi API embedding lần thứ hai.
-        query_vector = await asyncio.to_thread(lambda: embed_texts([search_query])[0])
+        #
+        # early_vector đã có sẵn nếu câu hỏi tự đầy đủ (đã tính song song
+        # với Guardrail/Router ở trên). Chỉ khi phải viết lại câu hỏi mới
+        # cần embed ở đây - lúc đó vector phải khớp câu ĐÃ VIẾT LẠI, không
+        # dùng lại vector của câu gốc được.
+        if early_vector is not None:
+            query_vector = early_vector
+        else:
+            query_vector = await asyncio.to_thread(lambda: embed_texts([search_query])[0])
         search_results = await hybrid_search(
             session,
             query_text=search_query,
@@ -556,6 +619,12 @@ async def handle_chat_stream(
             is_admin=is_admin,
         )
     retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
+
+    # Báo đã tìm xong tài liệu, sắp soạn câu trả lời. Kèm SỐ ĐOẠN tìm
+    # được để người dùng thấy hệ thống có căn cứ thật (hoặc biết ngay là
+    # không tìm thấy gì, thay vì bất ngờ khi đọc câu trả lời "tôi không
+    # có đủ thông tin").
+    yield {"type": "status", "stage": "generating", "sources_found": len(search_results)}
 
     # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - xem
     # docstring _infer_course_id (cùng logic với handle_chat()).

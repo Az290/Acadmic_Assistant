@@ -264,6 +264,11 @@ export type ChatStreamEvent =
   // Gia sư) - null nếu không khớp khái niệm nào. Hiển thị cho sinh
   // viên biết để họ sửa lại nếu đoán sai.
   | { type: "start"; conversation_id: number; category: string; concept_id: number | null }
+  // Tiến trình xử lý - gửi TRƯỚC khi có chữ đầu tiên, để người dùng
+  // biết hệ thống đang làm gì thay vì nhìn bong bóng rỗng ~2 giây.
+  // sources_found: số đoạn tài liệu tìm được (chỉ có ở stage
+  // "generating").
+  | { type: "status"; stage: "checking" | "searching" | "generating"; sources_found?: number }
   | { type: "chunk"; text: string }
   // message_id: id câu trả lời vừa lưu - cần để gửi đánh giá 👍/👎.
   // retrieval_similarity: độ khớp tài liệu (0-1), null nếu câu hỏi

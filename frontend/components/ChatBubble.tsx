@@ -32,6 +32,11 @@ interface DisplayMessage {
   citations?: CitationPublic[];
   blocked?: boolean;
   streaming?: boolean;
+  // Trạng thái xử lý hiện tại - hiện thay cho bong bóng rỗng trong ~2
+  // giây trước khi có chữ đầu tiên. Xoá đi ngay khi chữ bắt đầu về.
+  status?: "checking" | "searching" | "generating";
+  // Số đoạn tài liệu tìm được (đi kèm status "generating")
+  sourcesFound?: number;
   // messageId: id trong database - có sau khi stream xong, dùng để gửi
   // đánh giá 👍/👎. Tin nhắn đang stream chưa có id nên chưa đánh giá được.
   messageId?: number;
@@ -46,6 +51,21 @@ interface DisplayMessage {
 interface TabState {
   messages: DisplayMessage[];
   conversationId: number | undefined;
+}
+
+/**
+ * Chữ mô tả từng bước xử lý - viết cho người học đọc, KHÔNG dùng thuật
+ * ngữ kỹ thuật (không nói "guardrail", "embedding", "retrieval").
+ *
+ * Bước cuối kèm số đoạn tài liệu tìm được: người dùng thấy ngay hệ
+ * thống có căn cứ thật, hoặc biết trước là không tìm thấy gì thay vì
+ * bất ngờ khi đọc câu trả lời "tôi không có đủ thông tin".
+ */
+function STATUS_LABEL(stage: "checking" | "searching" | "generating", sourcesFound?: number): string {
+  if (stage === "checking") return "Đang đọc câu hỏi…";
+  if (stage === "searching") return "Đang tìm trong tài liệu…";
+  if (sourcesFound === 0) return "Không tìm thấy tài liệu phù hợp, đang soạn câu trả lời…";
+  return `Đã tìm thấy ${sourcesFound} đoạn tài liệu, đang soạn câu trả lời…`;
 }
 
 const TAB_LABEL: Record<TabMode, string> = {
@@ -172,10 +192,20 @@ export default function ChatBubble() {
             if (event.type === "start") {
               return { ...prev, [activeTab]: { messages, conversationId: event.conversation_id } };
             }
+            if (event.type === "status") {
+              messages[lastIndex] = {
+                ...messages[lastIndex],
+                status: event.stage,
+                sourcesFound: event.sources_found,
+              };
+              return { ...prev, [activeTab]: { ...state, messages } };
+            }
             if (event.type === "chunk") {
               messages[lastIndex] = {
                 ...messages[lastIndex],
                 content: messages[lastIndex].content + event.text,
+                // Chữ đã bắt đầu về -> không cần báo tiến trình nữa
+                status: undefined,
               };
               return { ...prev, [activeTab]: { ...state, messages } };
             }
@@ -186,6 +216,9 @@ export default function ChatBubble() {
                 streaming: false,
                 messageId: event.message_id,
                 retrievalSimilarity: event.retrieval_similarity,
+                // Phòng trường hợp không có chunk nào (câu trả lời rỗng)
+                // - status vẫn phải biến mất khi đã xong.
+                status: undefined,
               };
               return { ...prev, [activeTab]: { ...state, messages } };
             }
@@ -458,9 +491,26 @@ export default function ChatBubble() {
                   }`}
                   style={m.role === "user" ? { background: "var(--accent)" } : undefined}
                 >
-                  <div className="whitespace-pre-wrap">
+                  {/* Trạng thái xử lý - hiện THAY CHO bong bóng rỗng
+                      trong ~2 giây trước khi có chữ đầu tiên, để người
+                      dùng biết hệ thống đang làm gì thay vì tưởng treo. */}
+                  {m.status && (
+                    <div className="flex items-center gap-1.5 text-[11.5px] text-slate-500">
+                      <span className="flex gap-[3px]">
+                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
+                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
+                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+                      </span>
+                      <span>{STATUS_LABEL(m.status, m.sourcesFound)}</span>
+                    </div>
+                  )}
+
+                  {/* Ẩn hẳn khối nội dung khi đang hiện trạng thái mà
+                      chưa có chữ nào - tránh khoảng trống thừa dưới dòng
+                      trạng thái. */}
+                  <div className={`whitespace-pre-wrap ${m.status && !m.content ? "hidden" : ""}`}>
                     {m.content}
-                    {m.streaming && <span className="animate-pulse">▍</span>}
+                    {m.streaming && !m.status && <span className="animate-pulse">▍</span>}
                   </div>
 
                   {m.citations && m.citations.length > 0 && (
