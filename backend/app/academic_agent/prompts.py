@@ -47,7 +47,28 @@ chunk chỉ đọc qua nhưng không dùng. Nếu không dùng chunk nào (vd kh
 copy-paste được từ NGỮ CẢNH - hệ thống sẽ tự động so khớp lại, quote
 sai/không khớp sẽ bị loại bỏ khỏi câu trả lời cuối."""
 
-_RAG_QUESTION_PROMPT = """Bạn là trợ lý học thuật, trả lời câu hỏi của sinh viên DỰA HOÀN TOÀN vào các đoạn tài liệu được cung cấp trong phần "NGỮ CẢNH" dưới đây.
+# Danh tính chung, ghép vào ĐẦU mọi system prompt - viết 1 lần ở đây
+# thay vì lặp trong từng prompt, để đổi tên/cách xưng hô sau này chỉ
+# phải sửa 1 chỗ.
+#
+# VÌ SAO CẦN: đặt tên cho trợ lý mà bản thân model không biết mình tên
+# gì thì sinh viên gọi "Nova ơi" sẽ bị hiểu thành 1 từ vô nghĩa trong
+# câu hỏi, hoặc tệ hơn là model hỏi lại "Nova là ai?".
+NOVA_IDENTITY = """Bạn tên là Nova - trợ lý học thuật của hệ thống Academic Assistant.
+
+Về danh tính:
+- Khi sinh viên gọi "Nova", "Nova ơi", "bạn Nova"... là họ đang gọi BẠN.
+- Tự xưng là "mình" khi trò chuyện.
+- Nếu được hỏi TÊN hoặc "bạn là ai" -> PHẢI trả lời rõ bạn tên Nova. Không được trả lời chung chung kiểu "mình là trợ lý học thuật" mà bỏ qua tên.
+- Ngoài trường hợp trên, KHÔNG tự nhắc tên mình ở mỗi câu trả lời - rườm rà khi lặp lại nhiều lần."""
+
+# Chỉ dẫn về lời chào - CHỈ chèn vào lượt hỏi ĐẦU TIÊN của mỗi phiên
+# (xem build_system_prompt). Chào ở mọi lượt sẽ thành máy móc và tốn
+# thời gian đọc của sinh viên; không chào lần nào lại thành cộc lốc.
+_FIRST_MESSAGE_GREETING = """
+Đây là lượt trao đổi ĐẦU TIÊN trong phiên này: mở đầu bằng MỘT câu chào ngắn, tự nhiên (tối đa 1 dòng) rồi trả lời ngay. Các lượt sau trong cùng phiên thì vào thẳng nội dung, không chào lại."""
+
+_RAG_QUESTION_PROMPT = """Trả lời câu hỏi của sinh viên DỰA HOÀN TOÀN vào các đoạn tài liệu được cung cấp trong phần "NGỮ CẢNH" dưới đây.
 
 QUY TẮC BẮT BUỘC:
 1. CHỈ trả lời dựa trên nội dung trong NGỮ CẢNH - không dùng kiến thức ngoài tài liệu, kể cả khi bạn biết câu trả lời từ nguồn khác.
@@ -129,9 +150,9 @@ def build_student_model_block(
         concept_name=concept_name, n_obs=n_obs, n_correct=n_correct, streak=streak
     )
 
-_CHITCHAT_PROMPT = """Bạn là trợ lý học thuật thân thiện. Sinh viên đang giao tiếp xã giao (chào hỏi, cảm ơn...), không phải hỏi về nội dung học thuật. Trả lời ngắn gọn, tự nhiên, thân thiện - không cần trích dẫn tài liệu gì."""
+_CHITCHAT_PROMPT = """Sinh viên đang giao tiếp xã giao (chào hỏi, cảm ơn, hỏi bạn là ai...), không phải hỏi về nội dung học thuật. Trả lời ngắn gọn, tự nhiên, thân thiện - không cần trích dẫn tài liệu gì."""
 
-_OFF_TOPIC_PROMPT = """Bạn là trợ lý học thuật, CHỈ hỗ trợ các câu hỏi liên quan tới môn học. Sinh viên vừa hỏi 1 câu LẠC ĐỀ (không độc hại, chỉ là ngoài phạm vi hỗ trợ). Hãy từ chối LỊCH SỰ, ngắn gọn, nhắc lại phạm vi bạn có thể hỗ trợ - không cố trả lời nội dung lạc đề đó."""
+_OFF_TOPIC_PROMPT = """Bạn CHỈ hỗ trợ các câu hỏi liên quan tới môn học. Sinh viên vừa hỏi 1 câu LẠC ĐỀ (không độc hại, chỉ là ngoài phạm vi hỗ trợ). Hãy từ chối LỊCH SỰ, ngắn gọn, nhắc lại phạm vi bạn có thể hỗ trợ - không cố trả lời nội dung lạc đề đó."""
 
 _PROMPT_BY_CATEGORY = {
     "RAG_QUESTION": _RAG_QUESTION_PROMPT,
@@ -146,6 +167,7 @@ def build_system_prompt(
     context: str,
     student_model: str = "",
     with_citation_contract: bool = True,
+    is_first_message: bool = False,
 ) -> str:
     """
     Trả về system prompt hoàn chỉnh cho category tương ứng.
@@ -162,10 +184,21 @@ def build_system_prompt(
     student_model: đoạn mô tả mức độ nắm vững của sinh viên (xem
     build_student_model_block) - CHỈ prompt SOCRATIC_REQUEST có chỗ để
     chèn; truyền vào cho category khác cũng an toàn (bị bỏ qua).
+
+    is_first_message: lượt hỏi ĐẦU TIÊN của phiên (history rỗng) - chỉ
+    khi đó mới cho phép chào hỏi, các lượt sau vào thẳng nội dung.
     """
     template = _PROMPT_BY_CATEGORY[category]
+
+    # Danh tính Nova đứng ĐẦU mọi prompt, áp dụng cho cả 4 category -
+    # kể cả OFF_TOPIC (từ chối lịch sự vẫn phải biết mình là ai nếu
+    # sinh viên gọi tên).
+    prefix = NOVA_IDENTITY
+    if is_first_message:
+        prefix += _FIRST_MESSAGE_GREETING
+
     if "{context}" not in template:
-        return template
+        return f"{prefix}\n\n{template}"
 
     kwargs = {
         "context": context,
@@ -173,7 +206,7 @@ def build_system_prompt(
     }
     if "{student_model}" in template:
         kwargs["student_model"] = student_model
-    return template.format(**kwargs)
+    return f"{prefix}\n\n{template.format(**kwargs)}"
 
 
 def get_model_for_category(category: str) -> str:

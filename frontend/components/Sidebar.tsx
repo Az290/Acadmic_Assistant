@@ -9,6 +9,10 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ReactNode;
+  // Nhóm hiển thị trong sidebar - gom mục theo CÔNG VIỆC người dùng
+  // đang làm, thay vì đổ tất cả vào 1 danh sách phẳng. Với giảng viên
+  // (có 6-7 mục) danh sách phẳng khiến mắt phải quét lại từ đầu mỗi lần.
+  group: "Học tập" | "Giảng dạy" | "Hệ thống" | "Tài khoản";
   // roles: nếu để trống, MỌI role đã đăng nhập đều thấy mục này -
   // liệt kê rõ ràng role nào thấy mục nào thay vì để mặc định "ai
   // cũng thấy", tránh lộ chức năng quản trị cho STUDENT dù API đã
@@ -116,17 +120,25 @@ function IconTrend() {
 // trang chủ khác nhau hoàn toàn theo vai trò, không phải 1 giao diện
 // chung có nút chuyển role.
 const NAV_ITEMS: NavItem[] = [
-  { href: "/student", label: "Trang chủ", icon: <IconHome />, roles: ["STUDENT"] },
-  { href: "/mastery", label: "Tiến độ học tập", icon: <IconTrend />, roles: ["STUDENT"] },
-  { href: "/history", label: "Lịch sử hỏi đáp", icon: <IconHistory />, roles: ["STUDENT"] },
-  { href: "/instructor", label: "Thống kê lớp", icon: <IconChart />, roles: ["INSTRUCTOR", "ADMIN"] },
-  { href: "/assignments", label: "Bài tập", icon: <IconAssignment /> },
-  { href: "/review", label: "Duyệt tài liệu", icon: <IconCheck />, roles: ["INSTRUCTOR", "ADMIN"] },
-  { href: "/admin", label: "Quản trị", icon: <IconShield />, roles: ["ADMIN"] },
-  { href: "/courses", label: "Lớp học", icon: <IconCourses /> },
-  { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, roles: ["INSTRUCTOR", "ADMIN"] },
-  { href: "/profile", label: "Hồ sơ cá nhân", icon: <IconUser /> },
+  // Học tập - việc sinh viên làm hằng ngày
+  { href: "/student", label: "Trang chủ", icon: <IconHome />, roles: ["STUDENT"], group: "Học tập" },
+  { href: "/mastery", label: "Tiến độ học tập", icon: <IconTrend />, roles: ["STUDENT"], group: "Học tập" },
+  { href: "/assignments", label: "Bài tập", icon: <IconAssignment />, group: "Học tập" },
+  { href: "/history", label: "Lịch sử hỏi đáp", icon: <IconHistory />, roles: ["STUDENT"], group: "Học tập" },
+  { href: "/courses", label: "Lớp học", icon: <IconCourses />, group: "Học tập" },
+
+  // Giảng dạy - việc giảng viên làm với lớp mình phụ trách
+  { href: "/instructor", label: "Thống kê lớp", icon: <IconChart />, roles: ["INSTRUCTOR", "ADMIN"], group: "Giảng dạy" },
+  { href: "/review", label: "Duyệt tài liệu", icon: <IconCheck />, roles: ["INSTRUCTOR", "ADMIN"], group: "Giảng dạy" },
+  { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, roles: ["INSTRUCTOR", "ADMIN"], group: "Giảng dạy" },
+
+  // Hệ thống - toàn hệ thống, không thuộc lớp nào
+  { href: "/admin", label: "Quản trị", icon: <IconShield />, roles: ["ADMIN"], group: "Hệ thống" },
+
+  { href: "/profile", label: "Hồ sơ cá nhân", icon: <IconUser />, group: "Tài khoản" },
 ];
+
+const GROUP_ORDER = ["Học tập", "Giảng dạy", "Hệ thống", "Tài khoản"] as const;
 
 const ROLE_LABEL: Record<UserRole, string> = {
   STUDENT: "Sinh viên",
@@ -153,59 +165,79 @@ export default function Sidebar() {
       className="sticky top-0 flex h-screen w-60 flex-shrink-0 flex-col"
       style={{ background: "var(--sidebar)", color: "var(--sidebar-ink)" }}
     >
-      <div
-        className="flex items-center gap-2.5 border-b px-[18px] py-[14px]"
-        style={{ borderColor: "var(--sidebar-line)" }}
-      >
-        <div
-          className="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded-lg"
-          style={{ background: "var(--accent)" }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-          </svg>
-        </div>
-        <div>
-          <div className="text-[13px] font-bold leading-tight text-white">Academic Assistant</div>
-          <div className="text-[10.5px]" style={{ color: "#6b70a0" }}>
-            {ROLE_LABEL[user.role]}
-          </div>
+      <div className="px-5 py-5">
+        <div className="text-[13.5px] font-semibold leading-tight text-white">Academic Assistant</div>
+        <div className="mt-0.5 text-[11px]" style={{ color: "var(--sidebar-ink)" }}>
+          {ROLE_LABEL[user.role]}
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-1.5">
-        <div className="px-[18px] pb-1.5 pt-3.5 text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: "#545a8a" }}>
-          Học tập
-        </div>
-        {visibleItems.map((item) => {
-          const active = pathname.startsWith(item.href);
+      <nav className="flex-1 overflow-y-auto pb-3">
+        {GROUP_ORDER.map((group) => {
+          const items = visibleItems.filter((i) => i.group === group);
+          if (items.length === 0) return null;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-2.5 border-l-[3px] px-[18px] py-2 text-[12.8px]"
-              style={
-                active
-                  ? { background: "var(--sidebar-active)", borderLeftColor: "var(--accent)", color: "#fff", fontWeight: 600 }
-                  : { borderLeftColor: "transparent" }
-              }
-            >
-              <span className="inline-flex w-4 items-center justify-center opacity-80">{item.icon}</span>
-              {item.label}
-            </Link>
+            <div key={group} className="mb-1">
+              <div
+                className="px-5 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-[0.08em]"
+                style={{ color: "#5b6b85" }}
+              >
+                {group}
+              </div>
+              {items.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="relative flex items-center gap-2.5 px-5 py-[7px] text-[12.8px]"
+                    style={{
+                      color: active ? "#fff" : "var(--sidebar-ink)",
+                      fontWeight: active ? 600 : 400,
+                      background: active ? "var(--sidebar-active)" : "transparent",
+                      transition: "color var(--motion-fast) var(--ease), background-color var(--motion-fast) var(--ease)",
+                    }}
+                  >
+                    {/* Vạch dọc đánh dấu mục đang mở - đặt absolute để
+                        không đẩy chữ lệch sang phải như khi dùng
+                        border-left (mọi mục sẽ thẳng hàng dù đang ở
+                        trạng thái nào). */}
+                    {active && (
+                      <span
+                        className="absolute left-0 top-1/2 h-[18px] w-[2px] -translate-y-1/2 rounded-r"
+                        style={{ background: "var(--accent-strong)" }}
+                      />
+                    )}
+                    <span className="inline-flex w-4 items-center justify-center" style={{ opacity: active ? 1 : 0.65 }}>
+                      {item.icon}
+                    </span>
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
           );
         })}
       </nav>
 
-      <div className="border-t px-[18px] py-3" style={{ borderColor: "var(--sidebar-line)" }}>
-        <div className="mb-2 truncate text-[11px]" style={{ color: "var(--sidebar-ink)" }}>
-          {user.full_name}
-        </div>
+      <div className="border-t px-5 py-4" style={{ borderColor: "var(--sidebar-line)" }}>
+        <div className="mb-2.5 truncate text-[12px] text-white">{user.full_name}</div>
         <button
           onClick={handleLogout}
-          className="w-full rounded-lg border px-3 py-1.5 text-[11px] font-semibold hover:opacity-80"
-          style={{ borderColor: "var(--sidebar-line)", color: "var(--sidebar-ink)" }}
+          className="w-full rounded-[6px] border py-1.5 text-[11.5px] font-medium"
+          style={{
+            borderColor: "var(--sidebar-line)",
+            color: "var(--sidebar-ink)",
+            transition: "border-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = "#3b4a63";
+            e.currentTarget.style.color = "#fff";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = "var(--sidebar-line)";
+            e.currentTarget.style.color = "var(--sidebar-ink)";
+          }}
         >
           Đăng xuất
         </button>

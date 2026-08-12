@@ -2,85 +2,102 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, CoursePublic } from "@/lib/api";
+import { api, CoursePublic, MasteryOverview } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import NovaAvatar from "@/components/NovaAvatar";
 import WeakestConceptToast from "@/components/WeakestConceptToast";
 
 /**
- * Trang chủ sinh viên - dạng "hub" điều hướng: 1 banner chào + các thẻ
- * lớn dẫn tới từng chức năng, thay vì nhồi mọi số liệu vào đây.
+ * Trang chủ sinh viên - trả lời đúng 1 câu hỏi: "hôm nay tôi làm gì
+ * tiếp theo?".
  *
- * Chi tiết tiến độ học tập nằm ở trang riêng /mastery - trang này chỉ
- * cần trả lời câu hỏi "hôm nay tôi làm gì tiếp theo?".
+ * Chi tiết tiến độ nằm ở trang riêng /mastery; ở đây chỉ hiện con số
+ * tổng để sinh viên biết mình đang ở đâu, rồi dẫn tới hành động.
  *
- * Proactive Toast giữ NGUYÊN hành vi cũ (xem components/WeakestConceptToast.tsx),
- * không đổi gì khi bố cục trang thay đổi.
+ * Proactive Toast giữ NGUYÊN hành vi (components/WeakestConceptToast.tsx).
  */
 export default function StudentDashboard() {
   const { user } = useAuth();
   const router = useRouter();
   const [courses, setCourses] = useState<CoursePublic[]>([]);
+  const [mastery, setMastery] = useState<MasteryOverview | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api
-      .get<CoursePublic[]>("/v1/courses/me")
-      .then(setCourses)
-      .catch(() => setCourses([]))
+    Promise.all([
+      api.get<CoursePublic[]>("/v1/courses/me").catch(() => [] as CoursePublic[]),
+      api.get<MasteryOverview>("/v1/learn/mastery/overview").catch(() => null),
+    ])
+      .then(([c, m]) => {
+        setCourses(c);
+        setMastery(m);
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  /**
-   * Mở khung chat ở đúng tab mong muốn. Tái dùng CustomEvent đã có sẵn
-   * cho Proactive Toast - ChatBubble nằm trong layout dùng chung nên
-   * không truyền props trực tiếp được (xem components/ChatBubble.tsx).
-   */
+  /** Mở khung chat ở đúng tab - tái dùng CustomEvent đã có (ChatBubble
+   *  nằm trong layout dùng chung nên không truyền props trực tiếp được). */
   function openChat(tab: "RAG_QUESTION" | "SOCRATIC_REQUEST") {
     window.dispatchEvent(new CustomEvent("open-chat-tab", { detail: { tab } }));
   }
 
+  const firstName = user?.full_name?.trim().split(/\s+/).slice(-1)[0] ?? "bạn";
+  const weakest = mastery?.weak_concepts?.[0];
+
   return (
-    <div className="max-w-4xl">
+    <div className="animate-enter max-w-3xl">
       <WeakestConceptToast />
 
-      <div
-        className="rounded-[14px] px-6 py-6"
-        style={{ background: "linear-gradient(135deg, #1A1440 0%, #0E1225 100%)" }}
-      >
-        <div className="text-[12px]" style={{ color: "#9B8FE0" }}>
-          Xin chào, {user?.full_name ?? "bạn"}
+      {/* Khối chào - nền tối làm mỏ neo thị giác cho cả trang, đồng thời
+          là nơi duy nhất Nova tự giới thiệu sự hiện diện. */}
+      <section className="rounded-[12px] px-6 py-5" style={{ background: "var(--sidebar)" }}>
+        <div className="flex items-start gap-3">
+          <NovaAvatar size={34} />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[17px] font-semibold text-white">Chào {firstName}</h2>
+            <p className="mt-1 text-[13px] leading-relaxed" style={{ color: "var(--sidebar-ink)" }}>
+              {loading
+                ? "Đang tải…"
+                : courses.length === 0
+                  ? "Bạn chưa thuộc lớp nào — liên hệ giảng viên để được thêm vào lớp."
+                  : weakest
+                    ? `Mình là Nova. Hôm nay bạn có thể ôn lại "${weakest.concept_name}" — phần đang yếu nhất.`
+                    : "Mình là Nova, hỏi mình bất cứ điều gì về nội dung môn học."}
+            </p>
+          </div>
         </div>
-        <div className="mt-1.5 font-mono text-[34px] font-extrabold leading-tight text-white">
-          Hôm nay học gì?
-        </div>
-        <div className="mt-2 text-[13px] leading-relaxed" style={{ color: "#B3ACD4" }}>
-          {loading
-            ? "Đang tải lớp học của bạn…"
-            : courses.length > 0
-              ? `Bạn đang theo học ${courses.length} lớp. Trợ lý AI sẵn sàng hỗ trợ bạn bất cứ lúc nào.`
-              : "Bạn chưa thuộc lớp nào — liên hệ giảng viên để được thêm vào lớp."}
-        </div>
-      </div>
+      </section>
 
-      <div className="mt-4 space-y-2.5">
-        <HubCard
+      {/* Số liệu tổng - chỉ 3 con số, đủ để định vị bản thân mà không
+          biến trang chủ thành bảng thống kê. */}
+      {!loading && mastery && mastery.overall_mastery !== null && (
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <StatTile label="Mức nắm vững" value={`${Math.round(mastery.overall_mastery * 100)}%`} />
+          <StatTile label="Lớp đang học" value={String(courses.length)} />
+          <StatTile label="Cần ôn lại" value={String(mastery.weak_concepts.length)} />
+        </div>
+      )}
+
+      <h3 className="text-label mt-6 mb-2.5">Bắt đầu từ đâu</h3>
+      <div className="space-y-2">
+        <ActionRow
           title="Hỏi đáp học thuật"
-          description="Đặt câu hỏi bất kỳ — AI trả lời dựa trên tài liệu đã được giảng viên duyệt, kèm trích dẫn nguồn để bạn tự kiểm chứng."
+          description="Đặt câu hỏi bất kỳ — Nova trả lời dựa trên tài liệu đã được giảng viên duyệt, kèm trích dẫn để bạn tự kiểm chứng."
           onClick={() => openChat("RAG_QUESTION")}
         />
-        <HubCard
-          title="Gia sư AI"
-          description="Học theo phương pháp Socratic — AI gợi mở để bạn tự tìm ra đáp án thay vì đưa lời giải ngay."
+        <ActionRow
+          title="Gia sư Socratic"
+          description="Nova gợi mở từng bước để bạn tự tìm ra đáp án, thay vì đưa lời giải ngay."
           onClick={() => openChat("SOCRATIC_REQUEST")}
         />
-        <HubCard
+        <ActionRow
           title="Tiến độ học tập"
           description="Xem bạn đã nắm vững phần nào, phần nào cần ôn lại, và làm quiz ôn tập."
           onClick={() => router.push("/mastery")}
         />
-        <HubCard
+        <ActionRow
           title="Lịch sử hỏi đáp"
-          description="Xem lại toàn bộ câu hỏi bạn đã đặt và nguồn tài liệu AI đã dùng để trả lời."
+          description="Xem lại các câu đã hỏi và nguồn tài liệu Nova đã dùng để trả lời."
           onClick={() => router.push("/history")}
         />
       </div>
@@ -88,7 +105,21 @@ export default function StudentDashboard() {
   );
 }
 
-function HubCard({
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="card">
+      <div className="text-label">{label}</div>
+      <div className="text-metric mt-1">{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Hàng hành động - dùng đường kẻ ngang + phân cấp chữ thay vì icon
+ * trang trí, tránh cảm giác "mỗi dòng một biểu tượng" gây rối mắt.
+ * Mũi tên chỉ hiện khi rê chuột: gợi ý bấm được mà không ồn ào.
+ */
+function ActionRow({
   title,
   description,
   onClick,
@@ -98,15 +129,18 @@ function HubCard({
   onClick: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="block w-full rounded-[12px] border px-4 py-4 text-left transition-colors hover:border-[color:var(--accent)]"
-      style={{ background: "#fff", borderColor: "var(--border-strong)" }}
-    >
-      <div className="text-[15px] font-bold">{title}</div>
-      <div className="mt-1 text-[12.5px] leading-relaxed" style={{ color: "var(--ink-soft)" }}>
-        {description}
+    <button onClick={onClick} className="card-interactive group block w-full text-left">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-section-title">{title}</span>
+        <span
+          className="text-[15px] opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ color: "var(--accent-strong)", transitionDuration: "var(--motion-fast)" }}
+          aria-hidden="true"
+        >
+          →
+        </span>
       </div>
+      <p className="text-support mt-1">{description}</p>
     </button>
   );
 }

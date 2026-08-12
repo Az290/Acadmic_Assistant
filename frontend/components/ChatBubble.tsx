@@ -10,6 +10,7 @@ import {
   CoursePublic,
   streamChat,
 } from "@/lib/api";
+import NovaAvatar from "@/components/NovaAvatar";
 
 /**
  * ChatBubble - panel chat nổi kiểu Messenger, hiện ở MỌI trang (được
@@ -62,10 +63,10 @@ interface TabState {
  * bất ngờ khi đọc câu trả lời "tôi không có đủ thông tin".
  */
 function STATUS_LABEL(stage: "checking" | "searching" | "generating", sourcesFound?: number): string {
-  if (stage === "checking") return "Đang đọc câu hỏi…";
-  if (stage === "searching") return "Đang tìm trong tài liệu…";
-  if (sourcesFound === 0) return "Không tìm thấy tài liệu phù hợp, đang soạn câu trả lời…";
-  return `Đã tìm thấy ${sourcesFound} đoạn tài liệu, đang soạn câu trả lời…`;
+  if (stage === "checking") return "Nova đang đọc câu hỏi…";
+  if (stage === "searching") return "Nova đang tìm trong tài liệu…";
+  if (sourcesFound === 0) return "Không tìm thấy tài liệu phù hợp, Nova đang soạn câu trả lời…";
+  return `Đã tìm thấy ${sourcesFound} đoạn tài liệu, Nova đang soạn câu trả lời…`;
 }
 
 const TAB_LABEL: Record<TabMode, string> = {
@@ -364,24 +365,39 @@ export default function ChatBubble() {
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
       {isOpen && (
         <div
-          className={`flex flex-col overflow-hidden rounded-2xl border shadow-2xl transition-all ${PANEL_SIZE_CLASS[size]}`}
-          style={{ background: "#ffffff", borderColor: "var(--sidebar-line)" }}
+          className={`animate-fade flex flex-col overflow-hidden rounded-[12px] border ${PANEL_SIZE_CLASS[size]}`}
+          style={{
+            background: "#ffffff",
+            borderColor: "var(--border-strong)",
+            // Bóng đổ nhẹ và khuếch tán rộng - đủ để panel tách khỏi nền
+            // mà không có viền tối đậm kiểu hộp thoại cảnh báo.
+            boxShadow: "0 8px 32px rgba(15, 23, 42, 0.14)",
+          }}
         >
-          {/* Header: tiêu đề + nút đổi cỡ + nút đóng */}
+          {/* Header: Nova + nút đổi cỡ + nút đóng */}
           <div
             className="flex items-center justify-between px-4 py-3"
             style={{ background: "var(--sidebar)" }}
           >
-            <span className="text-sm font-semibold text-white">Trợ lý học thuật</span>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2.5">
+              <NovaAvatar size={26} />
+              <div className="leading-tight">
+                <div className="text-[13px] font-semibold text-white">Nova</div>
+                <div className="text-[10.5px]" style={{ color: "var(--sidebar-ink)" }}>
+                  Trợ lý học thuật
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-0.5">
               {(["compact", "half", "full"] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => setSize(s)}
-                  className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                  className="rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium"
                   style={{
                     color: size === s ? "#ffffff" : "var(--sidebar-ink)",
-                    background: size === s ? "var(--accent)" : "transparent",
+                    background: size === s ? "var(--sidebar-active)" : "transparent",
+                    transition: "background-color var(--motion-fast) var(--ease)",
                   }}
                   title={s === "compact" ? "Thu nhỏ" : s === "half" ? "Vừa" : "Phóng to"}
                 >
@@ -390,7 +406,11 @@ export default function ChatBubble() {
               ))}
               <button
                 onClick={() => setSize("closed")}
-                className="ml-1 rounded px-2 py-0.5 text-xs font-bold text-white hover:opacity-70"
+                className="ml-1 rounded-[4px] px-1.5 py-0.5 text-[13px] leading-none"
+                style={{ color: "var(--sidebar-ink)", transition: "color var(--motion-fast) var(--ease)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#fff")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--sidebar-ink)")}
+                aria-label="Đóng"
               >
                 ✕
               </button>
@@ -398,17 +418,18 @@ export default function ChatBubble() {
           </div>
 
           {/* Tabs: Hỏi đáp / Gia sư */}
-          <div className="flex border-b border-slate-200">
+          <div className="flex border-b" style={{ borderColor: "var(--border)" }}>
             {(["RAG_QUESTION", "SOCRATIC_REQUEST"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className="flex-1 py-2 text-xs font-semibold transition-colors"
-                style={
-                  tab === t
-                    ? { color: "var(--accent)", borderBottom: "2px solid var(--accent)" }
-                    : { color: "#94a3b8", borderBottom: "2px solid transparent" }
-                }
+                className="flex-1 py-2.5 text-[12.5px] font-medium"
+                style={{
+                  color: tab === t ? "var(--ink)" : "var(--ink-faint)",
+                  fontWeight: tab === t ? 600 : 400,
+                  borderBottom: tab === t ? "2px solid var(--accent)" : "2px solid transparent",
+                  transition: "color var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease)",
+                }}
               >
                 {TAB_LABEL[t]}
               </button>
@@ -417,7 +438,7 @@ export default function ChatBubble() {
 
           {/* Chọn lớp đang hỏi - để trống thì hệ thống tự nhận diện */}
           {courses.length > 0 && (
-            <div className="border-b px-3 py-1.5" style={{ borderColor: "var(--border)", background: "#F8F9FE" }}>
+            <div className="border-b px-3 py-1.5" style={{ borderColor: "var(--border)", background: "var(--panel-soft)" }}>
               <select
                 value={courseId ?? ""}
                 onChange={(e) => setCourseId(e.target.value ? Number(e.target.value) : undefined)}
@@ -439,7 +460,7 @@ export default function ChatBubble() {
           {tab === "SOCRATIC_REQUEST" && concepts.length > 0 && (
             <div
               className="flex items-center gap-2 border-b px-3 py-1.5"
-              style={{ borderColor: "var(--border)", background: "#F8F9FE" }}
+              style={{ borderColor: "var(--border)", background: "var(--panel-soft)" }}
             >
               <span className="whitespace-nowrap text-[10.5px]" style={{ color: "var(--ink-faint)" }}>
                 Chủ đề:
@@ -472,34 +493,47 @@ export default function ChatBubble() {
           {/* Nội dung chat */}
           <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
             {current.messages.length === 0 && (
-              <p className="text-xs text-slate-400">
-                {tab === "RAG_QUESTION"
-                  ? "Đặt câu hỏi về nội dung môn học — hệ thống tra cứu tài liệu để trả lời trực tiếp."
-                  : "Chế độ Gia sư: hệ thống sẽ gợi mở, dẫn dắt bạn tự tìm ra câu trả lời thay vì đưa đáp án ngay."}
-              </p>
+              <div className="flex flex-col items-center gap-2.5 pt-6 text-center">
+                <NovaAvatar size={38} />
+                <p className="text-support max-w-[260px]">
+                  {tab === "RAG_QUESTION"
+                    ? "Hỏi Nova về nội dung môn học — mỗi câu trả lời đều kèm trích dẫn để bạn tự kiểm chứng."
+                    : "Chế độ Gia sư: Nova gợi mở từng bước để bạn tự tìm ra đáp án, thay vì đưa lời giải ngay."}
+                </p>
+              </div>
             )}
 
             {current.messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div key={i} className={`animate-fade flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                {/* Avatar chỉ ở tin nhắn của Nova - tin nhắn người dùng
+                    không cần avatar (họ biết mình là ai), thêm vào chỉ
+                    làm chật khung chat vốn đã hẹp. */}
+                {m.role === "assistant" && !m.blocked && (
+                  <div className="mt-0.5">
+                    <NovaAvatar size={22} />
+                  </div>
+                )}
                 <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed ${
-                    m.role === "user"
-                      ? "text-white"
-                      : m.blocked
-                        ? "border border-red-200 bg-red-50 text-red-800"
-                        : "border border-slate-200 bg-slate-50 text-slate-800"
+                  className={`max-w-[82%] rounded-[10px] px-3 py-2 text-[12.5px] leading-relaxed ${
+                    m.role === "user" ? "text-white" : ""
                   }`}
-                  style={m.role === "user" ? { background: "var(--accent)" } : undefined}
+                  style={
+                    m.role === "user"
+                      ? { background: "var(--accent)" }
+                      : m.blocked
+                        ? { background: "var(--red-bg)", border: "1px solid #f0d0d0", color: "var(--red-ink)" }
+                        : { background: "var(--panel-soft)", border: "1px solid var(--border)", color: "var(--ink)" }
+                  }
                 >
                   {/* Trạng thái xử lý - hiện THAY CHO bong bóng rỗng
                       trong ~2 giây trước khi có chữ đầu tiên, để người
                       dùng biết hệ thống đang làm gì thay vì tưởng treo. */}
                   {m.status && (
-                    <div className="flex items-center gap-1.5 text-[11.5px] text-slate-500">
+                    <div className="flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
                       <span className="flex gap-[3px]">
-                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
-                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-slate-400 [animation-delay:150ms]" />
-                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-slate-400 [animation-delay:300ms]" />
+                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:0ms]" />
+                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:150ms]" />
+                        <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:300ms]" />
                       </span>
                       <span>{STATUS_LABEL(m.status, m.sourcesFound)}</span>
                     </div>
@@ -533,7 +567,7 @@ export default function ChatBubble() {
                       lời ĐÃ stream xong (có messageId), không hiện với
                       tin nhắn bị chặn hoặc câu hỏi của chính người dùng. */}
                   {m.role === "assistant" && !m.blocked && m.messageId !== undefined && (
-                    <div className="mt-1.5 flex items-center gap-1.5 border-t border-slate-200 pt-1.5">
+                    <div className="mt-1.5 flex items-center gap-1.5 border-t border-[color:var(--border)] pt-1.5">
                       <button
                         onClick={() => sendFeedback(m.messageId!, true)}
                         className="rounded px-1 text-[13px] leading-none transition-opacity"
@@ -572,21 +606,22 @@ export default function ChatBubble() {
           {error && <p className="px-3 pb-1 text-[11px] text-red-600">{error}</p>}
 
           {/* Ô nhập */}
-          <div className="flex gap-2 border-t border-slate-200 p-2">
+          <div className="flex gap-2 border-t p-2.5" style={{ borderColor: "var(--border)" }}>
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder="Nhập câu hỏi…"
-              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-xs focus:outline-none"
-              style={{ borderColor: "#cbd5e1" }}
+              placeholder="Hỏi Nova…"
+              className="flex-1 rounded-[6px] border px-3 py-2 text-[12.5px] focus:outline-none"
+              style={{ borderColor: "var(--border-strong)", transition: "border-color var(--motion-fast) var(--ease)" }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent-strong)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border-strong)")}
             />
             <button
               onClick={handleSend}
               disabled={sending || !input.trim()}
-              className="rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-              style={{ background: "var(--accent)" }}
+              className="btn btn-primary"
             >
               Gửi
             </button>
@@ -627,7 +662,7 @@ export default function ChatBubble() {
             </div>
             <div
               className="whitespace-pre-wrap rounded-[9px] border p-3 text-[12.5px] leading-relaxed"
-              style={{ background: "#F8F9FE", borderColor: "var(--border)", color: "var(--ink)" }}
+              style={{ background: "var(--panel-soft)", borderColor: "var(--border)", color: "var(--ink)" }}
             >
               {viewingChunk.content}
             </div>
@@ -638,13 +673,41 @@ export default function ChatBubble() {
       {/* Bong bóng tròn - luôn hiện, badge số đỏ khi có tin nhắn chưa xem */}
       <button
         onClick={isOpen ? () => setSize("closed") : openPanel}
-        className="relative flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition-transform hover:scale-105"
-        style={{ background: "var(--accent)" }}
-        aria-label="Mở trợ lý học thuật"
+        className="relative flex h-[52px] w-[52px] items-center justify-center rounded-full"
+        style={{
+          background: "var(--accent)",
+          boxShadow: "0 4px 16px rgba(30, 58, 95, 0.32)",
+          transition: "background-color var(--motion-fast) var(--ease)",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "#16304f")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "var(--accent)")}
+        aria-label={isOpen ? "Đóng Nova" : "Mở Nova - trợ lý học thuật"}
       >
-        <span className="text-2xl text-white">{isOpen ? "✕" : "💬"}</span>
+        {/* Biểu tượng Nova thay cho bong bóng chat mặc định - người dùng
+            nhận ra "đây là Nova" chứ không phải "đây là ô chat chung
+            chung". Không phóng to khi rê chuột: hiệu ứng nảy gây cảm
+            giác đồ chơi, không hợp môi trường học thuật. */}
+        {isOpen ? (
+          <span className="text-[18px] leading-none text-white">✕</span>
+        ) : (
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#fff"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 2.5 Q13 9.5 21.5 12 Q13 14.5 12 21.5 Q11 14.5 2.5 12 Q11 9.5 12 2.5 Z" />
+          </svg>
+        )}
         {!isOpen && unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+          <span
+            className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white"
+            style={{ background: "var(--red)", border: "2px solid var(--bg)" }}
+          >
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}

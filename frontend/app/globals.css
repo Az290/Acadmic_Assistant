@@ -1,44 +1,83 @@
 @import "tailwindcss";
 
 /*
-  Bảng màu lấy ĐÚNG theo file prototype (edu04-prototype_3.html) -
-  không phải suy đoán qua ảnh chụp. Giữ nguyên tên biến gốc để dễ đối
-  chiếu ngược lại prototype khi cần bổ sung thêm trang/thành phần sau
-  này.
+  HỆ THỐNG THIẾT KẾ - Academic Assistant
+
+  Đối tượng dùng: sinh viên và giảng viên đại học. Nguyên tắc dẫn dắt
+  mọi quyết định bên dưới:
+
+  1. NGHIÊM TÚC, KHÔNG LOÈ LOẸT - chỉ MỘT màu nhấn (navy). Các màu rực
+     (đỏ/vàng/xanh lá) CHỈ dùng cho trạng thái có nghĩa (lỗi, cảnh báo,
+     thành công), TUYỆT ĐỐI không dùng để trang trí.
+
+  2. ĐIỂM NHẤN BẰNG TƯƠNG PHẢN, KHÔNG BẰNG MÀU - phân cấp chữ rõ ràng
+     và khoảng trắng có nhịp là thứ dẫn mắt người đọc, không phải màu
+     sắc rực rỡ. Đây là lý do thang chữ bên dưới giãn rộng hơn bản cũ
+     (trước đây mọi cỡ chữ đều quanh 11-13px nên không có gì nổi bật).
+
+  3. CHUYỂN ĐỘNG NGẮN - tối đa 300ms. Animation dài hơn khiến người
+     dùng phải CHỜ giao diện thay vì giao diện phục vụ họ.
 */
 :root {
-  --bg: #f4f6fb;
+  /* ---------- Nền và bề mặt ---------- */
+  /* Trắng ngà thay vì trắng tinh (#FFF): dịu mắt hơn khi đọc lâu, và
+     tạo tương phản nhẹ để thẻ trắng nổi lên mà không cần đổ bóng. */
+  --bg: #fafafa;
   --panel: #ffffff;
-  --border: #e0e4ee;
-  --border-strong: #cdd2e0;
-  --ink: #141829;
-  --ink-soft: #5c6178;
-  --ink-faint: #8e92a6;
+  --panel-soft: #f6f7f9;
 
-  --sidebar: #0e1225;
-  --sidebar-line: #1d2240;
-  --sidebar-ink: #a3a8c2;
-  --sidebar-active: #171d38;
+  --border: #e6e7eb;
+  --border-strong: #d4d6dd;
 
-  --accent: #6c5ce7;
-  --accent-ink: #3a2fa0;
-  --accent-bg: #ede9fd;
+  /* ---------- Chữ ---------- */
+  --ink: #18181b;
+  --ink-soft: #52525b;
+  --ink-faint: #8b8b95;
 
-  --teal: #00b894;
-  --teal-ink: #007b63;
-  --teal-bg: #d6f5ed;
+  /* ---------- Sidebar (mỏ neo thị giác của cả trang) ---------- */
+  --sidebar: #0f172a;
+  --sidebar-line: #1e293b;
+  --sidebar-ink: #94a3b8;
+  --sidebar-active: #1e293b;
 
-  --blue: #0984e3;
-  --blue-ink: #0660a8;
-  --blue-bg: #ddeefb;
+  /* ---------- Màu nhấn: navy học thuật ---------- */
+  /* --accent dùng cho nút chính, viền tiêu điểm, thanh tiến độ.
+     --accent-strong dùng cho link và trạng thái đang hoạt động (sáng
+     hơn để nổi trên nền trắng mà vẫn đủ tương phản đọc được). */
+  --accent: #1e3a5f;
+  --accent-strong: #2563eb;
+  --accent-ink: #17304f;
+  --accent-bg: #eef2f8;
 
-  --red: #d63031;
-  --red-ink: #9b1f20;
-  --red-bg: #fcdede;
+  /* ---------- Màu trạng thái (CHỈ dùng khi có nghĩa) ---------- */
+  --teal: #0f766e;
+  --teal-ink: #115e59;
+  --teal-bg: #edf7f5;
 
-  --amber: #fdcb6e;
-  --amber-ink: #7d5e00;
-  --amber-bg: #fff5da;
+  --blue: #2563eb;
+  --blue-ink: #1d4ed8;
+  --blue-bg: #eff4fd;
+
+  --red: #b91c1c;
+  --red-ink: #991b1b;
+  --red-bg: #fdf0f0;
+
+  --amber: #b45309;
+  --amber-ink: #92400e;
+  --amber-bg: #fdf6ec;
+
+  /* ---------- Bo góc ---------- */
+  /* Bo vừa phải: quá tròn (>12px) trông như ứng dụng giải trí, quá
+     vuông trông thô cứng. */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  /* ---------- Chuyển động ---------- */
+  --motion-fast: 150ms; /* hover, đổi màu - phải gần như tức thì */
+  --motion-base: 250ms; /* mở/đóng, chuyển trạng thái */
+  --motion-slow: 300ms; /* nội dung mới vào trang - NGƯỠNG TỐI ĐA */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   --background: var(--bg);
   --foreground: var(--ink);
@@ -54,15 +93,195 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-geist-sans), -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Làm mảnh nét chữ trên màn hình mật độ cao - chữ dày quá trông nặng
+     nề khi đọc nhiều đoạn văn bản học thuật. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Card dùng chung cho mọi khối nội dung trong trang - bo góc, viền
-   nhạt, không đổ bóng đậm (đúng phong cách phẳng nhẹ của prototype,
-   không phải Material Design bóng đậm). */
+/* ============ THANG CHỮ ============
+   Đặt tên theo VAI TRÒ (page-title, section-title...) chứ không theo
+   kích thước (text-lg, text-xl) - khi cần chỉnh cỡ chữ của mọi tiêu đề
+   mục, sửa 1 chỗ ở đây thay vì tìm sửa từng trang. */
+.text-page-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.text-section-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.text-body {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.text-support {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+/* Nhãn nhỏ in hoa - dùng cho tiêu đề cột bảng, nhãn số liệu. Giãn chữ
+   (letter-spacing) là bắt buộc với chữ in hoa cỡ nhỏ, không giãn sẽ
+   dính vào nhau khó đọc. */
+.text-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* Số liệu thống kê - dùng font mono để các chữ số thẳng cột khi xếp
+   chồng nhiều dòng. */
+.text-metric {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+/* ============ THẺ ============ */
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+/* Thẻ bấm được - viền đậm dần khi rê chuột thay vì đổ bóng nảy lên.
+   Hiệu ứng nâng/phóng to gây cảm giác "đồ chơi", không hợp môi trường
+   học thuật. */
+.card-interactive {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease),
+    background-color var(--motion-fast) var(--ease);
+}
+.card-interactive:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-soft);
+}
+
+/* ============ NÚT ============ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease),
+    border-color var(--motion-fast) var(--ease),
+    opacity var(--motion-fast) var(--ease);
+}
+.btn:hover:not(:disabled) {
+  background: var(--panel-soft);
+  border-color: var(--ink-faint);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #16304f;
+  border-color: #16304f;
+}
+
+/* Nút cho hành động KHÔNG THỂ HOÀN TÁC (xoá, từ chối) - màu đỏ ở đây
+   mang NGHĨA cảnh báo, không phải trang trí. */
+.btn-danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #a51818;
+}
+
+/* ============ NHÃN TRẠNG THÁI ============ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* ============ CHUYỂN ĐỘNG ============
+   Chỉ 2 hiệu ứng, dùng lại khắp nơi. Nhiều loại animation khác nhau
+   trong cùng 1 sản phẩm làm giao diện thiếu nhất quán. */
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-enter {
+  animation: fade-rise var(--motion-slow) var(--ease);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade {
+  animation: fade-in var(--motion-base) var(--ease);
+}
+
+/* Tôn trọng cài đặt hệ thống của người dùng bị say chuyển động
+   (vestibular disorder) - bắt buộc về mặt tiếp cận, không phải tuỳ chọn. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Vòng tiêu điểm khi điều hướng bằng bàn phím - người dùng chỉ dùng
+   phím Tab phải luôn thấy mình đang ở đâu. */
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
 }

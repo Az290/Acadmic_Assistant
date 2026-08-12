@@ -10,16 +10,16 @@ const ROLE_LABEL: Record<UserRole, string> = {
   ADMIN: "Quản trị viên",
 };
 
-const ROLE_AVATAR: Record<UserRole, string> = {
-  STUDENT: "SV",
-  INSTRUCTOR: "GV",
-  ADMIN: "AD",
-};
-
-// Tiêu đề trang theo route - đơn giản hơn NAV có group của prototype
-// (app hiện chỉ có 2 trang chính), mở rộng dict này khi thêm trang mới.
+// Tiêu đề trang theo route. Thứ tự trong object QUAN TRỌNG với các route
+// lồng nhau: "/admin/eval" phải đứng TRƯỚC "/admin", nếu không tiền tố
+// "/admin" sẽ khớp trước và trang eval hiện sai tên.
 const PAGE_TITLE: Record<string, string> = {
+  "/admin/eval": "Đánh giá chất lượng",
   "/student": "Trang chủ",
+  "/mastery": "Tiến độ học tập",
+  "/history": "Lịch sử hỏi đáp",
+  "/quiz": "Quiz ôn tập",
+  "/profile": "Hồ sơ cá nhân",
   "/instructor": "Thống kê lớp",
   "/assignments": "Bài tập",
   "/review": "Duyệt tài liệu",
@@ -33,6 +33,13 @@ function pageTitleFor(pathname: string): string {
   return match ? PAGE_TITLE[match] : "Academic Assistant";
 }
 
+/** Chữ cái đầu của tên - dùng làm avatar thay vì viết tắt vai trò
+ *  ("SV"/"GV"), vì người dùng nhận ra CHÍNH MÌNH nhanh hơn qua tên. */
+function initialOf(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  return (parts[parts.length - 1]?.[0] ?? "?").toUpperCase();
+}
+
 export default function Topbar() {
   const { user } = useAuth();
   const pathname = usePathname();
@@ -40,30 +47,25 @@ export default function Topbar() {
   if (!user) return null;
 
   return (
-    <div
-      className="flex h-[54px] flex-shrink-0 items-center justify-between border-b px-[26px]"
+    <header
+      className="flex h-14 flex-shrink-0 items-center justify-between border-b px-7"
       style={{ borderColor: "var(--border)", background: "var(--panel)" }}
     >
-      <div>
-        <div className="text-xs" style={{ color: "var(--ink-faint)" }}>
-          {ROLE_LABEL[user.role]}
-        </div>
-        <h1 className="m-0 text-[16px] font-bold">{pageTitleFor(pathname)}</h1>
-      </div>
-      <div className="flex items-center gap-3.5">
-        <span
-          className="inline-block rounded-full px-2.5 py-[3px] text-[10.5px] font-bold"
-          style={{ background: "var(--accent-bg)", color: "var(--accent-ink)" }}
-        >
-          ● Online
-        </span>
+      <h1 className="text-page-title m-0">{pageTitleFor(pathname)}</h1>
+
+      {/* Đã bỏ nhãn "● Online": người dùng đang nhìn thấy giao diện thì
+          hiển nhiên là đang kết nối - nhãn đó chiếm chỗ mà không mang
+          thông tin nào. */}
+      <div className="flex items-center gap-2.5">
+        <span className="text-support hidden sm:block">{user.full_name}</span>
         <div
-          className="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold"
+          className="flex h-7 w-7 items-center justify-center rounded-full text-[11.5px] font-semibold"
           style={{ background: "var(--accent-bg)", color: "var(--accent-ink)" }}
+          title={`${user.full_name} · ${ROLE_LABEL[user.role]}`}
         >
-          {ROLE_AVATAR[user.role]}
+          {initialOf(user.full_name)}
         </div>
       </div>
-    </div>
+    </header>
   );
 }

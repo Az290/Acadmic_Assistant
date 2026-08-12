@@ -377,7 +377,11 @@ async def handle_chat(
 
     # --- Bước 5: Sinh câu trả lời - Dynamic Model Routing ---
     context_text = _build_context_text(search_results)
-    system_prompt = build_system_prompt(route.category, context_text)
+    # history rỗng = lượt hỏi đầu tiên của phiên -> cho phép Nova chào
+    # một câu ngắn. Các lượt sau vào thẳng nội dung (xem prompts.py).
+    system_prompt = build_system_prompt(
+        route.category, context_text, is_first_message=not history
+    )
     model = get_model_for_category(route.category)
 
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
@@ -677,7 +681,11 @@ async def handle_chat_stream(
     # with_citation_contract=False: luồng streaming đẩy thẳng text ra
     # màn hình, không parse JSON - xem docstring build_system_prompt.
     system_prompt = build_system_prompt(
-        route.category, context_text, student_model_block, with_citation_contract=False
+        route.category,
+        context_text,
+        student_model_block,
+        with_citation_contract=False,
+        is_first_message=not history,
     )
     model = get_model_for_category(route.category)
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
