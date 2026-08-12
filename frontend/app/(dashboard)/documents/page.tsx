@@ -10,6 +10,10 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploaded, setUploaded] = useState<DocumentPublic[]>([]);
+  // Quyền truy cập nội dung sau khi tài liệu được duyệt - backend là
+  // nơi chặn thật (app/retrieval/access_policy.py), ô chọn này chỉ là
+  // giao diện. Mặc định COURSE: mọi người trong lớp đọc được.
+  const [visibility, setVisibility] = useState<"COURSE" | "INSTRUCTOR_ONLY">("COURSE");
 
   useEffect(() => {
     api
@@ -28,7 +32,7 @@ export default function DocumentsPage() {
       const formData = new FormData();
       formData.append("file", file);
       const doc = await api.postForm<DocumentPublic>(
-        `/v1/documents/upload?course_id=${courseId}`,
+        `/v1/documents/upload?course_id=${courseId}&visibility=${visibility}`,
         formData
       );
       setUploaded((prev) => [doc, ...prev]);
@@ -87,6 +91,26 @@ export default function DocumentsPage() {
             className="w-full rounded-[7px] border px-2.5 py-2 text-[12.5px] file:mr-3 file:rounded file:border-0 file:bg-[#E8EAF0] file:px-3 file:py-1 file:text-[12.5px]"
             style={{ borderColor: "var(--border-strong)" }}
           />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-[11.5px] font-semibold" style={{ color: "var(--ink-soft)" }}>
+            Quyền truy cập
+          </label>
+          <select
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value as "COURSE" | "INSTRUCTOR_ONLY")}
+            className="w-full rounded-[7px] border px-2.5 py-2 text-[12.5px] focus:outline-none"
+            style={{ borderColor: "var(--border-strong)" }}
+          >
+            <option value="COURSE">Sinh viên trong lớp tra cứu được</option>
+            <option value="INSTRUCTOR_ONLY">Chỉ giảng viên (đề thi, đáp án…)</option>
+          </select>
+          {visibility === "INSTRUCTOR_ONLY" && (
+            <p className="mt-1 text-[11.5px]" style={{ color: "var(--amber-ink)" }}>
+              Sinh viên sẽ không tra cứu được nội dung này, kể cả khi hỏi trợ lý AI.
+            </p>
+          )}
         </div>
 
         {error && (

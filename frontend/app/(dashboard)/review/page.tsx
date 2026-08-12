@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, CoursePublic, DocumentPublic, parseCuratorReport } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  CoursePublic,
+  DocumentPreview,
+  DocumentPublic,
+  parseCuratorReport,
+} from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
 /**
@@ -50,6 +57,9 @@ export default function ReviewDocumentsPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  // Tài liệu đang xem trước (null = không mở modal nào)
+  const [preview, setPreview] = useState<DocumentPreview | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<number | null>(null);
 
   useEffect(() => {
     api
@@ -81,6 +91,24 @@ export default function ReviewDocumentsPage() {
     if (selectedCourseId === null) return;
     loadPending(selectedCourseId);
   }, [selectedCourseId]);
+
+  /**
+   * Mở xem trước nội dung ĐÃ TRÍCH XUẤT của tài liệu - giúp giảng viên
+   * biết AI thực sự đọc được gì trước khi quyết định duyệt (file PDF
+   * scan sẽ ra text rỗng hoặc rác, nhìn bản gốc không phát hiện được).
+   */
+  async function handlePreview(documentId: number) {
+    setPreviewLoadingId(documentId);
+    setError(null);
+    try {
+      const detail = await api.get<DocumentPreview>(`/v1/instructor/documents/${documentId}/preview`);
+      setPreview(detail);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không xem trước được tài liệu.");
+    } finally {
+      setPreviewLoadingId(null);
+    }
+  }
 
   async function handleApprove(documentId: number) {
     setBusyId(documentId);
@@ -286,12 +314,90 @@ export default function ReviewDocumentsPage() {
                     >
                       Từ chối
                     </button>
+                    <button
+                      onClick={() => handlePreview(d.id)}
+                      disabled={previewLoadingId === d.id}
+                      className="rounded-[7px] border px-4 py-1.5 text-[12.3px] font-semibold disabled:opacity-50"
+                      style={{ borderColor: "var(--border-strong)", color: "var(--ink)" }}
+                    >
+                      {previewLoadingId === d.id ? "Đang tải…" : "Xem trước"}
+                    </button>
                   </div>
                 )}
               </div>
             ))}
           </div>
         </>
+      )}
+
+      {/* Modal xem trước - hiện TEXT ĐÃ TRÍCH XUẤT (thứ AI thực sự đọc
+          được), không phải file PDF gốc. */}
+      {preview && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: "rgba(10, 12, 30, 0.45)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setPreview(null);
+          }}
+        >
+          <div
+            className="max-h-[85vh] w-[680px] max-w-[94vw] overflow-y-auto rounded-xl border bg-white p-5"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[13px] font-bold">{preview.title}</div>
+                <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                  {preview.total_chunks} đoạn đã trích xuất
+                  {preview.image_count > 0 && ` · ${preview.image_count} ảnh chưa xử lý được`}
+                </div>
+              </div>
+              <button
+                onClick={() => setPreview(null)}
+                className="text-[16px] leading-none"
+                style={{ color: "var(--ink-faint)" }}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p
+              className="mb-3 rounded-[9px] px-3 py-2 text-[11.5px]"
+              style={{ background: "var(--accent-bg)", color: "var(--accent-ink)" }}
+            >
+              Đây là nội dung <strong>AI thực sự đọc được</strong> sau khi trích xuất — nếu thấy trống hoặc
+              lộn xộn, tài liệu có thể là bản scan và AI sẽ không dùng được.
+            </p>
+
+            {preview.chunks.length === 0 && (
+              <p className="text-[12.5px]" style={{ color: "var(--red-ink)" }}>
+                Không trích xuất được đoạn văn bản nào từ tài liệu này.
+              </p>
+            )}
+
+            {preview.chunks.map((c, i) => (
+              <div key={c.chunk_id} className="mb-2.5">
+                <div className="mb-1 text-[10.5px] font-semibold" style={{ color: "var(--ink-faint)" }}>
+                  Đoạn {i + 1}
+                  {c.page_number !== null && ` · trang ${c.page_number}`}
+                </div>
+                <div
+                  className="whitespace-pre-wrap rounded-[9px] border p-3 text-[12px] leading-relaxed"
+                  style={{ background: "#F8F9FE", borderColor: "var(--border)" }}
+                >
+                  {c.content}
+                </div>
+              </div>
+            ))}
+
+            {preview.total_chunks > preview.chunks.length && (
+              <p className="mt-2 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
+                Hiển thị {preview.chunks.length} đoạn đầu trong tổng số {preview.total_chunks} đoạn.
+              </p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

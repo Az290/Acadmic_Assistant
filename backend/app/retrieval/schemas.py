@@ -20,3 +20,15 @@ class SearchResultPublic(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: list[SearchResultPublic]
+
+
+class ChunkDetail(BaseModel):
+    """
+    Nguyên văn 1 đoạn tài liệu - hiện khi người học bấm vào badge trích
+    dẫn để kiểm chứng câu trả lời của AI dựa trên đoạn nào.
+    """
+
+    chunk_id: int
+    content: str
+    page_number: int | None
+    document_title: str

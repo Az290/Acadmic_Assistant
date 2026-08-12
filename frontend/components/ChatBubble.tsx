@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, CitationPublic, ConceptPublic, CoursePublic, streamChat } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  ChunkDetail,
+  CitationPublic,
+  ConceptPublic,
+  CoursePublic,
+  streamChat,
+} from "@/lib/api";
 
 /**
  * ChatBubble - panel chat nổi kiểu Messenger, hiện ở MỌI trang (được
@@ -69,6 +77,10 @@ export default function ChatBubble() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  // Đoạn tài liệu đang xem chi tiết (bấm vào badge trích dẫn) - null
+  // nghĩa là không mở modal nào.
+  const [viewingChunk, setViewingChunk] = useState<ChunkDetail | null>(null);
+  const [chunkLoading, setChunkLoading] = useState<number | null>(null);
   const [courses, setCourses] = useState<CoursePublic[]>([]);
   // Lớp đang hỏi - gửi kèm mỗi request để hội thoại được gắn ĐÚNG lớp
   // (phục vụ thống kê Dashboard giảng viên). Nếu để trống, backend tự
@@ -225,6 +237,25 @@ export default function ChatBubble() {
   }
 
   /**
+   * Mở đoạn tài liệu gốc mà AI đã trích dẫn - để người học tự kiểm
+   * chứng câu trả lời thay vì phải tin tuyệt đối vào AI.
+   *
+   * Backend áp dụng đúng bộ lọc quyền của tìm kiếm (xem
+   * app/retrieval/access_policy.py) nên không lo lộ nội dung lớp khác.
+   */
+  async function openChunk(chunkId: number) {
+    setChunkLoading(chunkId);
+    try {
+      const detail = await api.get<ChunkDetail>(`/v1/chunks/${chunkId}`);
+      setViewingChunk(detail);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không mở được đoạn tài liệu.");
+    } finally {
+      setChunkLoading(null);
+    }
+  }
+
+  /**
    * Gửi đánh giá 👍/👎 cho 1 câu trả lời. Cập nhật giao diện NGAY
    * (optimistic) rồi mới gọi API - thao tác này nhỏ, phản hồi tức thì
    * quan trọng hơn việc chờ xác nhận từ server. Nếu API lỗi, trả lại
@@ -280,6 +311,21 @@ export default function ChatBubble() {
     window.addEventListener("open-tutor-chat", handleOpenTutorChat);
     return () => window.removeEventListener("open-tutor-chat", handleOpenTutorChat);
   }, [courseId]);
+
+  // Mở panel ở 1 tab cụ thể mà KHÔNG chỉ định khái niệm - phát ra từ
+  // các thẻ điều hướng ở trang chủ sinh viên. Khác "open-tutor-chat"
+  // (luôn kèm courseId + conceptId từ Proactive Toast) nên tách sự kiện
+  // riêng thay vì nhồi tham số tuỳ chọn vào cùng 1 sự kiện.
+  useEffect(() => {
+    function handleOpenChatTab(e: Event) {
+      const detail = (e as CustomEvent<{ tab: TabMode }>).detail;
+      setTab(detail.tab);
+      setSize((prev) => (prev === "closed" ? "compact" : prev));
+      setUnreadCount(0);
+    }
+    window.addEventListener("open-chat-tab", handleOpenChatTab);
+    return () => window.removeEventListener("open-chat-tab", handleOpenChatTab);
+  }, []);
 
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
@@ -420,13 +466,15 @@ export default function ChatBubble() {
                   {m.citations && m.citations.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {m.citations.map((c) => (
-                        <span
+                        <button
                           key={c.chunk_id}
-                          className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700"
-                          title={`Tài liệu #${c.document_id}${c.page_number ? `, trang ${c.page_number}` : ""}`}
+                          onClick={() => openChunk(c.chunk_id)}
+                          disabled={chunkLoading === c.chunk_id}
+                          className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                          title={`Bấm để xem nguyên văn đoạn này${c.page_number ? ` (trang ${c.page_number})` : ""}`}
                         >
-                          #{c.chunk_id}
-                        </span>
+                          {chunkLoading === c.chunk_id ? "…" : `#${c.chunk_id}`}
+                        </button>
                       ))}
                     </div>
                   )}
@@ -492,6 +540,47 @@ export default function ChatBubble() {
             >
               Gửi
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal xem nguyên văn đoạn trích dẫn - để người học tự kiểm
+          chứng câu trả lời, không phải tin tuyệt đối vào AI. */}
+      {viewingChunk && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: "rgba(10, 12, 30, 0.45)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setViewingChunk(null);
+          }}
+        >
+          <div
+            className="max-h-[80vh] w-[560px] max-w-[92vw] overflow-y-auto rounded-xl border bg-white p-5"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[13px] font-bold">Nguồn trích dẫn</div>
+                <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                  {viewingChunk.document_title}
+                  {viewingChunk.page_number !== null && ` · trang ${viewingChunk.page_number}`}
+                </div>
+              </div>
+              <button
+                onClick={() => setViewingChunk(null)}
+                className="text-[16px] leading-none"
+                style={{ color: "var(--ink-faint)" }}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+            <div
+              className="whitespace-pre-wrap rounded-[9px] border p-3 text-[12.5px] leading-relaxed"
+              style={{ background: "#F8F9FE", borderColor: "var(--border)", color: "var(--ink)" }}
+            >
+              {viewingChunk.content}
+            </div>
           </div>
         </div>
       )}

@@ -30,7 +30,7 @@ from app.logging_config import configure_logging
 from app.profile.router import router as profile_router
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 from app.request_id_middleware import RequestIdMiddleware
-from app.retrieval.router import router as retrieval_router
+from app.retrieval.router import chunks_router, router as retrieval_router
 from app.router_agent.router import router as router_agent_router
 
 configure_logging()
@@ -110,6 +110,7 @@ app.include_router(auth_router)
 app.include_router(courses_router)
 app.include_router(documents_router)
 app.include_router(retrieval_router)
+app.include_router(chunks_router)
 app.include_router(guardrail_router)
 app.include_router(router_agent_router)
 app.include_router(chat_router)

@@ -63,6 +63,31 @@ class PipelineTiming(BaseModel):
     avg_total_ms: float
 
 
+class DocumentPreviewChunk(BaseModel):
+    chunk_id: int
+    page_number: int | None
+    content: str
+
+
+class DocumentPreview(BaseModel):
+    """
+    Xem trước tài liệu trước khi duyệt - hiển thị TEXT ĐÃ TRÍCH XUẤT,
+    không phải file PDF gốc.
+
+    LÝ DO CÓ CHỦ Ý: giảng viên cần duyệt ĐÚNG THỨ AI SẼ ĐỌC ĐƯỢC. Một
+    file PDF trông đẹp mắt nhưng là bản scan ảnh sẽ cho ra text rỗng
+    hoặc rác - xem bản gốc sẽ không phát hiện được điều đó, còn xem text
+    trích xuất thì thấy ngay. Đây cũng chính là tinh thần quality gate
+    của Curator Agent.
+    """
+
+    document_id: int
+    title: str
+    total_chunks: int
+    image_count: int
+    chunks: list[DocumentPreviewChunk]
+
+
 class StudentNeedingSupport(BaseModel):
     """
     1 sinh viên đang gặp khó trong lớp.

@@ -50,6 +50,7 @@ async def ingest_document(
     storage_uri: str,
     uploaded_by: int,
     license_status: str = "OPEN",
+    visibility: str = "COURSE",
 ) -> Document:
     """
     Chạy trọn vẹn pipeline cho 1 file PDF, trả về Document đã lưu với
@@ -170,6 +171,11 @@ async def ingest_document(
                 page_number=draft.page_number,
                 embedding=vector,
                 embedding_version=EMBEDDING_VERSION,
+                # Áp cho MỌI chunk của tài liệu - quyền truy cập là
+                # thuộc tính của cả tài liệu, không phải của từng đoạn.
+                # Lưu ở tầng chunk vì đó là nơi Hybrid Search lọc
+                # (xem app/retrieval/access_policy.py).
+                visibility=visibility,
             )
         )
 

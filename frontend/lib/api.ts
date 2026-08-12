@@ -209,6 +209,33 @@ export function parseCuratorReport(raw: string | null): CuratorReport | null {
   }
 }
 
+export interface DocumentPreviewChunk {
+  chunk_id: number;
+  page_number: number | null;
+  content: string;
+}
+
+/**
+ * Xem trước tài liệu trước khi duyệt - TEXT ĐÃ TRÍCH XUẤT, không phải
+ * file gốc: giảng viên cần thấy đúng thứ AI đọc được (PDF scan sẽ ra
+ * text rỗng/rác, xem bản gốc không phát hiện ra).
+ */
+export interface DocumentPreview {
+  document_id: number;
+  title: string;
+  total_chunks: number;
+  image_count: number;
+  chunks: DocumentPreviewChunk[];
+}
+
+/** Nguyên văn 1 đoạn tài liệu - hiện khi bấm vào badge trích dẫn. */
+export interface ChunkDetail {
+  chunk_id: number;
+  content: string;
+  page_number: number | null;
+  document_title: string;
+}
+
 export interface CitationPublic {
   chunk_id: number;
   document_id: number;

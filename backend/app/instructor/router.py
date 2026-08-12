@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_role
 from app.db.models import (
     AppUser,
+    Chunk,
     Concept,
     Conversation,
     Course,
@@ -44,6 +45,8 @@ from app.instructor.schemas import (
     ConceptGap,
     InstructorAnalytics,
     ClassAnalytics,
+    DocumentPreview,
+    DocumentPreviewChunk,
     InsufficientContextRate,
     MasteryDistributionBucket,
     PopularConcept,
@@ -566,6 +569,55 @@ async def get_popular_concepts(
         )
 
     return result
+
+
+# Số đoạn hiển thị khi xem trước - đủ để giảng viên đánh giá chất lượng
+# trích xuất (có ra chữ không, có bị dính rác không) mà không phải cuộn
+# qua cả trăm đoạn.
+PREVIEW_CHUNK_LIMIT = 5
+
+
+@router.get("/documents/{document_id}/preview", response_model=DocumentPreview)
+async def preview_document(
+    document_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Xem trước nội dung tài liệu trước khi duyệt.
+
+    Trả về TEXT ĐÃ TRÍCH XUẤT chứ không phải file gốc - xem docstring
+    DocumentPreview trong schemas.py về lý do.
+
+    KHÔNG lọc theo visibility ở đây: giảng viên đang duyệt chính tài
+    liệu của lớp mình (_require_document_owner đã kiểm tra), họ có
+    quyền xem toàn bộ nội dung kể cả phần sẽ đánh dấu INSTRUCTOR_ONLY.
+    """
+    document = await _require_document_owner(session, user=user, document_id=document_id)
+
+    total_chunks = (
+        await session.execute(select(func.count(Chunk.id)).where(Chunk.document_id == document_id))
+    ).scalar_one()
+
+    rows = (
+        await session.execute(
+            select(Chunk.id, Chunk.page_number, Chunk.content)
+            .where(Chunk.document_id == document_id)
+            .order_by(Chunk.ord)
+            .limit(PREVIEW_CHUNK_LIMIT)
+        )
+    ).all()
+
+    return DocumentPreview(
+        document_id=document.id,
+        title=document.title,
+        total_chunks=total_chunks,
+        image_count=document.image_count,
+        chunks=[
+            DocumentPreviewChunk(chunk_id=chunk_id, page_number=page_number, content=content)
+            for chunk_id, page_number, content in rows
+        ],
+    )
 
 
 # ---------- Phân tích lớp ----------

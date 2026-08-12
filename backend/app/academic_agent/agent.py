@@ -273,6 +273,7 @@ async def handle_chat(
     session: AsyncSession,
     *,
     user_id: int,
+    is_admin: bool = False,
     message: str,
     conversation_id: int | None = None,
     course_id: int | None = None,
@@ -341,7 +342,9 @@ async def handle_chat(
         search_query = message
         if history and _looks_context_dependent(message):
             search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
-        search_results = await hybrid_search(session, query_text=search_query, user_id=user_id)
+        search_results = await hybrid_search(
+            session, query_text=search_query, user_id=user_id, is_admin=is_admin
+        )
 
     # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - phải
     # làm SAU Hybrid Search vì course_id được suy ra từ chính các chunk
@@ -459,6 +462,7 @@ async def handle_chat_stream(
     session_factory,
     *,
     user_id: int,
+    is_admin: bool = False,
     message: str,
     conversation_id: int | None = None,
     course_id: int | None = None,
@@ -545,7 +549,11 @@ async def handle_chat_stream(
         # (concept_matcher) - không gọi API embedding lần thứ hai.
         query_vector = await asyncio.to_thread(lambda: embed_texts([search_query])[0])
         search_results = await hybrid_search(
-            session, query_text=search_query, user_id=user_id, query_vector=query_vector
+            session,
+            query_text=search_query,
+            user_id=user_id,
+            query_vector=query_vector,
+            is_admin=is_admin,
         )
     retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
 

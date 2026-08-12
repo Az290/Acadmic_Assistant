@@ -43,6 +43,7 @@ async def upload_document(
     request: Request,
     course_id: int,
     file: UploadFile,
+    visibility: str = "COURSE",
     session: AsyncSession = Depends(get_db),
     user: AppUser = Depends(get_current_user),
 ):
@@ -88,6 +89,27 @@ async def upload_document(
                 detail="Bạn không thuộc lớp học này.",
             )
 
+    # Quyền truy cập nội dung sau khi tài liệu được duyệt:
+    #   COURSE          - mọi người trong lớp đọc được (mặc định)
+    #   INSTRUCTOR_ONLY - chỉ giảng viên của lớp + ADMIN (đề thi, đáp án)
+    # Xem app/retrieval/access_policy.py để biết bộ lọc áp dụng thật sự.
+    if visibility not in ("COURSE", "INSTRUCTOR_ONLY"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Quyền truy cập không hợp lệ.",
+        )
+
+    # CHẶN Ở TẦNG SERVER, không dựa vào việc giao diện có hiện ô chọn
+    # hay không: nếu sinh viên đóng góp tài liệu được phép tự đánh dấu
+    # INSTRUCTOR_ONLY, họ có thể đẩy nội dung vào kho mà chính bạn cùng
+    # lớp không bao giờ tra cứu được - vừa vô nghĩa, vừa là kẽ hở để
+    # giấu nội dung khỏi tầm kiểm soát thông thường.
+    if visibility == "INSTRUCTOR_ONLY" and not is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ giảng viên phụ trách lớp mới đặt được quyền truy cập này.",
+        )
+
     # Thứ tự kiểm tra CÓ Ý NGHĨA: kiểm tra tên/định dạng rẻ nhất làm
     # trước, đọc toàn bộ nội dung file (tốn I/O) chỉ sau khi đã qua
     # được bước rẻ đó - tránh lãng phí công đọc file chắc chắn sẽ bị từ chối.
@@ -113,6 +135,7 @@ async def upload_document(
             course_id=course_id,
             storage_uri=str(stored_path),
             uploaded_by=user.id,
+            visibility=visibility,
         )
     except ValueError as e:
         # Ingestion thất bại vì lý do NGHIỆP VỤ đã lường trước (trùng

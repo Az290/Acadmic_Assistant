@@ -60,6 +60,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ingestion.embedder import embed_texts
+from app.retrieval.access_policy import chunk_access_sql
 
 # Số kết quả lấy ra từ MỖI nhánh (vector, full-text) trước khi gộp - lấy
 # nhiều hơn số kết quả cuối cùng cần trả (TOP_K_FINAL) để RRF có đủ
@@ -133,31 +134,17 @@ class SearchResult:
 # liệu" xuyên suốt dự án: chỉ tài liệu ĐÃ ĐƯỢC GIẢNG VIÊN DUYỆT mới lọt
 # vào kết quả tìm kiếm, không phụ thuộc AI "tự biết" tài liệu nào đáng
 # tin.
-_ACL_FILTER_SQL = """
-    chunk.course_id IN (
-        SELECT course_id FROM enrollment WHERE user_id = :user_id
-    )
-    AND chunk.is_solution = FALSE
-    AND chunk.document_id IN (SELECT id FROM document WHERE status = 'APPROVED')
-"""
-
-# Bản sao CÙNG Ý NGHĨA của _ACL_FILTER_SQL, nhưng dùng tham số VỊ TRÍ
-# ($2) thay vì tham số TÊN (:user_id) - chỉ dùng cho _vector_search(),
-# nơi bắt buộc phải gọi exec_driver_sql() thay vì session.execute(text())
-# để né lỗi hiệu năng compile với tham số vector dài (xem giải thích
-# chi tiết trong _vector_search()). Giữ 2 bản riêng thay vì 1 hàm build
-# động để dễ đọc, tránh lỗi lặt vặt khi tự sinh cú pháp SQL bằng code.
-_ACL_FILTER_SQL_POSITIONAL = """
-    chunk.course_id IN (
-        SELECT course_id FROM enrollment WHERE user_id = $2
-    )
-    AND chunk.is_solution = FALSE
-    AND chunk.document_id IN (SELECT id FROM document WHERE status = 'APPROVED')
-"""
+# Bộ lọc quyền đọc lấy từ app/retrieval/access_policy.py - ĐỊNH NGHĨA
+# DUY NHẤT dùng chung với endpoint xem chi tiết đoạn trích dẫn
+# (/v1/chunks/{id}). Trước đây file này giữ 2 bản sao thủ công (một cho
+# tham số tên, một cho tham số vị trí) - mỗi lần đổi quy tắc quyền phải
+# nhớ sửa cả 2, chỉ cần quên 1 chỗ là rò rỉ dữ liệu âm thầm.
+_ACL_FILTER_SQL = chunk_access_sql()
+_ACL_FILTER_SQL_POSITIONAL = chunk_access_sql(user_id_param="$2", is_admin_param="$4")
 
 
 async def _vector_search(
-    session: AsyncSession, query_vector: list[float], user_id: int, limit: int
+    session: AsyncSession, query_vector: list[float], user_id: int, limit: int, is_admin: bool
 ) -> tuple[list[tuple[int, int]], float]:
     """
     Trả về ([(chunk_id, rank)], similarity_cao_nhat) xếp theo khoảng
@@ -197,7 +184,7 @@ async def _vector_search(
         ORDER BY embedding <=> $1::vector
         LIMIT $3
         """,
-        (str(query_vector), user_id, limit),
+        (str(query_vector), user_id, limit, is_admin),
     )
     rows = list(result)
     ranked = [(row.id, row.rank) for row in rows]
@@ -206,7 +193,7 @@ async def _vector_search(
 
 
 async def _fulltext_search(
-    session: AsyncSession, query_text: str, user_id: int, limit: int
+    session: AsyncSession, query_text: str, user_id: int, limit: int, is_admin: bool
 ) -> list[tuple[int, int]]:
     """
     Trả về [(chunk_id, rank)] xếp theo ts_rank giảm dần (khớp từ khoá
@@ -226,7 +213,7 @@ async def _fulltext_search(
             LIMIT :limit
             """
         ),
-        {"query_text": query_text, "user_id": user_id, "limit": limit},
+        {"query_text": query_text, "user_id": user_id, "limit": limit, "is_admin": is_admin},
     )
     return [(row.id, row.rank) for row in result]
 
@@ -253,6 +240,7 @@ async def hybrid_search(
     user_id: int,
     top_k: int = TOP_K_FINAL,
     query_vector: list[float] | None = None,
+    is_admin: bool = False,
 ) -> list[SearchResult]:
     """
     Hàm chính - nhận câu hỏi dạng text, trả về danh sách chunk liên
@@ -263,12 +251,18 @@ async def hybrid_search(
     Socratic, xem app/learning/concept_matcher.py), truyền vào đây để
     KHÔNG phải gọi API embedding lần thứ 2 cho cùng 1 câu - tiết kiệm
     cả tiền lẫn ~1s độ trễ người dùng phải chờ.
+
+    is_admin: ảnh hưởng quyền đọc đoạn INSTRUCTOR_ONLY (xem
+    app/retrieval/access_policy.py). MẶC ĐỊNH False - chọn giá trị an
+    toàn nhất làm mặc định: nơi gọi quên truyền thì người dùng bị coi
+    như quyền thấp nhất, sai lầm dẫn tới "thấy ít hơn mức được phép"
+    chứ không phải "thấy nhiều hơn".
     """
     if query_vector is None:
         query_vector = embed_texts([query_text])[0]
 
     vector_ranked, best_similarity = await _vector_search(
-        session, query_vector, user_id, TOP_K_PER_BRANCH
+        session, query_vector, user_id, TOP_K_PER_BRANCH, is_admin
     )
 
     # CHỐT SỚM: không đoạn tài liệu nào đủ liên quan tới câu hỏi -> trả
@@ -282,7 +276,7 @@ async def hybrid_search(
     if best_similarity < MIN_RELEVANCE_SIMILARITY:
         return []
 
-    fulltext_ranked = await _fulltext_search(session, query_text, user_id, TOP_K_PER_BRANCH)
+    fulltext_ranked = await _fulltext_search(session, query_text, user_id, TOP_K_PER_BRANCH, is_admin)
 
     # RRF hoạt động đúng kể cả khi 1 trong 2 danh sách rỗng (vd câu hỏi
     # thuần khái niệm không khớp từ khoá nào, hoặc chuỗi ký tự lạ
