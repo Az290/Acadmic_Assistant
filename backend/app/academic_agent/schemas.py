@@ -1,8 +1,29 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("message")
+    @classmethod
+    def _reject_blank_message(cls, value: str) -> str:
+        """
+        Chặn câu hỏi CHỈ gồm khoảng trắng - PHÁT HIỆN QUA TEST HỒI QUY:
+        min_length=1 của Pydantic đếm KÝ TỰ THÔ, nên chuỗi "     " (5 dấu
+        cách) lọt qua và chạy trọn pipeline: Guardrail + Router + sinh câu
+        trả lời, tốn 1 lượt gọi OpenAI THẬT cho một câu rỗng nghĩa, đồng
+        thời tạo ra 1 Conversation rác trong database.
+
+        Trước khi sửa, hành vi KHÔNG NHẤT QUÁN: "" trả 422 còn "   " trả
+        200 - cùng là "người dùng không nhập gì" nhưng 2 kết quả khác hẳn.
+
+        Trả về chuỗi ĐÃ strip: các bước sau (embedding, so khớp khái niệm)
+        không phải xử lý khoảng trắng thừa ở đầu/cuối nữa.
+        """
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Câu hỏi không được để trống.")
+        return stripped
     conversation_id: int | None = None
     course_id: int | None = None
     # ChatBubble có 2 tab tường minh ("Hỏi đáp"/"Gia sư") - khi người

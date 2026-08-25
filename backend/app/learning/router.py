@@ -23,12 +23,16 @@ from app.learning.mastery_overview import (
     MASTERY_LOW_THRESHOLD,
     compute_weak_concepts,
 )
+from app.learning.learning_path import get_learning_path
 from app.learning.quiz_generator import QuizGenerationError, generate_quiz_question
 from app.learning.schemas import (
     AnswerResponse,
+    ConceptProgressPublic,
     ConceptPublic,
     CourseMasteryPublic,
     CreateConceptRequest,
+    LearningPathResponsePublic,
+    RecommendationPublic,
     MasteryOverview,
     MasteryPublic,
     QuizQuestionPublic,
@@ -92,6 +96,7 @@ async def create_concept(
         complexity=body.complexity,
         created_by=user.id,
         embedding=embedding[0],
+        prerequisites=json.dumps(body.prerequisites) if body.prerequisites else None,
     )
     session.add(concept)
     await session.commit()
@@ -375,3 +380,69 @@ async def get_mastery_overview(
     ][:MAX_WEAK_CONCEPTS_SHOWN]
 
     return MasteryOverview(overall_mastery=overall_mastery, by_course=by_course, weak_concepts=weak_concepts)
+
+
+@router.get("/v1/learning-path", response_model=LearningPathResponsePublic)
+async def get_learning_path_endpoint(
+    course_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Lấy lộ trình học tập cho sinh viên trong 1 course.
+
+    Trả về:
+    - Danh sách concepts với tiến độ của sinh viên
+    - Status của từng concept (completed/in_progress/available/locked/not_started)
+    - Gợi ý concept tiếp theo nên học
+
+    Khác với:
+    - /v1/learn/mastery: xem mastery CHI TIẾT cho 1 course
+    - /v1/learn/mastery/overview: TỔNG QUAN mọi course
+    - /v1/learn/weakest-concept: khái niệm yếu NHẤT cho Toast
+    """
+    # Gọi THẲNG get_learning_path() của app/learning/learning_path.py thay vì
+    # giữ một bản sao logic ngay trong router. Trước đây router có helper
+    # _get_learning_path_data() chép lại gần như y hệt module kia, và cái giá
+    # đã phải trả thật: 2 bug logic (gợi ý "review" không bao giờ khớp, và màn
+    # hình gợi ý TRỐNG với sinh viên mới) phải sửa ở CẢ HAI nơi, một lần patch
+    # còn trượt vì comment hai bên lệch nhau một chữ. Router giờ chỉ còn giữ
+    # phần thuộc về tầng HTTP: bắt ValueError -> 400 và convert dataclass sang
+    # Pydantic. Đánh đổi: thêm một lớp gọi hàm, nhưng logic học tập chỉ còn
+    # MỘT nguồn sự thật để sửa và để test.
+    try:
+        result = await get_learning_path(session, course_id=course_id, user_id=user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    # Convert dataclass to Pydantic model
+    concepts = [
+        ConceptProgressPublic(
+            id=c.id,
+            name=c.name,
+            complexity=c.complexity,
+            mastery=c.mastery,
+            status=c.status.value if hasattr(c.status, 'value') else c.status,
+            prerequisites=c.prerequisites,
+            estimated_time_minutes=c.estimated_time_minutes,
+        )
+        for c in result.concepts
+    ]
+
+    recommendations = [
+        RecommendationPublic(
+            type=r.type,
+            concept_id=r.concept_id,
+            concept_name=r.concept_name,
+            reason=r.reason,
+            priority=r.priority,
+        )
+        for r in result.recommendations
+    ]
+
+    return LearningPathResponsePublic(
+        course_id=result.course_id,
+        course_name=result.course_name,
+        concepts=concepts,
+        recommendations=recommendations,
+    )

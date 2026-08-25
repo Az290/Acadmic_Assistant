@@ -100,6 +100,13 @@ class Settings(BaseSettings):
     # nên không cần tắt khi chạy máy cá nhân.
     cookie_secure: bool = True
 
+    # Voice transcription settings
+    # Whisper API pricing: $0.006 per minute
+    whisper_cost_per_minute: float = 0.006
+
+    # Maximum audio file size in MB
+    max_audio_size_mb: int = 25
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]

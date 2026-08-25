@@ -25,6 +25,7 @@ from app.eval_dashboard.router import router as eval_dashboard_router
 from app.guardrail.router import router as guardrail_router
 from app.instructor.router import router as instructor_router
 from app.learning.assignment_router import router as assignment_router
+from app.voice.router import router as voice_router
 from app.learning.router import router as learning_router
 from app.logging_config import configure_logging
 from app.profile.router import router as profile_router
@@ -120,6 +121,7 @@ app.include_router(assignment_router)
 app.include_router(instructor_router)
 app.include_router(eval_dashboard_router)
 app.include_router(profile_router)
+app.include_router(voice_router)
 
 
 @app.get("/healthz")

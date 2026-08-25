@@ -482,6 +482,11 @@ class Concept(Base):
     complexity: độ khó 1-5, GIẢNG VIÊN tự đánh giá (chủ quan) - dùng
     làm "giá trị khởi điểm" hợp lý hơn con số cố định cho mọi khái niệm
     khi CHƯA có đủ dữ liệu tương tác thật (xem StudentMastery).
+
+    prerequisites: danh sách ID của các khái niệm cần học TRƯỚC - dùng
+    cho Learning Path (app/learning/learning_path.py). Nếu prerequisites
+    không rỗng, sinh viên cần hoàn thành TẤT CẢ các khái niệm đó trước
+    khi concept này được đánh dấu "available".
     """
 
     __tablename__ = "concept"
@@ -495,6 +500,10 @@ class Concept(Base):
     complexity: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Danh sách ID của khái niệm cần học trước - lưu dạng JSON array.
+    # Rỗng [] nghĩa là không có prerequisites (học được ngay).
+    prerequisites: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Vector ngữ nghĩa của TÊN khái niệm - tính ĐÚNG 1 LẦN lúc giảng
     # viên tạo khái niệm (lúc đó không người dùng nào phải chờ), để khi

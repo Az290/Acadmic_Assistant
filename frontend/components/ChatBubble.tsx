@@ -7,10 +7,14 @@ import {
   ChunkDetail,
   CitationPublic,
   ConceptPublic,
+  ConversationSummary,
   CoursePublic,
+  getConversationSummary,
+  getSuggestedQuestions,
   streamChat,
 } from "@/lib/api";
 import NovaAvatar from "@/components/NovaAvatar";
+import VoiceInput from "@/components/VoiceInput";
 
 /**
  * ChatBubble - panel chat nổi kiểu Messenger, hiện ở MỌI trang (được
@@ -120,6 +124,16 @@ export default function ChatBubble() {
   // conceptId về undefined, nên không thể set conceptId ngay lập tức
   // cùng lúc với courseId - phải đợi qua bước trung gian này).
   const [pendingConceptId, setPendingConceptId] = useState<number | undefined>(undefined);
+  // Citation tooltip: citation đang được hover để hiện preview text
+  const [hoveredCitation, setHoveredCitation] = useState<CitationPublic | null>(null);
+  const [citationPreview, setCitationPreview] = useState<Record<number, string>>({});
+  // Suggested questions: câu hỏi gợi ý sau khi Nova trả lời xong
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  // Summary: tóm tắt cuộc trò chuyện - hiện khi có 10+ tin nhắn
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryData, setSummaryData] = useState<ConversationSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isOpen = size !== "closed";
@@ -157,6 +171,49 @@ export default function ChatBubble() {
     setTabs((prev) => ({ ...prev, [tab]: updater(prev[tab]) }));
   }
 
+  // Xoá gợi ý khi bắt đầu gửi câu hỏi mới
+  function clearSuggestedQuestions() {
+    setSuggestedQuestions([]);
+    setCitationPreview({});
+  }
+
+  // Tóm tắt cuộc trò chuyện
+  async function handleSummarize() {
+    const convId = current.conversationId;
+    if (!convId) return;
+
+    setShowSummary(true);
+    setSummaryLoading(true);
+    setSummaryData(null);
+
+    try {
+      const data = await getConversationSummary(convId);
+      setSummaryData(data);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.detail : "Không thể tải tóm tắt";
+      setError(message);
+      setShowSummary(false);
+    } finally {
+      setSummaryLoading(false);
+    }
+  }
+
+  // Bắt đầu cuộc trò chuyện mới
+  function handleStartNewConversation() {
+    updateCurrentTab(() => ({ messages: [], conversationId: undefined }));
+    setShowSummary(false);
+    setSummaryData(null);
+    setSuggestedQuestions([]);
+    clearSuggestedQuestions();
+  }
+
+  // Copy summary vào clipboard
+  function copySummary() {
+    if (!summaryData) return;
+    const text = `${summaryData.summary}\n\nĐiểm chính:\n${summaryData.key_points.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || sending) return;
@@ -172,6 +229,7 @@ export default function ChatBubble() {
     setInput("");
     setSending(true);
     setError(null);
+    clearSuggestedQuestions();
 
     try {
       await streamChat(
@@ -361,6 +419,60 @@ export default function ChatBubble() {
     return () => window.removeEventListener("open-chat-tab", handleOpenChatTab);
   }, []);
 
+  // Fetch preview text khi hover citation badge
+  useEffect(() => {
+    if (!hoveredCitation) return;
+    const chunkId = hoveredCitation.chunk_id;
+    // Đã có preview rồi thì không fetch lại
+    if (citationPreview[chunkId]) return;
+
+    api
+      .get<ChunkDetail>(`/v1/chunks/${chunkId}`)
+      .then((detail) => {
+        setCitationPreview((prev) => ({
+          ...prev,
+          [chunkId]: detail.content.slice(0, 200) + (detail.content.length > 200 ? "..." : ""),
+        }));
+      })
+      .catch(() => {
+        // Lỗi thì không hiện preview, để trống
+      });
+  }, [hoveredCitation, citationPreview]);
+
+  // Fetch suggested questions khi conversation hoàn tất
+  useEffect(() => {
+    const convId = current.conversationId;
+    if (!convId || current.messages.length === 0) return;
+
+    // Chỉ fetch khi tin nhắn cuối cùng là của assistant và đã stream xong
+    const lastMsg = current.messages[current.messages.length - 1];
+    if (lastMsg?.role !== "assistant" || lastMsg.streaming || lastMsg.blocked) return;
+
+    // setState ĐỒNG BỘ ngay trong effect gây "cascading render" (React
+    // phải render lại trước khi kịp vẽ khung hình) - đẩy vào microtask
+    // để lượt render hiện tại hoàn tất trước. `cancelled` chặn việc set
+    // state sau khi component đã unmount hoặc hội thoại đã đổi, tránh
+    // gợi ý của phiên cũ nhảy sang phiên mới.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSuggestionsLoading(true);
+      getSuggestedQuestions(convId)
+        .then((qs) => {
+          if (!cancelled) setSuggestedQuestions(qs);
+        })
+        .catch(() => {
+          if (!cancelled) setSuggestedQuestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSuggestionsLoading(false);
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [current.messages.length, current.conversationId]);
+
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
       {isOpen && (
@@ -388,6 +500,27 @@ export default function ChatBubble() {
                 </div>
               </div>
             </div>
+            {/* Nút Tóm tắt - hiện khi có 10+ tin nhắn */}
+            {current.messages.length >= 10 && current.conversationId !== undefined && (
+              <button
+                onClick={handleSummarize}
+                className="ml-2 flex items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] font-medium transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.15)",
+                  color: "#fff",
+                }}
+                title="Tóm tắt cuộc trò chuyện"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
+                Tóm tắt
+              </button>
+            )}
             <div className="flex items-center gap-0.5">
               {(["compact", "half", "full"] as const).map((s) => (
                 <button
@@ -510,7 +643,7 @@ export default function ChatBubble() {
                     làm chật khung chat vốn đã hẹp. */}
                 {m.role === "assistant" && !m.blocked && (
                   <div className="mt-0.5">
-                    <NovaAvatar size={22} />
+                    <NovaAvatar size={22} state={m.status ?? "idle"} />
                   </div>
                 )}
                 <div
@@ -550,15 +683,45 @@ export default function ChatBubble() {
                   {m.citations && m.citations.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {m.citations.map((c) => (
-                        <button
-                          key={c.chunk_id}
-                          onClick={() => openChunk(c.chunk_id)}
-                          disabled={chunkLoading === c.chunk_id}
-                          className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                          title={`Bấm để xem nguyên văn đoạn này${c.page_number ? ` (trang ${c.page_number})` : ""}`}
-                        >
-                          {chunkLoading === c.chunk_id ? "…" : `#${c.chunk_id}`}
-                        </button>
+                        <div key={c.chunk_id} className="relative">
+                          <button
+                            onClick={() => openChunk(c.chunk_id)}
+                            disabled={chunkLoading === c.chunk_id}
+                            className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                            title={`Bấm để xem nguyên văn đoạn này${c.page_number ? ` (trang ${c.page_number})` : ""}`}
+                            onMouseEnter={() => setHoveredCitation(c)}
+                            onMouseLeave={() => setHoveredCitation(null)}
+                          >
+                            {chunkLoading === c.chunk_id ? "…" : `#${c.chunk_id}`}
+                          </button>
+                          {/* Tooltip preview khi hover */}
+                          {hoveredCitation === c && (
+                            <div
+                              className="absolute bottom-full left-0 z-10 mb-1.5 w-[240px] rounded-lg border bg-white p-2.5 text-[11px] leading-relaxed shadow-lg"
+                              style={{
+                                borderColor: "var(--border)",
+                                color: "var(--ink)",
+                                animation: "fadeIn 0.15s ease-out",
+                              }}
+                            >
+                              <div
+                                className="mb-1 text-[9.5px] font-medium"
+                                style={{ color: "var(--ink-faint)" }}
+                              >
+                                {c.page_number ? `Trang ${c.page_number} · Chunk #${c.chunk_id}` : `Chunk #${c.chunk_id}`}
+                              </div>
+                              <div className="max-h-[80px] overflow-hidden">
+                                {citationPreview[c.chunk_id] || "Đang tải preview..."}
+                              </div>
+                              <div
+                                className="mt-1.5 text-[9px] font-medium"
+                                style={{ color: "var(--accent-strong)" }}
+                              >
+                                Bấm để xem đầy đủ →
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -597,6 +760,65 @@ export default function ChatBubble() {
                       )}
                     </div>
                   )}
+
+                  {/* Gợi ý câu hỏi tiếp theo - chỉ hiện với tin nhắn cuối
+                      cùng của assistant đã stream xong, và có suggestions. */}
+                  {m.role === "assistant" &&
+                    !m.blocked &&
+                    i === current.messages.length - 1 &&
+                    !m.streaming &&
+                    (suggestedQuestions.length > 0 || suggestionsLoading) && (
+                      <div className="mt-2 border-t border-[color:var(--border)] pt-2">
+                        <div
+                          className="mb-1.5 flex items-center gap-1 text-[10px] font-medium"
+                          style={{ color: "var(--ink-faint)" }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                          </svg>
+                          <span>Gợi ý câu hỏi tiếp theo</span>
+                        </div>
+                        {suggestionsLoading ? (
+                          <div className="flex gap-[3px]">
+                            <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:0ms]" />
+                            <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:150ms]" />
+                            <span className="h-[5px] w-[5px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:300ms]" />
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {suggestedQuestions.map((q, qi) => (
+                              <button
+                                key={qi}
+                                onClick={() => {
+                                  setInput(q);
+                                  setSuggestedQuestions([]);
+                                  // Focus vào input để user có thể sửa trước khi gửi
+                                  document.querySelector<HTMLInputElement>('input[placeholder="Hỏi Nova…"]')?.focus();
+                                }}
+                                className="rounded-full border px-2.5 py-1 text-[10.5px] transition-colors"
+                                style={{
+                                  borderColor: "var(--border)",
+                                  color: "var(--ink-soft)",
+                                  background: "var(--panel-soft)",
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.borderColor = "var(--accent-strong)";
+                                  e.currentTarget.style.color = "var(--accent-strong)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.borderColor = "var(--border)";
+                                  e.currentTarget.style.color = "var(--ink-soft)";
+                                }}
+                              >
+                                {q}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
               </div>
             ))}
@@ -617,6 +839,10 @@ export default function ChatBubble() {
               style={{ borderColor: "var(--border-strong)", transition: "border-color var(--motion-fast) var(--ease)" }}
               onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent-strong)")}
               onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border-strong)")}
+            />
+            <VoiceInput
+              onTranscriptionComplete={(text) => setInput(text)}
+              disabled={sending}
             />
             <button
               onClick={handleSend}
@@ -666,6 +892,162 @@ export default function ChatBubble() {
             >
               {viewingChunk.content}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Summary Modal - tóm tắt cuộc trò chuyện */}
+      {showSummary && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          style={{ background: "rgba(10, 12, 30, 0.45)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSummary(false);
+          }}
+        >
+          <div
+            className="max-h-[85vh] w-[500px] max-w-[92vw] overflow-y-auto rounded-xl border bg-white p-5"
+            style={{ borderColor: "var(--border)" }}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <NovaAvatar size={22} />
+                <div>
+                  <div className="text-[14px] font-bold">Tóm tắt cuộc trò chuyện</div>
+                  <div className="text-[11px]" style={{ color: "var(--ink-soft)" }}>
+                    {current.messages.length} tin nhắn
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSummary(false)}
+                className="text-[16px] leading-none"
+                style={{ color: "var(--ink-faint)" }}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            {summaryLoading ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <div className="flex gap-[4px]">
+                  <span className="h-[6px] w-[6px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:0ms]" />
+                  <span className="h-[6px] w-[6px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:150ms]" />
+                  <span className="h-[6px] w-[6px] animate-bounce rounded-full bg-[color:var(--ink-faint)] [animation-delay:300ms]" />
+                </div>
+                <span className="text-[12px]" style={{ color: "var(--ink-soft)" }}>
+                  Đang phân tích cuộc trò chuyện...
+                </span>
+              </div>
+            ) : summaryData ? (
+              <div className="space-y-4">
+                {/* Summary */}
+                <div>
+                  <div
+                    className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide"
+                    style={{ color: "var(--ink-faint)" }}
+                  >
+                    Tổng kết
+                  </div>
+                  <div
+                    className="whitespace-pre-wrap rounded-[9px] border p-3 text-[12.5px] leading-relaxed"
+                    style={{ background: "var(--panel-soft)", borderColor: "var(--border)", color: "var(--ink)" }}
+                  >
+                    {summaryData.summary}
+                  </div>
+                </div>
+
+                {/* Key Points */}
+                {summaryData.key_points.length > 0 && (
+                  <div>
+                    <div
+                      className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide"
+                      style={{ color: "var(--ink-faint)" }}
+                    >
+                      Điểm chính
+                    </div>
+                    <div className="space-y-1.5">
+                      {summaryData.key_points.map((point, i) => (
+                        <div
+                          key={i}
+                          className="flex items-start gap-2 rounded-[7px] border p-2.5 text-[12px]"
+                          style={{ background: "var(--panel-soft)", borderColor: "var(--border)", color: "var(--ink)" }}
+                        >
+                          <span
+                            className="mt-0.5 flex h-[16px] w-[16px] shrink-0 items-center justify-center rounded-full text-[9px] font-bold"
+                            style={{ background: "var(--accent)", color: "#fff" }}
+                          >
+                            {i + 1}
+                          </span>
+                          <span>{point}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Covered Concepts */}
+                {summaryData.covered_concepts.length > 0 && (
+                  <div>
+                    <div
+                      className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide"
+                      style={{ color: "var(--ink-faint)" }}
+                    >
+                      Chủ đề đã học
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {summaryData.covered_concepts.map((concept, i) => (
+                        <span
+                          key={i}
+                          className="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                          style={{ background: "var(--accent-bg)", color: "var(--accent-ink)" }}
+                        >
+                          {concept}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={copySummary}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-[7px] border px-3 py-2 text-[12px] font-medium transition-colors"
+                    style={{ borderColor: "var(--border)", color: "var(--ink-soft)" }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--accent-strong)";
+                      e.currentTarget.style.color = "var(--accent-strong)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border)";
+                      e.currentTarget.style.color = "var(--ink-soft)";
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                    Sao chép
+                  </button>
+                  <button
+                    onClick={handleStartNewConversation}
+                    className="btn btn-primary flex flex-1 items-center justify-center gap-1.5"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    Bắt đầu mới
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="py-4 text-center text-[12px]" style={{ color: "var(--ink-soft)" }}>
+                Không thể tải tóm tắt
+              </div>
+            )}
           </div>
         </div>
       )}

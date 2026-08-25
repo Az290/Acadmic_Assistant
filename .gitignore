@@ -36,3 +36,8 @@ backend/uploaded_files/
 # Log/báo cáo chạy thử - không phải mã nguồn, thay đổi liên tục
 backend/server_test.log
 backend/scripts/eval_report.json
+backend/server.log
+backend/scripts/test_report.json
+
+# Cookie jar của curl khi test thủ công qua terminal - không phải mã nguồn
+backend/*_cookies.txt

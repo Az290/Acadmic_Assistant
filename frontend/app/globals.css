@@ -66,6 +66,15 @@
   --amber-ink: #92400e;
   --amber-bg: #fdf6ec;
 
+  /* ---------- Đèn LED của Nova (avatar robot) ---------- */
+  /* Cyan điện tử sáng - hue ~195°, nằm giữa --teal (175°, trầm, nghĩa
+     "thành công") và --blue (221°, đậm, nghĩa "thông tin/link") nhưng
+     sáng + bão hoà hơn hẳn cả hai nên không thể nhầm với 1 trong 2 màu
+     semantic đó. Đây là "ánh sáng thiết bị" thuần trang trí cho avatar,
+     KHÔNG mang nghĩa trạng thái UI nào - không tái dùng ở nơi khác. */
+  --nova-led: #7ce0ff;
+  --nova-led-dim: #7ce0ff88;
+
   /* ---------- Bo góc ---------- */
   /* Bo vừa phải: quá tròn (>12px) trông như ứng dụng giải trí, quá
      vuông trông thô cứng. */
@@ -266,6 +275,88 @@ body {
 
 .animate-fade {
   animation: fade-in var(--motion-base) var(--ease);
+}
+
+/* ============ NOVA AVATAR (robot) ============
+   Cấu trúc (ngoài vào trong): khối tròn navy > khung mặt bo góc kiểu
+   "màn hình thiết bị" > 2 thanh LED. state neo vào DisplayMessage.status
+   thật trong ChatBubble.tsx (checking/searching/generating) + "idle"
+   khi avatar không gắn với tin nhắn đang xử lý (header, empty-state...). */
+.nova-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  position: relative;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 0 1px var(--nova-led-dim);
+  transition: box-shadow var(--motion-base) var(--ease);
+}
+
+.nova-avatar__frame {
+  fill: var(--accent-ink);
+  stroke: var(--nova-led);
+  stroke-width: 0.55;
+}
+
+.nova-avatar__eye {
+  fill: var(--nova-led);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nova-avatar__antenna {
+  fill: var(--nova-led);
+  stroke: var(--nova-led);
+  stroke-width: 0.6;
+  opacity: 0.7;
+}
+
+/* idle: chớp đèn chậm không đều (~mỗi 4.2s) - báo "còn sống" mà không
+   gây xao nhãng khi không có gì đang xử lý. */
+@keyframes nova-blink {
+  0%, 92%, 100% { transform: scaleY(1); opacity: 1; }
+  95% { transform: scaleY(0.12); opacity: 0.7; }
+}
+.nova-avatar--idle .nova-avatar__eye {
+  animation: nova-blink 4.2s ease-in-out infinite;
+}
+
+/* checking: LED nhìn xuống rồi về - như đang đọc câu hỏi. */
+@keyframes nova-read {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(1.4px); }
+}
+.nova-avatar--checking .nova-avatar__eye {
+  animation: nova-read 1.1s ease-in-out infinite;
+}
+
+/* searching: LED quét ngang trái-phải - như đang tìm trong tài liệu. */
+@keyframes nova-scan {
+  0%, 100% { transform: translateX(-1.3px); }
+  50% { transform: translateX(1.3px); }
+}
+.nova-avatar--searching .nova-avatar__eye {
+  animation: nova-scan 1s ease-in-out infinite;
+}
+
+/* generating: LED nheo lại + sáng nhịp đều - "đèn xử lý" khi đang soạn
+   câu trả lời. Viền ngoài avatar cũng thở theo cùng nhịp. */
+@keyframes nova-focus {
+  0%, 100% { transform: scaleY(0.62); filter: brightness(1); opacity: 0.88; }
+  50% { transform: scaleY(0.85); filter: brightness(1.35); opacity: 1; }
+}
+.nova-avatar--generating .nova-avatar__eye {
+  animation: nova-focus 0.85s ease-in-out infinite;
+}
+@keyframes nova-ring-focus {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 0 1px var(--nova-led-dim); }
+  50% { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 3px 1px var(--nova-led); }
+}
+.nova-avatar--generating {
+  animation: nova-ring-focus 0.85s ease-in-out infinite;
 }
 
 /* Tôn trọng cài đặt hệ thống của người dùng bị say chuyển động

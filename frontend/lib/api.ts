@@ -559,3 +559,86 @@ export interface PipelineTiming {
   steps: PipelineStepTiming[];
   avg_total_ms: number;
 }
+
+/* ---------- Suggested Questions ---------- */
+
+/**
+ * Lay danh sach cau hoi goi y dua tren context cua cuoc tro chuyen.
+ * Backend se phan tich conversation hien tai de dua ra 3-5 cau hoi
+ * lien quan ma nguoi dung co the nam nhuong hoac tim hieu them.
+ */
+export async function getSuggestedQuestions(
+  conversationId: number
+): Promise<string[]> {
+  try {
+    return await api.get<string[]>(`/v1/chat/${conversationId}/suggested-questions`);
+  } catch {
+    // Neu API chua co, tra ve mock data de co the test UI
+    return getMockSuggestedQuestions();
+  }
+}
+
+/** Mock data khi backend chua implement endpoint */
+function getMockSuggestedQuestions(): string[] {
+  return [
+    "Ban co the giai thich ro hon khong?",
+    "Cho vi du cu the duoc khong?",
+    "Co cach nao khac de giai quyet khong?",
+  ];
+}
+
+/* ---------- Conversation Summary ---------- */
+
+/** Du lieu tom tat cuoc tro chuyen */
+export interface ConversationSummary {
+  summary: string;
+  key_points: string[];
+  covered_concepts: string[];
+  timestamp: string;
+}
+
+/**
+ * Lay tom tat cuoc tro chuyen - phan tich toan bo lich su de tao
+ * summary, key points va covered concepts.
+ */
+export async function getConversationSummary(
+  conversationId: number
+): Promise<ConversationSummary> {
+  return await api.get<ConversationSummary>(`/v1/chat/${conversationId}/summary`);
+}
+
+/* ---------- Learning Path ---------- */
+
+export interface ConceptProgressPublic {
+  id: number;
+  name: string;
+  complexity: number;
+  mastery: number | null;
+  status: "completed" | "in_progress" | "available" | "locked" | "not_started";
+  prerequisites: number[];
+  estimated_time_minutes: number;
+}
+
+export interface RecommendationPublic {
+  // "start_here": sinh viên chưa làm quiz nào - backend gợi ý concept
+  // dễ nhất để bắt đầu (xem app/learning/learning_path.py).
+  type: "next_learn" | "continue" | "review" | "start_here";
+  concept_id: number;
+  concept_name: string;
+  reason: string;
+  priority: number;
+}
+
+export interface LearningPathResponse {
+  course_id: number;
+  course_name: string;
+  concepts: ConceptProgressPublic[];
+  recommendations: RecommendationPublic[];
+}
+
+/**
+ * Lấy learning path cho 1 course cụ thể.
+ */
+export async function getLearningPath(courseId: number): Promise<LearningPathResponse> {
+  return await api.get<LearningPathResponse>(`/v1/learning-path?course_id=${courseId}`);
+}

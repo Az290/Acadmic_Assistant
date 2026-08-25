@@ -6,6 +6,11 @@ import Link from "next/link";
 import { api, ApiError, dashboardPathForRole } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
+// Tài khoản demo CÔNG KHAI dùng cho khách/doanh nghiệp xem thử sản phẩm -
+// không phải bí mật cần giấu, đã tạo sẵn trong DB để bấm-là-vào-luôn.
+const DEMO_INSTRUCTOR = { email: "gv.demo@academic-assistant.vn", password: "Demo@2026" };
+const DEMO_STUDENT = { email: "sv.demo@academic-assistant.vn", password: "Demo@2026" };
+
 export default function LoginPage() {
   const router = useRouter();
   const { refreshUser } = useAuth();
@@ -14,14 +19,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // Logic đăng nhập dùng chung cho cả form thật lẫn 2 nút demo: gọi API,
+  // rồi điều hướng theo ĐÚNG vai trò - mỗi role có dashboard riêng, không
+  // dùng chung 1 trang đích cho mọi người.
+  async function loginWith(loginEmail: string, loginPassword: string) {
     setError(null);
     setSubmitting(true);
     try {
-      await api.post("/v1/auth/login", { email, password });
-      // Điều hướng theo ĐÚNG vai trò - mỗi role có dashboard riêng,
-      // không dùng chung 1 trang đích cho mọi người.
+      await api.post("/v1/auth/login", { email: loginEmail, password: loginPassword });
       const me = await refreshUser();
       router.push(me ? dashboardPathForRole(me.role) : "/student");
     } catch (err) {
@@ -32,6 +37,11 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    void loginWith(email, password);
   }
 
   return (
@@ -48,7 +58,8 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              disabled={submitting}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-60"
               placeholder="ban@truong.edu.vn"
             />
           </div>
@@ -59,7 +70,8 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              disabled={submitting}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none disabled:opacity-60"
               placeholder="••••••••"
             />
           </div>
@@ -76,6 +88,36 @@ export default function LoginPage() {
             {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
           </button>
         </form>
+
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-white px-2 text-slate-400">Hoặc dùng tài khoản demo</span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => void loginWith(DEMO_INSTRUCTOR.email, DEMO_INSTRUCTOR.password)}
+              className="w-full rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-60"
+            >
+              🎓 Xem demo Giảng viên
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => void loginWith(DEMO_STUDENT.email, DEMO_STUDENT.password)}
+              className="w-full rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-60"
+            >
+              📚 Xem demo Sinh viên
+            </button>
+          </div>
+        </div>
 
         <p className="mt-4 text-center text-sm text-slate-500">
           Chưa có tài khoản?{" "}

@@ -18,6 +18,8 @@ lượng gpt-4o-mini không đủ cho câu hỏi học thuật phức tạp, đ�
 cân nhắc lại - không phải đoán trước.
 """
 
+from app.academic_agent.system_knowledge import SYSTEM_KNOWLEDGE
+
 CHEAP_MODEL = "gpt-4o-mini"
 
 MODEL_BY_CATEGORY = {
@@ -25,6 +27,29 @@ MODEL_BY_CATEGORY = {
     "SOCRATIC_REQUEST": CHEAP_MODEL,
     "CHITCHAT": CHEAP_MODEL,
     "OFF_TOPIC": CHEAP_MODEL,
+    "GENERAL_KNOWLEDGE": CHEAP_MODEL,
+    "SYSTEM_QUESTION": CHEAP_MODEL,
+}
+
+# PHÁT HIỆN QUA TEST THẬT: gpt-4o-mini ở temperature mặc định (~1.0)
+# KHÔNG ỔN ĐỊNH tuân thủ chỉ dẫn - test lặp lại nhiều lần với ĐÚNG 1
+# prompt cho câu hỏi tiếng Anh, có lần trả lời tiếng Anh đúng, có lần
+# lệch sang tiếng Việt dù prompt có chỉ dẫn ngôn ngữ rõ ràng. Hạ
+# temperature cho 2 category CẦN tuân thủ nghiêm ngặt (chỉ trả lời từ
+# NGỮ CẢNH, đúng ngôn ngữ câu hỏi) - đánh đổi: câu trả lời "chắc tay"
+# hơn nhưng bớt đa dạng cách diễn đạt, chấp nhận được vì đây là nội
+# dung học thuật cần CHÍNH XÁC hơn là SÁNG TẠO.
+#
+# CHITCHAT/GENERAL_KNOWLEDGE/OFF_TOPIC/SYSTEM_QUESTION giữ mặc định
+# (không set = None, OpenAI tự dùng 1.0) - trò chuyện tự nhiên hưởng
+# lợi từ sự đa dạng hơn là bị ép khuôn mẫu.
+TEMPERATURE_BY_CATEGORY: dict[str, float | None] = {
+    "RAG_QUESTION": 0.3,
+    "SOCRATIC_REQUEST": 0.3,
+    "CHITCHAT": None,
+    "OFF_TOPIC": None,
+    "GENERAL_KNOWLEDGE": None,
+    "SYSTEM_QUESTION": None,
 }
 
 # LƯU Ý KỸ THUẬT: chuỗi này được CHÈN VÀO template qua .format() dưới
@@ -60,7 +85,9 @@ Về danh tính:
 - Khi sinh viên gọi "Nova", "Nova ơi", "bạn Nova"... là họ đang gọi BẠN.
 - Tự xưng là "mình" khi trò chuyện.
 - Nếu được hỏi TÊN hoặc "bạn là ai" -> PHẢI trả lời rõ bạn tên Nova. Không được trả lời chung chung kiểu "mình là trợ lý học thuật" mà bỏ qua tên.
-- Ngoài trường hợp trên, KHÔNG tự nhắc tên mình ở mỗi câu trả lời - rườm rà khi lặp lại nhiều lần."""
+- Ngoài trường hợp trên, KHÔNG tự nhắc tên mình ở mỗi câu trả lời - rườm rà khi lặp lại nhiều lần.
+
+Về ngôn ngữ: LUÔN trả lời bằng ĐÚNG ngôn ngữ mà sinh viên dùng để hỏi (tiếng Việt hỏi thì trả lời tiếng Việt, tiếng Anh hỏi thì trả lời tiếng Anh...) - áp dụng cho MỌI loại câu hỏi, không riêng câu hỏi học thuật."""
 
 # Chỉ dẫn về lời chào - CHỈ chèn vào lượt hỏi ĐẦU TIÊN của mỗi phiên
 # (xem build_system_prompt). Chào ở mọi lượt sẽ thành máy móc và tốn
@@ -73,7 +100,7 @@ _RAG_QUESTION_PROMPT = """Trả lời câu hỏi của sinh viên DỰA HOÀN TO
 QUY TẮC BẮT BUỘC:
 1. CHỈ trả lời dựa trên nội dung trong NGỮ CẢNH - không dùng kiến thức ngoài tài liệu, kể cả khi bạn biết câu trả lời từ nguồn khác.
 2. Nếu NGỮ CẢNH không đủ thông tin để trả lời, hãy nói rõ "Tài liệu hiện có chưa đề cập đủ thông tin để trả lời câu hỏi này" - KHÔNG được tự bịa ra câu trả lời.
-3. Trả lời bằng ngôn ngữ mà sinh viên dùng để hỏi (tiếng Việt hoặc tiếng Anh) - RIÊNG trường "quote" trong citations vẫn phải giữ NGUYÊN VĂN ngôn ngữ gốc của tài liệu.
+3. Trả lời bằng ĐÚNG ngôn ngữ sinh viên dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác - RIÊNG trường "quote" trong citations vẫn PHẢI giữ NGUYÊN VĂN ngôn ngữ gốc của tài liệu.
 4. Giải thích rõ ràng, có ví dụ minh hoạ nếu tài liệu có, phù hợp với người đang học.
 {citation_contract}
 
@@ -88,6 +115,7 @@ QUY TẮC BẮT BUỘC:
 3. Nếu sinh viên trả lời đúng hướng, xác nhận và khuyến khích họ tự hoàn thiện tiếp.
 4. Nếu NGỮ CẢNH không đủ thông tin liên quan, hãy nói rõ thay vì tự bịa gợi ý không có cơ sở.
 5. Kết thúc mỗi lượt bằng ĐÚNG MỘT câu hỏi cho sinh viên - không hỏi dồn nhiều câu cùng lúc.
+6. Trả lời bằng ĐÚNG ngôn ngữ sinh viên dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác.
 {student_model}{citation_contract}
 
 NGỮ CẢNH:
@@ -154,11 +182,28 @@ _CHITCHAT_PROMPT = """Sinh viên đang giao tiếp xã giao (chào hỏi, cảm 
 
 _OFF_TOPIC_PROMPT = """Bạn CHỈ hỗ trợ các câu hỏi liên quan tới môn học. Sinh viên vừa hỏi 1 câu LẠC ĐỀ (không độc hại, chỉ là ngoài phạm vi hỗ trợ). Hãy từ chối LỊCH SỰ, ngắn gọn, nhắc lại phạm vi bạn có thể hỗ trợ - không cố trả lời nội dung lạc đề đó."""
 
+# GENERAL_KNOWLEDGE - kiến thức phổ thông, KHÔNG cần và KHÔNG được đòi
+# tài liệu. Khác hẳn RAG_QUESTION (bắt buộc "chỉ trả lời từ NGỮ CẢNH") -
+# ở đây phải nói rõ NGƯỢC LẠI, nếu không model có thể máy móc áp dụng
+# quy tắc "không có tài liệu thì từ chối" đã quen từ các lượt trước
+# trong cùng phiên hội thoại.
+_GENERAL_KNOWLEDGE_PROMPT = """Sinh viên vừa hỏi 1 câu KIẾN THỨC PHỔ THÔNG, KHÔNG liên quan tới nội dung môn học (Router đã xác định điều này). Trả lời TRỰC TIẾP bằng kiến thức của bạn, ngắn gọn, chính xác - KHÔNG được nói "tài liệu chưa đề cập" hay đòi phải có tài liệu mới trả lời được, vì câu hỏi này không cần tài liệu nào cả."""
+
+# SYSTEM_QUESTION - {system_knowledge} được .format() chèn vào, xem
+# app/academic_agent/system_knowledge.py.
+_SYSTEM_QUESTION_PROMPT = """Sinh viên đang hỏi về CÁCH HỆ THỐNG NÀY hoạt động (không phải nội dung môn học).
+
+{system_knowledge}
+
+Dùng đúng thông tin trên để trả lời trực tiếp, ngắn gọn, dễ hiểu - KHÔNG nói "tài liệu chưa đề cập" (đây không phải nội dung trong tài liệu PDF nào)."""
+
 _PROMPT_BY_CATEGORY = {
     "RAG_QUESTION": _RAG_QUESTION_PROMPT,
     "SOCRATIC_REQUEST": _SOCRATIC_REQUEST_PROMPT,
     "CHITCHAT": _CHITCHAT_PROMPT,
     "OFF_TOPIC": _OFF_TOPIC_PROMPT,
+    "GENERAL_KNOWLEDGE": _GENERAL_KNOWLEDGE_PROMPT,
+    "SYSTEM_QUESTION": _SYSTEM_QUESTION_PROMPT,
 }
 
 
@@ -197,6 +242,9 @@ def build_system_prompt(
     if is_first_message:
         prefix += _FIRST_MESSAGE_GREETING
 
+    if "{system_knowledge}" in template:
+        return f"{prefix}\n\n{template.format(system_knowledge=SYSTEM_KNOWLEDGE)}"
+
     if "{context}" not in template:
         return f"{prefix}\n\n{template}"
 
@@ -211,3 +259,9 @@ def build_system_prompt(
 
 def get_model_for_category(category: str) -> str:
     return MODEL_BY_CATEGORY.get(category, CHEAP_MODEL)
+
+
+def get_temperature_for_category(category: str) -> float | None:
+    """None nghĩa là KHÔNG truyền tham số temperature vào OpenAI - để
+    client tự dùng giá trị mặc định của họ, không phải "None là 0"."""
+    return TEMPERATURE_BY_CATEGORY.get(category)

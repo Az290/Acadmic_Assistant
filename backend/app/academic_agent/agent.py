@@ -26,11 +26,12 @@ Eval, không phải đoán trước), đó là lúc cân nhắc lại quyết đ
 
 import asyncio
 import json
+import re
 import time
 from dataclasses import dataclass, field
 
 from openai import OpenAI
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.academic_agent.citation_verifier import verify_citations
@@ -38,7 +39,9 @@ from app.academic_agent.prompts import (
     build_student_model_block,
     build_system_prompt,
     get_model_for_category,
+    get_temperature_for_category,
 )
+from app.academic_agent.system_kb_service import SystemKBQuerier
 from app.config import get_settings
 from app.db.models import Conversation, Message, SecurityLog
 from app.guardrail.guardrail import check_input, check_output
@@ -55,6 +58,12 @@ HISTORY_LIMIT = 10
 
 _settings = get_settings()
 _client = OpenAI(api_key=_settings.openai_api_key)
+
+NO_ENROLLMENT_MESSAGE = (
+    "Bạn chưa tham gia lớp học nào nên mình chưa có tài liệu nào để tra cứu. "
+    "Hãy liên hệ giảng viên để được thêm vào lớp bằng chính email tài khoản của bạn. "
+    "Sau khi vào lớp, mình có thể trả lời câu hỏi dựa trên tài liệu của lớp đó."
+)
 
 FALLBACK_MESSAGE = "Xin lỗi, hệ thống chưa thể tạo câu trả lời phù hợp cho câu hỏi này. Vui lòng thử diễn đạt lại câu hỏi."
 
@@ -122,6 +131,101 @@ def _looks_context_dependent(text: str) -> bool:
     nữa?", "tại sao?") - câu hỏi tự thân đầy đủ thường dài hơn.
     """
     return len(text.split()) <= 8
+
+
+# Regex khớp bất kỳ ký tự có dấu tiếng Việt nào (nguyên âm có dấu + đ/Đ) -
+# ĐÚNG regex đã dùng khi ĐO THẬT trên traffic sản xuất (xem kết quả đo ở
+# đầu file/PR liên quan): nếu câu KHÔNG chứa ký tự nào trong tập này, đó
+# là dấu hiệu mạnh cho thấy câu tiếng Việt đã bị gõ THIẾU DẤU (không phải
+# bằng chứng chắc chắn - câu tiếng Anh cũng không có ký tự này).
+_VIETNAMESE_ACCENT_CHARS = (
+    r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡ"
+    r"ùúụủũưừứựửữỳýỵỷỹđ]"
+)
+_VIETNAMESE_ACCENT_RE = re.compile(_VIETNAMESE_ACCENT_CHARS, re.IGNORECASE)
+
+# Tập từ tiếng Việt phổ biến khi bị gõ KHÔNG DẤU - ĐÚNG tập đã dùng khi ĐO
+# THẬT (~31% traffic là tiếng Việt không dấu). Đây là heuristic RẺ, không
+# cần chính xác tuyệt đối - cùng triết lý với _looks_context_dependent:
+# chỉ cần đủ tin cậy để quyết định có đáng tốn 1 lượt gọi LLM khôi phục
+# dấu hay không, không cần bắt đúng 100% mọi câu.
+_UNACCENTED_VIETNAMESE_WORDS = {
+    "la", "gi", "trong", "va", "cua", "duoc", "khong", "the", "nao",
+    "hoat", "dong", "cach", "cai", "dat", "nhu", "the", "nay", "de",
+    "quy", "ham", "bien", "voi", "cho", "tai", "sao", "neu", "thi",
+    "mot", "hai", "ba", "cac", "nhung", "co", "phai", "lam", "sinh",
+}
+
+
+def _looks_like_unaccented_vietnamese(text: str) -> bool:
+    """
+    Đoán nhanh câu có khả năng là tiếng Việt bị gõ THIẾU DẤU - ĐO ĐƯỢC
+    QUA TEST THẬT: câu đúng chủ đề bị GIẢM điểm tương đồng khi mất dấu
+    ("đệ quy" 0.478 -> "de quy" 0.334), trong khi câu lạc đề lại bị TĂNG
+    điểm ("Docker" 0.276 -> 0.309) - 2 nhóm chồng lấn nhau (gap -0.017),
+    KHÔNG ngưỡng similarity nào tách được. Case thật: "Ham de quy hoat
+    dong nhu the nao?" trả về 0 kết quả tìm kiếm dù tài liệu có đủ nội
+    dung liên quan.
+
+    Logic (heuristic RẺ, không cần chính xác tuyệt đối - cùng tinh thần
+    với _looks_context_dependent): câu KHÔNG có bất kỳ ký tự có dấu tiếng
+    Việt nào, VÀ chứa ít nhất 2 từ trong tập từ tiếng Việt phổ biến không
+    dấu. Điều kiện "ít nhất 2 từ" để loại câu tiếng Anh thuần (vd "What
+    is a Python list?" không match dù không có dấu) và loại câu 1 từ
+    không đủ tín hiệu (vd "Python").
+    """
+    if _VIETNAMESE_ACCENT_RE.search(text):
+        # Đã có dấu rồi -> không cần khôi phục.
+        return False
+
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+    matches = sum(1 for w in words if w in _UNACCENTED_VIETNAMESE_WORDS)
+    return matches >= 2
+
+
+def _restore_vietnamese_accents(text: str) -> str:
+    """
+    Khôi phục dấu tiếng Việt cho câu hỏi bằng LLM (gpt-4o-mini,
+    temperature=0) - CHỈ dùng cho mục đích TRA CỨU tài liệu
+    (search_query), KHÔNG thay đổi `message` gốc lưu vào DB/hiển thị cho
+    người dùng (bước này phải hoàn toàn TRONG SUỐT với người dùng).
+
+    ĐO ĐƯỢC QUA TEST THẬT: case "Ham de quy hoat dong nhu the nao?" (0
+    kết quả tìm kiếm) -> sau khi khôi phục dấu thành "Hàm đệ quy hoạt
+    động như thế nào?" -> 8 kết quả. Latency đo được ~1.1s/lượt (khoảng
+    0.61s-2.13s).
+
+    BẮT BUỘC temperature=0: prompt gốc (không có temperature=0) từng bị
+    "trôi" (drift) sang TRẢ LỜI câu hỏi thay vì chỉ thêm dấu - PHÁT HIỆN
+    QUA TEST THẬT khi điều tra trước đó. Prompt dưới đây đã được sửa và
+    xác nhận ổn định, KHÔNG tự ý đổi lại nội dung prompt hay bỏ
+    temperature=0.
+
+    Fallback AN TOÀN: đây là bước TỐI ƯU chất lượng tìm kiếm, KHÔNG PHẢI
+    bước bắt buộc của luồng chat - bất kỳ lỗi nào khi gọi API (timeout,
+    lỗi mạng, lỗi bất kỳ) đều trả về `text` gốc thay vì raise, để không
+    bao giờ làm hỏng/chặn cả câu hỏi của người dùng chỉ vì bước tối ưu
+    phụ này gặp sự cố.
+    """
+    try:
+        response = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Khôi phục dấu tiếng Việt cho câu sau, GIỮ NGUYÊN ý nghĩa và cấu trúc câu. "
+                        "CHỈ trả về câu đã thêm dấu, KHÔNG trả lời câu hỏi, KHÔNG giải thích gì thêm."
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        )
+        restored = response.choices[0].message.content
+        return restored.strip() if restored else text
+    except Exception:
+        return text
 
 
 def _rewrite_query_with_history(text: str, history: list[dict]) -> str:
@@ -207,19 +311,52 @@ def _infer_course_id(search_results: list[SearchResult]) -> int | None:
     return max(counts, key=counts.get)
 
 
-def _extract_retrieval_similarity(search_results: list[SearchResult]) -> float | None:
+async def _has_no_enrollment(session: AsyncSession, user_id: int) -> bool:
+    """
+    True khi user CHƯA thuộc lớp học nào.
+
+    Vì sao cần kiểm tra RIÊNG thay vì để Hybrid Search tự trả rỗng: ACL
+    (app/retrieval/access_policy.py) lọc theo lớp user đã tham gia, nên
+    user 0 lớp LUÔN nhận 0 đoạn - đúng luật, nhưng khi đó Nova trả lời
+    "tài liệu hiện có chưa đề cập đủ thông tin", khiến sinh viên tưởng
+    kho tài liệu thiếu nội dung trong khi nguyên nhân thật là họ chưa
+    được thêm vào lớp. Phát hiện sớm ở đây còn tiết kiệm luôn 1 lượt
+    gọi API embedding + 2 câu SQL chắc chắn không ra kết quả.
+
+    KHÁC với nhánh SYSTEM_QUESTION (system_kb_service.py): nhánh đó trả
+    lời câu hỏi VỀ hệ thống ("làm sao vào lớp"), còn hàm này xử lý câu
+    hỏi HỌC THUẬT của người chưa có lớp nào.
+    """
+    result = await session.execute(
+        text("SELECT COUNT(*) FROM enrollment WHERE user_id = :uid"), {"uid": user_id}
+    )
+    return (result.scalar() or 0) == 0
+
+
+def _extract_retrieval_similarity(
+    search_results: list[SearchResult], retrieval_stats: dict | None = None
+) -> float | None:
     """
     Độ khớp tài liệu của lượt hỏi này - cosine similarity cao nhất giữa
     câu hỏi và các đoạn tài liệu tìm được (xem SearchResult.
     retrieval_similarity, mọi phần tử mang cùng 1 giá trị).
 
-    Trả None khi không tra cứu tài liệu (chitchat/off-topic) hoặc không
-    tìm thấy đoạn nào đủ liên quan - đúng ngữ nghĩa "không có gì để đo",
-    KHÁC HẲN giá trị 0.0 (đã tìm và tương đồng bằng 0).
+    Phân biệt RÕ 3 trạng thái (trước đây 2 trạng thái sau bị gộp làm
+    một thành NULL, khiến mọi thống kê "insufficient context" nói dối):
+
+    - None      = KHÔNG hề tra cứu (chitchat/off-topic, hoặc user chưa
+                  vào lớp nào nên đã chốt sớm trước retrieval).
+    - < ngưỡng  = CÓ tra cứu nhưng không đoạn nào đủ gần -> lấy số đo
+                  thật từ retrieval_stats["best_similarity"], nhờ đó
+                  giảng viên thấy được "gần sát ngưỡng" (0.29) khác
+                  hẳn "lạc đề hoàn toàn" (0.05).
+    - >= ngưỡng = CÓ tra cứu và tìm được (lấy từ chính kết quả).
     """
-    if not search_results:
-        return None
-    return search_results[0].retrieval_similarity
+    if search_results:
+        return search_results[0].retrieval_similarity
+    if retrieval_stats and "best_similarity" in retrieval_stats:
+        return retrieval_stats["best_similarity"]
+    return None
 
 
 def _parse_llm_response(raw_content: str) -> tuple[str, list[dict]]:
@@ -349,20 +486,93 @@ async def handle_chat(
     # đọc history phía trên).
     conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
 
+    # --- Bước 3.5: System Knowledge Query (chỉ nếu SYSTEM_QUESTION) ---
+    # Kiểm tra System Knowledge Base TRƯỚC khi xử lý retrieval thông thường.
+    # Nếu có câu trả lời từ KB -> dùng ngay, không cần tra tài liệu.
+    if route.category == "SYSTEM_QUESTION":
+        kb_querier = SystemKBQuerier(session)
+        kb_result = await kb_querier.query(message, user_id)
+
+        if kb_result.answer:
+            # Có câu trả lời từ System Knowledge Base -> dùng luôn
+            session.add(Message(conversation_id=conversation.id, role="user", content=message))
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=kb_result.answer,
+                    category="SYSTEM_QUESTION",
+                    needs_retrieval=False,
+                )
+            )
+            await session.commit()
+            return ChatResult(
+                conversation_id=conversation.id,
+                answer=kb_result.answer,
+                category="SYSTEM_QUESTION",
+                citations=[],
+            )
+        # Không match KB -> falls through để xử lý bình thường (LLM dùng system knowledge)
+
     # --- Bước 4: Hybrid Search (chỉ nếu cần) ---
     search_results: list[SearchResult] = []
+    # dict nhận số đo độ tương đồng từ hybrid_search kể cả khi kết quả
+    # rỗng vì dưới ngưỡng - xem _extract_retrieval_similarity().
+    retrieval_stats: dict = {}
     if route.needs_retrieval:
+        # CHỐT SỚM: user chưa vào lớp nào -> mọi tra cứu chắc chắn ra 0
+        # đoạn (ACL), trả lời thẳng đúng nguyên nhân thay vì để Nova
+        # đổ lỗi cho kho tài liệu (xem _has_no_enrollment).
+        if await _has_no_enrollment(session, user_id):
+            session.add(Message(conversation_id=conversation.id, role="user", content=message))
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=NO_ENROLLMENT_MESSAGE,
+                    category=route.category,
+                    needs_retrieval=False,
+                )
+            )
+            await session.commit()
+            return ChatResult(
+                conversation_id=conversation.id,
+                answer=NO_ENROLLMENT_MESSAGE,
+                category=route.category,
+                citations=[],
+            )
+
         search_query = message
         if needs_rewrite:
             search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
+
+        # Khôi phục dấu tiếng Việt CHO MỤC ĐÍCH TRA CỨU (search_query) -
+        # chạy SAU bước viết lại theo ngữ cảnh (nếu câu vừa ngắn/phụ
+        # thuộc ngữ cảnh vừa mất dấu, rewrite chạy trước trên câu gốc,
+        # rồi khôi phục dấu chạy trên kết quả đã rewrite). Đây là bước
+        # ĐỘC LẬP với needs_rewrite (xem _looks_like_unaccented_
+        # vietnamese) - ~31% traffic thật là tiếng Việt không dấu, phần
+        # lớn KHÔNG thoả điều kiện needs_rewrite (câu dài, độc lập ngữ
+        # nghĩa) nên phải kiểm tra riêng, không gộp chung 2 điều kiện.
+        #
+        # `message` KHÔNG bị đổi (vẫn lưu nguyên văn vào DB/hiển thị cho
+        # user) - chỉ `search_query` dùng để tra cứu bị thay đổi.
+        query_was_rewritten = needs_rewrite
+        if _looks_like_unaccented_vietnamese(search_query):
+            search_query = await asyncio.to_thread(_restore_vietnamese_accents, search_query)
+            query_was_rewritten = True
+
         search_results = await hybrid_search(
             session,
             query_text=search_query,
             user_id=user_id,
             is_admin=is_admin,
-            # Vector đã tính sẵn song song ở trên (None nếu câu hỏi phải
-            # viết lại - khi đó hybrid_search tự embed câu ĐÃ viết lại).
-            query_vector=early_vector,
+            # early_vector chỉ còn đúng nếu search_query KHÔNG bị đổi bởi
+            # rewrite HAY khôi phục dấu - nếu 1 trong 2 đã chạy, câu tra
+            # cứu cuối cùng khác với `message` gốc dùng để tính
+            # early_vector, phải để hybrid_search tự embed lại.
+            query_vector=None if query_was_rewritten else early_vector,
+            stats=retrieval_stats,
         )
 
     # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - phải
@@ -383,6 +593,7 @@ async def handle_chat(
         route.category, context_text, is_first_message=not history
     )
     model = get_model_for_category(route.category)
+    temperature = get_temperature_for_category(route.category)
 
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
 
@@ -394,6 +605,8 @@ async def handle_chat(
         kwargs = {"model": model, "messages": messages}
         if route.needs_retrieval:
             kwargs["response_format"] = {"type": "json_object"}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         response = _client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
@@ -444,7 +657,7 @@ async def handle_chat(
             citations=json.dumps(citations, ensure_ascii=False) if citations else None,
             category=route.category,
             needs_retrieval=route.needs_retrieval,
-            retrieval_similarity=_extract_retrieval_similarity(search_results),
+            retrieval_similarity=_extract_retrieval_similarity(search_results, retrieval_stats),
         )
     )
     await session.commit()
@@ -594,24 +807,107 @@ async def handle_chat_stream(
 
     conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
 
+    # --- System Knowledge Query (chỉ nếu SYSTEM_QUESTION) ---
+    # Kiểm tra System Knowledge Base TRƯỚC khi xử lý retrieval.
+    if route.category == "SYSTEM_QUESTION":
+        kb_querier = SystemKBQuerier(session)
+        kb_result = await kb_querier.query(message, user_id)
+
+        if kb_result.answer:
+            # Có câu trả lời từ KB -> stream từng từ
+            yield {
+                "type": "start",
+                "conversation_id": conversation.id,
+                "category": "SYSTEM_QUESTION",
+                "concept_id": None,
+            }
+            # Stream từng từ để用户体验一致
+            words = kb_result.answer.split()
+            for i, word in enumerate(words):
+                yield {"type": "chunk", "text": word + (" " if i < len(words) - 1 else "")}
+
+            session.add(Message(conversation_id=conversation.id, role="user", content=message))
+            session.add(
+                Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=kb_result.answer,
+                    category="SYSTEM_QUESTION",
+                    needs_retrieval=False,
+                )
+            )
+            await session.commit()
+            yield {
+                "type": "done",
+                "citations": [],
+                "message_id": None,
+                "retrieval_similarity": None,
+            }
+            return
+
     retrieval_start = time.monotonic()
     search_results: list[SearchResult] = []
+    retrieval_stats: dict = {}
     query_vector: list[float] | None = None
     if route.needs_retrieval:
+        # CHỐT SỚM cho user chưa vào lớp nào - cùng lý do với
+        # handle_chat(), chỉ khác ở dạng sự kiện SSE phải phát ra đủ bộ
+        # start/chunk/done để Frontend không treo ở trạng thái "đang gõ".
+        if await _has_no_enrollment(session, user_id):
+            yield {
+                "type": "start",
+                "conversation_id": conversation.id,
+                "category": route.category,
+                "concept_id": None,
+            }
+            yield {"type": "chunk", "text": NO_ENROLLMENT_MESSAGE}
+
+            session.add(Message(conversation_id=conversation.id, role="user", content=message))
+            no_enroll_message = Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=NO_ENROLLMENT_MESSAGE,
+                category=route.category,
+                needs_retrieval=False,
+            )
+            session.add(no_enroll_message)
+            await session.commit()
+            yield {
+                "type": "done",
+                "citations": [],
+                "message_id": no_enroll_message.id,
+                "retrieval_similarity": None,
+            }
+            return
+
         yield {"type": "status", "stage": "searching"}
         search_query = message
         if needs_rewrite:
             search_query = await asyncio.to_thread(_rewrite_query_with_history, message, history)
 
+        # Khôi phục dấu tiếng Việt CHO MỤC ĐÍCH TRA CỨU (search_query) -
+        # chạy SAU bước viết lại theo ngữ cảnh, giống hệt logic trong
+        # handle_chat() (xem giải thích đầy đủ ở đó). Bước ĐỘC LẬP với
+        # needs_rewrite - không phụ thuộc độ dài câu hay có lịch sử hay
+        # không, chỉ dựa trên _looks_like_unaccented_vietnamese.
+        #
+        # `message` KHÔNG bị đổi (vẫn lưu nguyên văn vào DB/hiển thị cho
+        # user) - chỉ `search_query` dùng để tra cứu (và từ đó, vector
+        # dùng để so khớp khái niệm - concept_matcher) bị thay đổi.
+        query_was_rewritten = needs_rewrite
+        if _looks_like_unaccented_vietnamese(search_query):
+            search_query = await asyncio.to_thread(_restore_vietnamese_accents, search_query)
+            query_was_rewritten = True
+
         # Tính vector câu hỏi 1 LẦN DUY NHẤT rồi dùng cho CẢ 2 việc:
         # tìm tài liệu (Hybrid Search) và xác định khái niệm đang hỏi
         # (concept_matcher) - không gọi API embedding lần thứ hai.
         #
-        # early_vector đã có sẵn nếu câu hỏi tự đầy đủ (đã tính song song
-        # với Guardrail/Router ở trên). Chỉ khi phải viết lại câu hỏi mới
-        # cần embed ở đây - lúc đó vector phải khớp câu ĐÃ VIẾT LẠI, không
-        # dùng lại vector của câu gốc được.
-        if early_vector is not None:
+        # early_vector CHỈ còn dùng được nếu search_query KHÔNG bị đổi
+        # bởi rewrite HAY khôi phục dấu (query_was_rewritten=False) - nếu
+        # 1 trong 2 bước trên đã chạy, early_vector (tính từ `message`
+        # gốc) không còn khớp với search_query cuối cùng, phải embed lại.
+        if early_vector is not None and not query_was_rewritten:
             query_vector = early_vector
         else:
             query_vector = await asyncio.to_thread(lambda: embed_texts([search_query])[0])
@@ -621,6 +917,7 @@ async def handle_chat_stream(
             user_id=user_id,
             query_vector=query_vector,
             is_admin=is_admin,
+            stats=retrieval_stats,
         )
     retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
 
@@ -688,6 +985,7 @@ async def handle_chat_stream(
         is_first_message=not history,
     )
     model = get_model_for_category(route.category)
+    temperature = get_temperature_for_category(route.category)
     messages = [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": message}]
 
     yield {
@@ -719,10 +1017,15 @@ async def handle_chat_stream(
             # (đã xác nhận bằng test thật, không phải suy đoán từ tài
             # liệu). Không có nó, Cost Dashboard sẽ luôn thiếu chi phí
             # của bước ĐẮT NHẤT (sinh câu trả lời).
-            stream = _client.chat.completions.create(
-                model=model, messages=messages, stream=True,
-                stream_options={"include_usage": True},
-            )
+            stream_kwargs = {
+                "model": model,
+                "messages": messages,
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+            if temperature is not None:
+                stream_kwargs["temperature"] = temperature
+            stream = _client.chat.completions.create(**stream_kwargs)
             for chunk in stream:
                 if chunk.usage is not None:
                     usage_holder["input"] = chunk.usage.prompt_tokens
@@ -780,7 +1083,7 @@ async def handle_chat_stream(
         concept_id=matched_concept_id,
         token_usage=json.dumps(token_usage, ensure_ascii=False),
         latency_ms=json.dumps(latency, ensure_ascii=False),
-        retrieval_similarity=_extract_retrieval_similarity(search_results),
+        retrieval_similarity=_extract_retrieval_similarity(search_results, retrieval_stats),
     )
     session.add(assistant_message)
     await session.commit()

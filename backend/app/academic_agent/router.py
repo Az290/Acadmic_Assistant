@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.academic_agent.agent import handle_chat, handle_chat_stream
 from app.academic_agent.schemas import ChatRequest, ChatResponse
+from app.academic_agent.suggested_questions import get_suggested_questions
+from app.academic_agent.summary import summarize_conversation
 from app.auth.dependencies import get_current_user
 from app.db.models import AppUser
 from app.db.session import AsyncSessionLocal, get_db
@@ -83,3 +85,36 @@ async def chat_stream(
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/{conversation_id}/suggested-questions")
+async def get_suggestions(
+    conversation_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Lấy danh sách câu hỏi gợi ý dựa trên context của cuộc trò chuyện.
+    Backend phân tích conversation hiện tại để đưa ra 3-5 câu hỏi
+    liên quan mà người dùng có thể nắm nhưũng hoặc tìm hiểu thêm.
+    """
+    suggestions = await get_suggested_questions(session, conversation_id, user.id)
+    return suggestions
+
+
+@router.get("/{conversation_id}/summary")
+async def get_conversation_summary(
+    conversation_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Tóm tắt cuộc trò chuyện - phân tích toàn bộ lịch sử để tạo
+    summary, key points và covered concepts.
+    """
+    result = await summarize_conversation(session, conversation_id, user.id)
+    if result is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Không tìm thấy cuộc trò chuyện hoặc không có tin nhắn nào")
+    return result

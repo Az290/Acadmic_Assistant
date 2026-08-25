@@ -241,6 +241,7 @@ async def hybrid_search(
     top_k: int = TOP_K_FINAL,
     query_vector: list[float] | None = None,
     is_admin: bool = False,
+    stats: dict | None = None,
 ) -> list[SearchResult]:
     """
     Hàm chính - nhận câu hỏi dạng text, trả về danh sách chunk liên
@@ -257,6 +258,19 @@ async def hybrid_search(
     toàn nhất làm mặc định: nơi gọi quên truyền thì người dùng bị coi
     như quyền thấp nhất, sai lầm dẫn tới "thấy ít hơn mức được phép"
     chứ không phải "thấy nhiều hơn".
+
+    stats: THAM SỐ RA (out-param) TUỲ CHỌN - nếu caller truyền vào 1
+    dict, hàm sẽ ghi khoá "best_similarity" (float) vào đó, LUÔN LUÔN,
+    kể cả khi kết quả trả về là danh sách RỖNG do dưới ngưỡng.
+
+    LÝ DO chọn out-param thay vì đổi kiểu trả về thành tuple: 4 nơi
+    đang gọi hàm này, trong đó 2 nơi (quiz_generator, retrieval/router)
+    hoàn toàn không quan tâm tới con số này - đổi chữ ký trả về buộc
+    sửa cả 4 chỗ gọi. Còn dựa vào field SearchResult.
+    retrieval_similarity thì KHÔNG đủ: đúng trường hợp quan trọng nhất
+    (dưới ngưỡng -> trả []) lại không còn phần tử nào để mang giá trị
+    đi. Hệ quả trước đây: DB ghi NULL, không phân biệt được "tra mà
+    không thấy gì đủ gần" với "không hề tra cứu".
     """
     if query_vector is None:
         query_vector = embed_texts([query_text])[0]
@@ -264,6 +278,11 @@ async def hybrid_search(
     vector_ranked, best_similarity = await _vector_search(
         session, query_vector, user_id, TOP_K_PER_BRANCH, is_admin
     )
+
+    # Ghi số đo RA NGOÀI NGAY tại đây - TRƯỚC mọi nhánh return sớm bên
+    # dưới - để không lối thoát nào của hàm làm mất con số này.
+    if stats is not None:
+        stats["best_similarity"] = best_similarity
 
     # CHỐT SỚM: không đoạn tài liệu nào đủ liên quan tới câu hỏi -> trả
     # về RỖNG ngay, KHÔNG chạy tiếp nhánh tìm theo từ khoá.

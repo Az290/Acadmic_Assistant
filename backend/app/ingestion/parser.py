@@ -15,9 +15,48 @@ hơn nhiều lần - để dành cho Phase 2 nếu sau này gặp tài liệu kh
 nhưng ta chưa cần bật nhánh Docling khi chưa có tài liệu nào cần nó).
 """
 
+import re
 from dataclasses import dataclass
 
 import pymupdf
+
+# PHÁT HIỆN QUA TEST THẬT (ingest "Open Data Structures" - Pat Morin,
+# PDF sinh từ LaTeX): PyMuPDF trích ra byte NUL (\x00) xen giữa văn bản
+# bình thường ở 3/711 chunk, làm asyncpg ném CharacterNotInRepertoireError
+# lúc INSERT ("invalid byte sequence for encoding UTF8: 0x00") - Postgres
+# CẤM TUYỆT ĐỐI byte NUL trong cột text/varchar (giới hạn ở tầng lưu trữ
+# C-string, không liên quan gì tới UTF-8 hợp lệ hay không).
+#
+# Truy vết tận gốc: không phải lỗi ligature "ffi" như nghi ngờ ban đầu -
+# đọc trực tiếp span PyMuPDF cho thấy \x00 (và \x01, \x10-\x13 ở chỗ
+# khác) đến từ font "Kp--M-Ex-Regular" (Computer Modern Math Extension) -
+# đây là font LaTeX dùng để vẽ CÁC MẢNH DẤU NGOẶC KÉO DÃN (vd: ngoặc lớn
+# bao quanh tổ hợp chập nhị thức "n choose k" \binom{n}{k}) - những glyph
+# này thuần tuý trang trí, KHÔNG có Unicode codepoint thật tương ứng, nên
+# PyMuPDF map chúng vào các mã điều khiển C0 thấp (0x00-0x1F) khi không
+# tìm được ánh xạ hợp lệ. Đây KHÔNG phải lỗi riêng của file này - vấn đề
+# đã biết trong hệ sinh thái PyMuPDF/PDF parsing với font toán học/font
+# nhúng lỗi nói chung (PDF LaTeX cũ, PDF scan OCR cũng có nguy cơ tương
+# tự) - nên xử lý ở TẦNG PIPELINE, ngay tại nguồn trích xuất, thay vì vá
+# riêng cho 1 file.
+#
+# Chỉ loại bỏ ĐÚNG các mã điều khiển không in được (giữ lại tab/newline/CR
+# vì đó là khoảng trắng hợp lệ) - KHÔNG xoá cả đoạn/câu chứa nó, tránh mất
+# nội dung học thuật thật xung quanh (chunker.py vẫn ghép câu bình thường,
+# chỉ riêng glyph rác biến mất).
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def _strip_control_chars(text: str) -> str:
+    """
+    Dọn control character rác (byte NUL và các mã điều khiển C0/C1 khác)
+    ra khỏi text thô PyMuPDF trả về - làm NGAY tại đây (điểm dữ liệu bẩn
+    xuất hiện lần đầu) thay vì để lọt xuống chunker.py hay pipeline.py,
+    vì mọi TextBlock từ giờ về sau (kể cả bảng) đều đi qua đúng 1 cổng
+    này - chặn sớm nhất, áp dụng cho MỌI file PDF sau này chứ không chỉ
+    riêng file gây lỗi lần này.
+    """
+    return _CONTROL_CHAR_RE.sub("", text)
 
 
 @dataclass
@@ -124,7 +163,7 @@ def parse_pdf(file_path: str) -> ParseResult:
             if not rows or not any(any(cell for cell in row) for row in rows):
                 continue
             markdown_rows = [
-                " | ".join(cell or "" for cell in row) for row in rows
+                " | ".join(_strip_control_chars(cell or "") for cell in row) for row in rows
             ]
             blocks.append(
                 TextBlock(
@@ -159,7 +198,10 @@ def parse_pdf(file_path: str) -> ParseResult:
             max_size_in_block = 0.0
             for line in block["lines"]:
                 for span in line["spans"]:
-                    block_text_parts.append(span["text"])
+                    # Dọn control char rác ngay tại đây - đây là điểm
+                    # text thô của PyMuPDF lần đầu trở thành str Python,
+                    # trước khi ghép câu/đoạn hay đưa vào chunker.
+                    block_text_parts.append(_strip_control_chars(span["text"]))
                     max_size_in_block = max(max_size_in_block, span["size"])
 
             text = " ".join(block_text_parts).strip()

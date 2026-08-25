@@ -6,6 +6,7 @@ import { api, CoursePublic, MasteryOverview } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import NovaAvatar from "@/components/NovaAvatar";
 import WeakestConceptToast from "@/components/WeakestConceptToast";
+import LearningPathCard from "@/components/learning-path/LearningPathCard";
 
 /**
  * Trang chủ sinh viên - trả lời đúng 1 câu hỏi: "hôm nay tôi làm gì
@@ -21,6 +22,7 @@ export default function StudentDashboard() {
   const router = useRouter();
   const [courses, setCourses] = useState<CoursePublic[]>([]);
   const [mastery, setMastery] = useState<MasteryOverview | null>(null);
+  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,9 +33,20 @@ export default function StudentDashboard() {
       .then(([c, m]) => {
         setCourses(c);
         setMastery(m);
+        // Auto-select first course if available
+        if (c.length > 0 && !selectedCourseId) {
+          setSelectedCourseId(c[0].id);
+        }
       })
       .finally(() => setLoading(false));
   }, []);
+
+  // Update selected course when courses load
+  useEffect(() => {
+    if (courses.length > 0 && !selectedCourseId) {
+      setSelectedCourseId(courses[0].id);
+    }
+  }, [courses, selectedCourseId]);
 
   /** Mở khung chat ở đúng tab - tái dùng CustomEvent đã có (ChatBubble
    *  nằm trong layout dùng chung nên không truyền props trực tiếp được). */
@@ -76,6 +89,44 @@ export default function StudentDashboard() {
           <StatTile label="Lớp đang học" value={String(courses.length)} />
           <StatTile label="Cần ôn lại" value={String(mastery.weak_concepts.length)} />
         </div>
+      )}
+
+      {/* Learning Path Section */}
+      {!loading && selectedCourseId && (
+        <section className="mt-6">
+          {/* Course Selector */}
+          {courses.length > 1 && (
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                Xem lộ trình:
+              </span>
+              <select
+                value={selectedCourseId}
+                onChange={(e) => setSelectedCourseId(Number(e.target.value))}
+                className="rounded-[6px] border px-2 py-1 text-[12px]"
+                style={{
+                  borderColor: "var(--border)",
+                  background: "var(--bg-raised)",
+                  color: "var(--ink)",
+                }}
+              >
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.code} - {course.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <LearningPathCard
+            courseId={selectedCourseId}
+            onConceptClick={(conceptId) => {
+              // Navigate to quiz page with the concept selected
+              router.push(`/quiz?concept_id=${conceptId}`);
+            }}
+          />
+        </section>
       )}
 
       <h3 className="text-label mt-6 mb-2.5">Bắt đầu từ đâu</h3>
