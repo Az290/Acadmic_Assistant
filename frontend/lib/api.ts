@@ -66,6 +66,8 @@ export const api = {
     request<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
   postForm: <T>(path: string, formData: FormData) =>
     request<T>(path, { method: "POST", body: formData }), // request() tự bỏ qua Content-Type mặc định khi body là FormData
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined }),
   // DELETE không có body - dùng cho xoá enrollment, v.v. Backend trả
   // 204 No Content, request() đã xử lý sẵn trường hợp response rỗng.
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
@@ -188,6 +190,38 @@ export interface DocumentPublic {
   // Lý do giảng viên ghi khi từ chối tài liệu (text tự do, tách khỏi
   // curator_notes vì khác nguồn/khác cấu trúc).
   rejection_reason: string | null;
+}
+
+/**
+ * 1 dòng trong danh sách tài liệu ĐÃ DUYỆT của 1 lớp (GET /v1/documents
+ * ?course_id=) - dùng ở trang "Tài liệu" để sinh viên/giảng viên xem
+ * lại kho tài liệu, không chỉ upload rồi không bao giờ thấy nữa.
+ * chunk_count đã được backend lọc theo quyền đọc của NGƯỜI GỌI.
+ */
+export interface DocumentSummary {
+  id: number;
+  title: string;
+  created_at: string;
+  image_count: number;
+  chunk_count: number;
+  uploaded_by_name: string;
+}
+
+export interface DocumentContentChunk {
+  chunk_id: number;
+  ord: number;
+  page_number: number | null;
+  content: string;
+  content_type: string;
+  context_prefix: string | null;
+}
+
+/** Toàn bộ nội dung đọc được của 1 tài liệu (GET /v1/documents/{id}/content), theo đúng thứ tự. */
+export interface DocumentContent {
+  document_id: number;
+  title: string;
+  total_chunks: number;
+  chunks: DocumentContentChunk[];
 }
 
 export type CuratorStepStatus = "pass" | "warn";
@@ -618,6 +652,33 @@ export interface AssignmentResults {
   total_questions: number;
   students: StudentResultSummary[];
   concept_difficulty: ConceptDifficulty[];
+}
+
+/* ---------- Sinh + duyệt câu hỏi trước khi giao bài (luồng mới) ---------- */
+
+// Câu hỏi NHÁP giảng viên vừa sinh - kèm correct_index vì đây là màn hình
+// DUYỆT của giảng viên (khác AssignmentQuestionPublic dành cho sinh viên).
+export interface GeneratedQuizQuestion {
+  id: number;
+  concept_id: number;
+  concept_name: string;
+  question: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
+}
+
+export interface GenerateQuestionsRequest {
+  course_id: number;
+  concept_ids: number[];
+  num_questions_per_concept: number;
+}
+
+export interface UpdateQuizQuestionRequest {
+  question: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
 }
 
 /* ---------- Cost Dashboard + Pipeline Visualization ---------- */

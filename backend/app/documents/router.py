@@ -9,13 +9,13 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.db.models import AppUser, Course, Enrollment
 from app.db.session import get_db
-from app.documents.schemas import DocumentPublic
+from app.documents.schemas import DocumentContent, DocumentContentChunk, DocumentPublic, DocumentSummary
 from app.documents.validation import (
     validate_file_size,
     validate_pdf_magic_bytes,
@@ -23,6 +23,7 @@ from app.documents.validation import (
 )
 from app.ingestion.pipeline import ingest_document
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
+from app.retrieval.access_policy import chunk_access_sql
 
 router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
@@ -169,3 +170,148 @@ async def upload_document(
         )
 
     return document
+
+
+@router.get("", response_model=list[DocumentSummary])
+async def list_documents(
+    course_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Liệt kê tài liệu ĐÃ DUYỆT của 1 lớp - đây là chỗ sinh viên tự XEM
+    LẠI được tài liệu (trước đây trang "Tài liệu" chỉ có upload, sinh
+    viên hoàn toàn không có cách nào biết lớp có kiến thức gì để hỏi Nova).
+
+    RBAC: CỐ Ý KHÔNG dùng _require_course_owner() của app/instructor/
+    router.py (hàm đó CHỈ cho chủ lớp/ADMIN đi qua) - ở đây SINH VIÊN
+    đang enroll lớp cũng phải gọi được, nên viết kiểm tra riêng: chủ lớp
+    HOẶC ADMIN HOẶC đang enroll.
+
+    Chỉ trả tài liệu mà người gọi đọc được ÍT NHẤT 1 chunk (chunk_count
+    > 0 sau khi lọc theo chunk_access_sql()) - tránh hiện tài liệu toàn
+    INSTRUCTOR_ONLY cho sinh viên rồi họ bấm "Đọc nội dung" ra màn hình
+    trống, gây khó hiểu không cần thiết.
+    """
+    course_result = await session.execute(select(Course).where(Course.id == course_id))
+    course = course_result.scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lớp này.")
+
+    is_owner = course.owner_id == user.id or user.role == "ADMIN"
+    if not is_owner:
+        enrolled = await session.execute(
+            select(Enrollment).where(
+                Enrollment.user_id == user.id, Enrollment.course_id == course_id
+            )
+        )
+        if enrolled.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không thuộc lớp học này.",
+            )
+
+    result = await session.execute(
+        text(
+            f"""
+            SELECT
+                document.id AS id,
+                document.title AS title,
+                document.created_at AS created_at,
+                document.image_count AS image_count,
+                app_user.full_name AS uploaded_by_name,
+                COUNT(chunk.id) AS chunk_count
+            FROM document
+            JOIN app_user ON app_user.id = document.uploaded_by
+            JOIN chunk ON chunk.document_id = document.id AND {chunk_access_sql()}
+            WHERE document.course_id = :course_id
+              AND document.status = 'APPROVED'
+            GROUP BY document.id, document.title, document.created_at,
+                     document.image_count, app_user.full_name
+            HAVING COUNT(chunk.id) > 0
+            ORDER BY document.created_at DESC
+            """
+        ),
+        {"course_id": course_id, "user_id": user.id, "is_admin": user.role == "ADMIN"},
+    )
+    rows = result.all()
+    return [
+        DocumentSummary(
+            id=row.id,
+            title=row.title,
+            created_at=row.created_at.isoformat(),
+            image_count=row.image_count,
+            chunk_count=row.chunk_count,
+            uploaded_by_name=row.uploaded_by_name,
+        )
+        for row in rows
+    ]
+
+
+@router.get("/{document_id}/content", response_model=DocumentContent)
+async def get_document_content(
+    document_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Trả TOÀN BỘ nội dung (chunk) mà người gọi ĐƯỢC PHÉP ĐỌC của 1 tài
+    liệu, theo đúng thứ tự (chunk.ord) - dùng khi sinh viên bấm "Đọc
+    nội dung" trên trang Tài liệu để thực sự học từ tài liệu của lớp,
+    không chỉ upload rồi không bao giờ xem lại.
+
+    ÁP DỤNG ĐÚNG chunk_access_sql() như get_chunk_detail() ở
+    app/retrieval/router.py - tài liệu chưa duyệt, hoặc chunk
+    INSTRUCTOR_ONLY mà người gọi không có quyền, sẽ tự động không xuất
+    hiện trong kết quả.
+
+    Trả 404 (KHÔNG PHẢI 403) khi không đọc được chunk nào - giống hệt
+    lý do ở get_chunk_detail(): không tiết lộ cho người dò id liệu tài
+    liệu này có tồn tại hay không, hay chỉ đơn giản là họ không có quyền.
+
+    GHI CHÚ: KHÔNG phân trang ở bản này - tài liệu thường chỉ vài chục
+    tới vài trăm chunk, chấp nhận được. Nếu sau này có tài liệu rất lớn
+    (hàng nghìn chunk) thì ĐÂY LÀ CHỖ cần thêm limit/offset.
+    """
+    result = await session.execute(
+        text(
+            f"""
+            SELECT
+                chunk.id AS chunk_id,
+                chunk.ord AS ord,
+                chunk.page_number AS page_number,
+                chunk.content AS content,
+                chunk.content_type AS content_type,
+                chunk.context_prefix AS context_prefix,
+                document.title AS document_title
+            FROM chunk
+            JOIN document ON document.id = chunk.document_id
+            WHERE chunk.document_id = :document_id
+              AND {chunk_access_sql()}
+            ORDER BY chunk.ord
+            """
+        ),
+        {"document_id": document_id, "user_id": user.id, "is_admin": user.role == "ADMIN"},
+    )
+    rows = result.all()
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu này."
+        )
+
+    return DocumentContent(
+        document_id=document_id,
+        title=rows[0].document_title,
+        total_chunks=len(rows),
+        chunks=[
+            DocumentContentChunk(
+                chunk_id=row.chunk_id,
+                ord=row.ord,
+                page_number=row.page_number,
+                content=row.content,
+                content_type=row.content_type,
+                context_prefix=row.context_prefix,
+            )
+            for row in rows
+        ],
+    )

@@ -1,0 +1,8 @@
+D:\AI20K\Acadmic_Assistant\backend\.venv\Lib\site-packages\starlette\config.py:60: UserWarning: Config file '' not found.
+  warnings.warn(f"Config file '{env_file}' not found.")
+{"timestamp": "2026-08-26T11:31:05", "level": "INFO", "logger": "uvicorn.error", "message": "Started server process [17752]", "request_id": null}
+{"timestamp": "2026-08-26T11:31:05", "level": "INFO", "logger": "uvicorn.error", "message": "Waiting for application startup.", "request_id": null}
+{"timestamp": "2026-08-26T11:31:05", "level": "INFO", "logger": "uvicorn.error", "message": "Application startup complete.", "request_id": null}
+{"timestamp": "2026-08-26T11:31:05", "level": "ERROR", "logger": "uvicorn.error", "message": "[Errno 10048] error while attempting to bind on address ('127.0.0.1', 8001): only one usage of each socket address (protocol/network address/port) is normally permitted", "request_id": null}
+{"timestamp": "2026-08-26T11:31:05", "level": "INFO", "logger": "uvicorn.error", "message": "Waiting for application shutdown.", "request_id": null}
+{"timestamp": "2026-08-26T11:31:05", "level": "INFO", "logger": "uvicorn.error", "message": "Application shutdown complete.", "request_id": null}

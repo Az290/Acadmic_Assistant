@@ -102,7 +102,7 @@ QUY TẮC BẮT BUỘC:
 2. Nếu NGỮ CẢNH không đủ thông tin để trả lời, hãy nói rõ "Tài liệu hiện có chưa đề cập đủ thông tin để trả lời câu hỏi này" - KHÔNG được tự bịa ra câu trả lời.
 3. Trả lời bằng ĐÚNG ngôn ngữ sinh viên dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác - RIÊNG trường "quote" trong citations vẫn PHẢI giữ NGUYÊN VĂN ngôn ngữ gốc của tài liệu.
 4. Giải thích rõ ràng, có ví dụ minh hoạ nếu tài liệu có, phù hợp với người đang học.
-{citation_contract}
+{recent_mistake}{citation_contract}
 
 NGỮ CẢNH:
 {context}"""
@@ -116,10 +116,49 @@ QUY TẮC BẮT BUỘC:
 4. Nếu NGỮ CẢNH không đủ thông tin liên quan, hãy nói rõ thay vì tự bịa gợi ý không có cơ sở.
 5. Kết thúc mỗi lượt bằng ĐÚNG MỘT câu hỏi cho sinh viên - không hỏi dồn nhiều câu cùng lúc.
 6. Trả lời bằng ĐÚNG ngôn ngữ sinh viên dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác.
-{student_model}{citation_contract}
+{student_model}{recent_mistake}{citation_contract}
 
 NGỮ CẢNH:
 {context}"""
+
+# Câu quiz SAI gần đây nhất - chèn vào RAG_QUESTION và SOCRATIC_REQUEST
+# (2 category sinh viên hay hỏi "giải thích câu vừa rồi/câu trên" mà
+# KHÔNG nêu rõ câu nào - router phân loại câu này vào 1 trong 2 category
+# trên, KHÔNG BAO GIỜ là ACTION_REQUEST, nên tool get_my_recent_mistakes/
+# explain_my_answer sẽ không được gọi). KHÔNG chèn cho CHITCHAT/
+# OFF_TOPIC/GENERAL_KNOWLEDGE/SYSTEM_QUESTION - phình prompt vô ích cho
+# các category không liên quan tới nội dung học thuật.
+_RECENT_MISTAKE_BLOCK = """
+
+CÂU QUIZ SINH VIÊN VỪA LÀM SAI GẦN ĐÂY NHẤT (dùng khi sinh viên hỏi về "câu vừa rồi", "câu trên", "đáp án câu đó" mà KHÔNG nói rõ câu nào - hãy hiểu là họ đang hỏi về câu này và giải thích TRỰC TIẾP, KHÔNG hỏi lại "bạn đang nói câu nào"):
+- Khái niệm: {concept_name}
+- Câu hỏi: {question}
+- Các đáp án: {options}
+- Sinh viên đã chọn: {your_answer} (SAI)
+- Đáp án đúng: {correct_answer}
+- Giải thích: {explanation}"""
+
+
+def build_recent_mistake_block(mistake) -> str:
+    """
+    Sinh đoạn "câu vừa làm sai" chèn vào prompt RAG_QUESTION/
+    SOCRATIC_REQUEST. Nhận `mistake` kiểu RecentMistake | None (import
+    kiểu ở đây sẽ tạo vòng lặp import với app.learning.student_context,
+    nên cố ý KHÔNG type-hint cụ thể - chỉ cần đúng shape thuộc tính).
+
+    Trả về chuỗi RỖNG khi sinh viên CHƯA từng làm sai câu quiz nào -
+    khi đó prompt giữ nguyên như cũ, không bịa thông tin.
+    """
+    if mistake is None:
+        return ""
+    return _RECENT_MISTAKE_BLOCK.format(
+        concept_name=mistake.concept_name,
+        question=mistake.question,
+        options=", ".join(mistake.options),
+        your_answer=mistake.your_answer,
+        correct_answer=mistake.correct_answer,
+        explanation=mistake.explanation,
+    )
 
 # Mô hình người học - chèn vào prompt Socratic khi ĐÃ xác định được câu
 # hỏi thuộc khái niệm nào và sinh viên đã có lịch sử làm quiz khái niệm
@@ -213,6 +252,7 @@ def build_system_prompt(
     student_model: str = "",
     with_citation_contract: bool = True,
     is_first_message: bool = False,
+    recent_mistake: str = "",
 ) -> str:
     """
     Trả về system prompt hoàn chỉnh cho category tương ứng.
@@ -229,6 +269,10 @@ def build_system_prompt(
     student_model: đoạn mô tả mức độ nắm vững của sinh viên (xem
     build_student_model_block) - CHỈ prompt SOCRATIC_REQUEST có chỗ để
     chèn; truyền vào cho category khác cũng an toàn (bị bỏ qua).
+
+    recent_mistake: đoạn "câu quiz vừa làm sai" (xem
+    build_recent_mistake_block) - CHỈ prompt RAG_QUESTION và
+    SOCRATIC_REQUEST có chỗ để chèn; category khác bị bỏ qua.
 
     is_first_message: lượt hỏi ĐẦU TIÊN của phiên (history rỗng) - chỉ
     khi đó mới cho phép chào hỏi, các lượt sau vào thẳng nội dung.
@@ -254,6 +298,8 @@ def build_system_prompt(
     }
     if "{student_model}" in template:
         kwargs["student_model"] = student_model
+    if "{recent_mistake}" in template:
+        kwargs["recent_mistake"] = recent_mistake
     return f"{prefix}\n\n{template.format(**kwargs)}"
 
 

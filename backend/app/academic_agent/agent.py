@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.academic_agent.citation_verifier import verify_citations
 from app.academic_agent.prompts import (
+    build_recent_mistake_block,
     build_student_model_block,
     build_system_prompt,
     get_model_for_category,
@@ -790,10 +791,17 @@ async def handle_chat(
             return None
         return await asyncio.to_thread(lambda: embed_texts([message])[0])
 
-    input_check, route, early_vector = await asyncio.gather(
+    # Tải "câu quiz vừa làm sai" SONG SONG với Guardrail/Router, CÙNG lý
+    # do và CÙNG hàm với handle_chat_stream() (xem load_student_context)
+    # - trước đây handle_chat() KHÔNG gọi hàm này (không cần student_model
+    # cho SOCRATIC_REQUEST ở luồng non-streaming theo thiết kế cũ), nay
+    # cần thêm để nhánh RAG_QUESTION/SOCRATIC_REQUEST của endpoint
+    # /v1/chat cũng biết được câu sai gần đây, nhất quán với streaming.
+    input_check, route, early_vector, student_context = await asyncio.gather(
         asyncio.to_thread(check_input, message),
         asyncio.to_thread(classify, message, history),
         _embed_early(),
+        load_student_context(session, user_id=user_id, course_id=course_id),
     )
 
     if not input_check.allowed:
@@ -956,11 +964,18 @@ async def handle_chat(
             conversation.course_id = inferred_course_id
 
     # --- Bước 5: Sinh câu trả lời - Dynamic Model Routing ---
+    recent_mistake_block = ""
+    if route.category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
+        recent_mistake_block = build_recent_mistake_block(student_context.recent_mistake)
+
     context_text = _build_context_text(search_results)
     # history rỗng = lượt hỏi đầu tiên của phiên -> cho phép Nova chào
     # một câu ngắn. Các lượt sau vào thẳng nội dung (xem prompts.py).
     system_prompt = build_system_prompt(
-        route.category, context_text, is_first_message=not history
+        route.category,
+        context_text,
+        is_first_message=not history,
+        recent_mistake=recent_mistake_block,
     )
     model = get_model_for_category(route.category)
     temperature = get_temperature_for_category(route.category)
@@ -1410,6 +1425,15 @@ async def handle_chat_stream(
                 streak=m.streak,
             )
 
+    # Câu quiz sai gần đây nhất - chèn cho RAG_QUESTION và
+    # SOCRATIC_REQUEST (sinh viên hỏi "giải thích câu vừa rồi" hay bị
+    # phân loại vào 1 trong 2 category này, KHÔNG BAO GIỜ là
+    # ACTION_REQUEST - xem chú thích đầy đủ ở _RECENT_MISTAKE_BLOCK
+    # trong prompts.py). Category khác build_system_prompt tự bỏ qua.
+    recent_mistake_block = ""
+    if route.category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
+        recent_mistake_block = build_recent_mistake_block(student_context.recent_mistake)
+
     context_text = _build_context_text(search_results)
     # with_citation_contract=False: luồng streaming đẩy thẳng text ra
     # màn hình, không parse JSON - xem docstring build_system_prompt.
@@ -1419,6 +1443,7 @@ async def handle_chat_stream(
         student_model_block,
         with_citation_contract=False,
         is_first_message=not history,
+        recent_mistake=recent_mistake_block,
     )
     model = get_model_for_category(route.category)
     temperature = get_temperature_for_category(route.category)

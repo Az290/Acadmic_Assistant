@@ -499,6 +499,94 @@ async def _tool_get_my_weakest_concept(session: AsyncSession, args: dict, user: 
     )
 
 
+def _mistake_row_to_dict(question: QuizQuestion, attempt: QuizAttempt, concept_name: str) -> dict:
+    """Gộp 1 QuizAttempt sai + QuizQuestion liên quan thành dict trả về
+    cho LLM - dùng chung giữa get_my_recent_mistakes và explain_my_answer
+    để tránh lặp logic parse options/lấy text đáp án."""
+    options = json.loads(question.options)
+    return {
+        "quiz_question_id": question.id,
+        "question": question.question,
+        "options": options,
+        "your_answer": options[attempt.selected_index] if 0 <= attempt.selected_index < len(options) else None,
+        "correct_answer": options[question.correct_index] if 0 <= question.correct_index < len(options) else None,
+        "is_correct": attempt.is_correct,
+        "explanation": question.explanation,
+        "concept_name": concept_name,
+        "attempted_at": str(attempt.attempted_at),
+    }
+
+
+async def _tool_get_my_recent_mistakes(session: AsyncSession, args: dict, user: AppUser) -> ToolExecutionResult:
+    """
+    RBAC: lọc CỨNG theo QuizAttempt.user_id == user.id - sinh viên
+    KHÔNG BAO GIỜ xem được lịch sử làm bài của người khác qua tool này,
+    bất kể course_id truyền vào là gì.
+    """
+    course_id = args.get("course_id")
+    limit = args.get("limit") or 5
+    limit = max(1, min(int(limit), 20))  # chặn limit bất thường (0, âm, quá lớn)
+
+    query = (
+        select(QuizAttempt, QuizQuestion, Concept.name)
+        .join(QuizQuestion, QuizQuestion.id == QuizAttempt.quiz_question_id)
+        .join(Concept, Concept.id == QuizQuestion.concept_id)
+        .where(QuizAttempt.user_id == user.id, QuizAttempt.is_correct.is_(False))
+        .order_by(QuizAttempt.attempted_at.desc())
+        .limit(limit)
+    )
+    if course_id is not None:
+        query = query.where(Concept.course_id == course_id)
+
+    rows = (await session.execute(query)).all()
+
+    return ToolExecutionResult(
+        success=True,
+        data={
+            "mistakes": [
+                _mistake_row_to_dict(question, attempt, concept_name)
+                for attempt, question, concept_name in rows
+            ]
+        },
+    )
+
+
+async def _tool_explain_my_answer(session: AsyncSession, args: dict, user: AppUser) -> ToolExecutionResult:
+    """
+    RBAC bắt buộc: CHỈ trả dữ liệu nếu CHÍNH sinh viên này đã từng làm
+    ĐÚNG câu hỏi đó (có dòng QuizAttempt khớp user_id + quiz_question_id).
+    Không có dòng attempt khớp -> từ chối, KHÔNG lộ nội dung/đáp án đúng
+    của câu hỏi - tránh lỗ hổng dò đáp án các câu CHƯA làm bằng cách
+    đoán quiz_question_id tuần tự.
+    """
+    quiz_question_id = args.get("quiz_question_id")
+
+    attempt = (
+        await session.execute(
+            select(QuizAttempt)
+            .where(QuizAttempt.user_id == user.id, QuizAttempt.quiz_question_id == quiz_question_id)
+            .order_by(QuizAttempt.attempted_at.desc())
+        )
+    ).scalars().first()
+    if attempt is None:
+        return ToolExecutionResult(
+            success=False,
+            error_message="Bạn chưa từng làm câu hỏi này, nên mình không thể hiển thị đáp án.",
+        )
+
+    question = (
+        await session.execute(select(QuizQuestion).where(QuizQuestion.id == quiz_question_id))
+    ).scalar_one_or_none()
+    if question is None:
+        return ToolExecutionResult(success=False, error_message="Không tìm thấy câu hỏi này.")
+
+    concept_name = (
+        await session.execute(select(Concept.name).where(Concept.id == question.concept_id))
+    ).scalar_one_or_none()
+
+    return ToolExecutionResult(success=True, data=_mistake_row_to_dict(question, attempt, concept_name or ""))
+
+
 # ---------- Tool GHI - GIẢNG VIÊN (đã qua xác nhận khi tới đây) ----------
 
 
@@ -747,6 +835,8 @@ _DISPATCH_READ = {
     "get_my_assignments": _tool_get_my_assignments,
     "get_learning_path": _tool_get_learning_path,
     "get_my_weakest_concept": _tool_get_my_weakest_concept,
+    "get_my_recent_mistakes": _tool_get_my_recent_mistakes,
+    "explain_my_answer": _tool_explain_my_answer,
 }
 
 _DISPATCH_WRITE = {

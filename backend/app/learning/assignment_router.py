@@ -48,14 +48,23 @@ from app.learning.assignment_schemas import (
     AssignmentResults,
     ConceptDifficulty,
     CreateAssignmentRequest,
+    GeneratedQuizQuestionPublic,
+    GenerateQuestionsRequest,
     StudentResultSummary,
     SubmitAssignmentRequest,
     SubmitAssignmentResponse,
+    UpdateQuizQuestionRequest,
 )
 from app.learning.mastery import apply_answer, get_or_create_mastery
+from app.learning.quiz_generator import QuizGenerationError, generate_quiz_question
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 
 router = APIRouter(prefix="/v1/assignments", tags=["assignments"])
+
+# Router RIÊNG cho /v1/quiz-questions/{id} (PATCH sửa câu hỏi nháp) - path
+# không nằm dưới /v1/assignments nên KHÔNG dùng chung `router` ở trên (prefix
+# lệch), nhưng đăng ký cùng app.main như các router khác (xem app/main.py).
+quiz_questions_router = APIRouter(prefix="/v1/quiz-questions", tags=["assignments"])
 
 
 async def _require_enrolled(session: AsyncSession, *, user_id: int, course_id: int) -> None:
@@ -80,22 +89,29 @@ async def _require_course_owner(session: AsyncSession, *, user: AppUser, course_
     return course
 
 
-@router.post("", response_model=AssignmentPublic, status_code=status.HTTP_201_CREATED)
+@router.post("/generate-questions", response_model=list[GeneratedQuizQuestionPublic])
 @limiter.limit(DEFAULT_RATE_LIMIT)
-async def create_assignment(
+async def generate_questions(
     request: Request,
-    body: CreateAssignmentRequest,
+    body: GenerateQuestionsRequest,
     session: AsyncSession = Depends(get_db),
     user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
 ):
     """
-    Giảng viên giao bài: chọn các khái niệm cần kiểm tra, hệ thống lấy
-    câu hỏi tương ứng (sinh mới nếu khái niệm đó chưa có câu hỏi nào).
+    Sinh NHÁP câu hỏi cho giảng viên xem/sửa/duyệt trước khi giao bài.
+
+    KHÁC với _get_or_create_quiz_question (dùng ở luồng sinh viên tự
+    luyện /v1/learn/quiz): ở đây LUÔN sinh câu MỚI, KHÔNG cache/tái sử
+    dụng câu cũ - giảng viên bấm "Sinh câu hỏi" là muốn 1 bộ đề mới để
+    duyệt, không phải lấy lại câu đã có sẵn trong kho.
+
+    Câu hỏi sinh ra ĐƯỢC LƯU vào DB ngay (có id thật) để giảng viên có
+    thể PATCH sửa hoặc chọn giao qua POST /v1/assignments - nhưng CHƯA
+    gắn với assignment_question nào nên không xuất hiện với sinh viên
+    cho tới khi thực sự được giao.
     """
     await _require_course_owner(session, user=user, course_id=body.course_id)
 
-    # Chỉ nhận khái niệm THUỘC ĐÚNG lớp này - chặn việc giao bài chứa
-    # câu hỏi của lớp khác (dù vô tình hay cố ý).
     concepts = (
         await session.execute(
             select(Concept).where(
@@ -110,6 +126,67 @@ async def create_assignment(
             detail="Có khái niệm không tồn tại hoặc không thuộc lớp này.",
         )
 
+    generated_questions: list[GeneratedQuizQuestionPublic] = []
+    for concept in concepts:
+        for _ in range(body.num_questions_per_concept):
+            try:
+                generated = await generate_quiz_question(
+                    session, concept_name=concept.name, user_id=user.id
+                )
+            except QuizGenerationError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+                )
+
+            question = QuizQuestion(
+                concept_id=concept.id,
+                question=generated["question"],
+                options=json.dumps(generated["options"], ensure_ascii=False),
+                correct_index=generated["correct_index"],
+                explanation=generated["explanation"],
+            )
+            session.add(question)
+            await session.flush()
+
+            generated_questions.append(
+                GeneratedQuizQuestionPublic(
+                    id=question.id,
+                    concept_id=concept.id,
+                    concept_name=concept.name,
+                    question=question.question,
+                    options=json.loads(question.options),
+                    correct_index=question.correct_index,
+                    explanation=question.explanation,
+                )
+            )
+
+    await session.commit()
+    return generated_questions
+
+
+@router.post("", response_model=AssignmentPublic, status_code=status.HTTP_201_CREATED)
+@limiter.limit(DEFAULT_RATE_LIMIT)
+async def create_assignment(
+    request: Request,
+    body: CreateAssignmentRequest,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Giảng viên giao bài. Có 2 luồng:
+
+    1. MỚI (khuyến nghị): body.quiz_question_ids có giá trị - đây là
+       các câu đã được giảng viên xem/sửa/duyệt qua bước
+       POST .../generate-questions. Dùng ĐÚNG các câu này, theo ĐÚNG
+       thứ tự đã truyền lên - không tự sinh gì thêm.
+
+    2. CŨ (tương thích ngược): quiz_question_ids rỗng/None - hệ thống
+       tự lấy/sinh 1 câu hỏi CACHE cho mỗi concept_ids như hành vi gốc.
+       Giữ nguyên để không phá bất kỳ nơi nào khác đang gọi endpoint
+       này theo kiểu cũ.
+    """
+    await _require_course_owner(session, user=user, course_id=body.course_id)
+
     assignment = Assignment(
         course_id=body.course_id,
         title=body.title,
@@ -120,17 +197,68 @@ async def create_assignment(
     session.add(assignment)
     await session.flush()
 
-    # Lấy câu hỏi cho từng khái niệm - dùng lại hàm đã có ở
-    # app/learning/router.py để không lặp logic sinh/cache câu hỏi.
-    from app.learning.router import _get_or_create_quiz_question
-
-    for order, concept in enumerate(concepts):
-        question = await _get_or_create_quiz_question(session, concept=concept, user_id=user.id)
-        session.add(
-            AssignmentQuestion(
-                assignment_id=assignment.id, quiz_question_id=question.id, ord=order
+    if body.quiz_question_ids:
+        # Luồng MỚI: câu hỏi giảng viên đã duyệt. Xác thực từng câu
+        # THẬT SỰ thuộc 1 concept của ĐÚNG course này - chặn việc giao
+        # nhầm/cố ý câu hỏi của lớp khác qua endpoint này.
+        questions = (
+            await session.execute(
+                select(QuizQuestion)
+                .join(Concept, Concept.id == QuizQuestion.concept_id)
+                .where(
+                    QuizQuestion.id.in_(body.quiz_question_ids),
+                    Concept.course_id == body.course_id,
+                )
             )
-        )
+        ).scalars().all()
+        questions_by_id = {q.id: q for q in questions}
+
+        if len(questions_by_id) != len(set(body.quiz_question_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Có câu hỏi không tồn tại hoặc không thuộc lớp này.",
+            )
+
+        for order, qid in enumerate(body.quiz_question_ids):
+            session.add(
+                AssignmentQuestion(assignment_id=assignment.id, quiz_question_id=qid, ord=order)
+            )
+        question_count = len(body.quiz_question_ids)
+    else:
+        if not body.concept_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phải cung cấp concept_ids hoặc quiz_question_ids.",
+            )
+
+        # Chỉ nhận khái niệm THUỘC ĐÚNG lớp này - chặn việc giao bài
+        # chứa câu hỏi của lớp khác (dù vô tình hay cố ý).
+        concepts = (
+            await session.execute(
+                select(Concept).where(
+                    Concept.id.in_(body.concept_ids), Concept.course_id == body.course_id
+                )
+            )
+        ).scalars().all()
+
+        if len(concepts) != len(set(body.concept_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Có khái niệm không tồn tại hoặc không thuộc lớp này.",
+            )
+
+        # Lấy câu hỏi cho từng khái niệm - dùng lại hàm đã có ở
+        # app/learning/router.py để không lặp logic sinh/cache câu hỏi.
+        from app.learning.router import _get_or_create_quiz_question
+
+        for order, concept in enumerate(concepts):
+            question = await _get_or_create_quiz_question(session, concept=concept, user_id=user.id)
+            session.add(
+                AssignmentQuestion(
+                    assignment_id=assignment.id, quiz_question_id=question.id, ord=order
+                )
+            )
+        question_count = len(concepts)
 
     await session.commit()
     await session.refresh(assignment)
@@ -141,7 +269,7 @@ async def create_assignment(
         title=assignment.title,
         description=assignment.description,
         due_at=assignment.due_at,
-        question_count=len(concepts),
+        question_count=question_count,
     )
 
 
@@ -458,4 +586,49 @@ async def get_assignment_results(
             for s, u in submissions
         ],
         concept_difficulty=concept_stats,
+    )
+
+
+@quiz_questions_router.patch("/{question_id}", response_model=GeneratedQuizQuestionPublic)
+async def update_quiz_question(
+    question_id: int,
+    body: UpdateQuizQuestionRequest,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Sửa 1 câu hỏi nháp trước khi giao bài (VIỆC 2 - giảng viên xem/sửa/duyệt).
+
+    Chặn quyền qua ĐÚNG concept -> course -> owner_id của câu hỏi, KHÔNG
+    nhận course_id từ body (tránh giả mạo course_id để bypass kiểm tra
+    quyền sở hữu) - luôn tra ngược từ chính question_id.
+    """
+    question = (
+        await session.execute(select(QuizQuestion).where(QuizQuestion.id == question_id))
+    ).scalar_one_or_none()
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy câu hỏi này.")
+
+    concept = (
+        await session.execute(select(Concept).where(Concept.id == question.concept_id))
+    ).scalar_one()  # concept_id là FK bắt buộc - luôn tồn tại nếu question tồn tại
+
+    await _require_course_owner(session, user=user, course_id=concept.course_id)
+
+    question.question = body.question
+    question.options = json.dumps(body.options, ensure_ascii=False)
+    question.correct_index = body.correct_index
+    question.explanation = body.explanation
+
+    await session.commit()
+    await session.refresh(question)
+
+    return GeneratedQuizQuestionPublic(
+        id=question.id,
+        concept_id=question.concept_id,
+        concept_name=concept.name,
+        question=question.question,
+        options=json.loads(question.options),
+        correct_index=question.correct_index,
+        explanation=question.explanation,
     )

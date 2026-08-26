@@ -10,6 +10,7 @@ import {
   ConceptPublic,
   CoursePublic,
   CreateConceptRequest,
+  GeneratedQuizQuestion,
   SubmitAssignmentResponse,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
@@ -33,11 +34,23 @@ export default function AssignmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Giao bài (giảng viên)
+  // Giao bài (giảng viên) - luồng mới 2 bước: (1) chọn khái niệm + số câu
+  // -> sinh nháp, (2) xem/sửa/bỏ câu rồi mới thực sự giao.
   const [concepts, setConcepts] = useState<ConceptPublic[]>([]);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [selectedConcepts, setSelectedConcepts] = useState<number[]>([]);
+  const [numPerConcept, setNumPerConcept] = useState(1);
+  const [generating, setGenerating] = useState(false);
+  const [draftQuestions, setDraftQuestions] = useState<GeneratedQuizQuestion[] | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<{
+    question: string;
+    options: string[];
+    correct_index: number;
+    explanation: string;
+  } | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Tạo khái niệm mới (giảng viên) - form thu gọn/mở tuỳ concepts.length,
   // xem effect load bên dưới.
@@ -116,18 +129,78 @@ export default function AssignmentsPage() {
     }
   }
 
-  async function handleCreate() {
-    if (courseId === null || !newTitle.trim() || selectedConcepts.length === 0) return;
+  async function handleGenerate() {
+    if (courseId === null || selectedConcepts.length === 0) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const questions = await api.post<GeneratedQuizQuestion[]>(
+        "/v1/assignments/generate-questions",
+        {
+          course_id: courseId,
+          concept_ids: selectedConcepts,
+          num_questions_per_concept: numPerConcept,
+        }
+      );
+      setDraftQuestions(questions);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không sinh được câu hỏi.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function handleResetDraft() {
+    setDraftQuestions(null);
+    setEditingId(null);
+    setEditForm(null);
+  }
+
+  function startEditDraft(q: GeneratedQuizQuestion) {
+    setEditingId(q.id);
+    setEditForm({
+      question: q.question,
+      options: [...q.options],
+      correct_index: q.correct_index,
+      explanation: q.explanation,
+    });
+  }
+
+  async function handleSaveEdit(id: number) {
+    if (editForm === null) return;
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const updated = await api.patch<GeneratedQuizQuestion>(`/v1/quiz-questions/${id}`, editForm);
+      setDraftQuestions((prev) => (prev ? prev.map((q) => (q.id === id ? updated : q)) : prev));
+      setEditingId(null);
+      setEditForm(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không sửa được câu hỏi.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  function handleRemoveDraft(id: number) {
+    // Chỉ loại khỏi danh sách SẮP giao, KHÔNG xoá khỏi DB - an toàn hơn,
+    // và đơn giản hơn (không cần endpoint xoá riêng).
+    setDraftQuestions((prev) => (prev ? prev.filter((q) => q.id !== id) : prev));
+  }
+
+  async function handleAssign() {
+    if (courseId === null || !newTitle.trim() || !draftQuestions || draftQuestions.length === 0) return;
     setCreating(true);
     setError(null);
     try {
       await api.post("/v1/assignments", {
         course_id: courseId,
         title: newTitle.trim(),
-        concept_ids: selectedConcepts,
+        quiz_question_ids: draftQuestions.map((q) => q.id),
       });
       setNewTitle("");
       setSelectedConcepts([]);
+      handleResetDraft();
       await loadAssignments(courseId);
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Không giao được bài tập.");
@@ -286,8 +359,8 @@ export default function AssignmentsPage() {
         </div>
       )}
 
-      {/* ----- Giảng viên: giao bài mới ----- */}
-      {isInstructor && !doing && !results && (
+      {/* ----- Giảng viên: giao bài mới - BƯỚC 1 (chọn khái niệm + số câu, sinh nháp) ----- */}
+      {isInstructor && !doing && !results && !draftQuestions && (
         <div className="card mb-4">
           <h3 className="mb-2 text-[12.5px] font-bold">Giao bài tập mới</h3>
           {concepts.length === 0 ? (
@@ -296,18 +369,10 @@ export default function AssignmentsPage() {
             </p>
           ) : (
             <>
-              <input
-                type="text"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Tên bài tập, vd: Kiểm tra giữa kỳ"
-                className="mb-2 w-full rounded-[7px] border px-2.5 py-2 text-[12.5px] focus:outline-none"
-                style={{ borderColor: "var(--border-strong)" }}
-              />
               <div className="mb-2 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
-                Chọn khái niệm cần kiểm tra (mỗi khái niệm 1 câu hỏi):
+                Chọn khái niệm cần kiểm tra:
               </div>
-              <div className="mb-2 flex flex-wrap gap-1.5">
+              <div className="mb-3 flex flex-wrap gap-1.5">
                 {concepts.map((c) => {
                   const picked = selectedConcepts.includes(c.id);
                   return (
@@ -330,13 +395,190 @@ export default function AssignmentsPage() {
                   );
                 })}
               </div>
+              <div className="mb-3 flex items-center gap-2">
+                <label className="text-[11.5px] font-semibold" style={{ color: "var(--ink-soft)" }}>
+                  Số câu mỗi khái niệm:
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={numPerConcept}
+                  onChange={(e) =>
+                    setNumPerConcept(Math.min(10, Math.max(1, Number(e.target.value) || 1)))
+                  }
+                  className="w-16 rounded-[7px] border px-2 py-1.5 text-[12.5px] focus:outline-none"
+                  style={{ borderColor: "var(--border-strong)" }}
+                />
+              </div>
               <button
-                onClick={handleCreate}
-                disabled={creating || !newTitle.trim() || selectedConcepts.length === 0}
+                onClick={handleGenerate}
+                disabled={generating || selectedConcepts.length === 0}
                 className="rounded-[7px] px-4 py-2 text-[12.3px] font-semibold text-white disabled:opacity-50"
                 style={{ background: "var(--accent)" }}
               >
-                {creating ? "Đang tạo đề…" : `Giao bài (${selectedConcepts.length} câu)`}
+                {generating
+                  ? `Đang sinh ${selectedConcepts.length * numPerConcept} câu hỏi, vui lòng đợi…`
+                  : `Sinh câu hỏi (${selectedConcepts.length * numPerConcept} câu)`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ----- Giảng viên: giao bài mới - BƯỚC 2 (xem/sửa/bỏ câu rồi mới giao) ----- */}
+      {isInstructor && !doing && !results && draftQuestions && (
+        <div className="card mb-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-[12.5px] font-bold">Duyệt câu hỏi trước khi giao ({draftQuestions.length} câu)</h3>
+            <button
+              onClick={handleResetDraft}
+              className="rounded-[7px] border px-2.5 py-1 text-[11.5px] font-semibold"
+              style={{ borderColor: "var(--border-strong)", color: "var(--ink)" }}
+            >
+              Huỷ / Làm lại
+            </button>
+          </div>
+
+          {draftQuestions.length === 0 && (
+            <p className="mb-2 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
+              Bạn đã bỏ hết câu hỏi. Bấm &ldquo;Huỷ / Làm lại&rdquo; để sinh lại từ đầu.
+            </p>
+          )}
+
+          {draftQuestions.map((q, i) => (
+            <div
+              key={q.id}
+              className="mb-3 rounded-[9px] border px-3 py-2.5 text-[12px]"
+              style={{ borderColor: "var(--border-strong)" }}
+            >
+              {editingId === q.id && editForm ? (
+                <div>
+                  <div className="mb-1.5 text-[11px] font-semibold" style={{ color: "var(--ink-soft)" }}>
+                    Câu {i + 1} · {q.concept_name} · Đang sửa
+                  </div>
+                  <textarea
+                    value={editForm.question}
+                    onChange={(e) => setEditForm({ ...editForm, question: e.target.value })}
+                    className="mb-2 w-full rounded-[7px] border px-2.5 py-2 text-[12px] focus:outline-none"
+                    style={{ borderColor: "var(--border-strong)" }}
+                    rows={2}
+                  />
+                  {editForm.options.map((opt, idx) => (
+                    <div key={idx} className="mb-1.5 flex items-center gap-2">
+                      <input
+                        type="radio"
+                        checked={editForm.correct_index === idx}
+                        onChange={() => setEditForm({ ...editForm, correct_index: idx })}
+                      />
+                      <input
+                        type="text"
+                        value={opt}
+                        onChange={(e) => {
+                          const options = [...editForm.options];
+                          options[idx] = e.target.value;
+                          setEditForm({ ...editForm, options });
+                        }}
+                        className="flex-1 rounded-[7px] border px-2.5 py-1.5 text-[12px] focus:outline-none"
+                        style={{
+                          borderColor:
+                            editForm.correct_index === idx ? "var(--teal)" : "var(--border-strong)",
+                        }}
+                      />
+                    </div>
+                  ))}
+                  <textarea
+                    value={editForm.explanation}
+                    onChange={(e) => setEditForm({ ...editForm, explanation: e.target.value })}
+                    placeholder="Giải thích đáp án đúng"
+                    className="mb-2 w-full rounded-[7px] border px-2.5 py-2 text-[12px] focus:outline-none"
+                    style={{ borderColor: "var(--border-strong)" }}
+                    rows={2}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleSaveEdit(q.id)}
+                      disabled={savingEdit}
+                      className="rounded-[7px] px-3 py-1.5 text-[11.5px] font-semibold text-white disabled:opacity-50"
+                      style={{ background: "var(--teal)" }}
+                    >
+                      {savingEdit ? "Đang lưu…" : "Lưu"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingId(null);
+                        setEditForm(null);
+                      }}
+                      className="rounded-[7px] border px-3 py-1.5 text-[11.5px] font-semibold"
+                      style={{ borderColor: "var(--border-strong)", color: "var(--ink)" }}
+                    >
+                      Huỷ sửa
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="mb-1 text-[11px] font-semibold" style={{ color: "var(--ink-soft)" }}>
+                    Câu {i + 1} · {q.concept_name}
+                  </div>
+                  <div className="mb-1.5 font-semibold">{q.question}</div>
+                  {q.options.map((opt, idx) => (
+                    <div
+                      key={idx}
+                      className="mb-1 rounded-[7px] px-2.5 py-1.5"
+                      style={
+                        idx === q.correct_index
+                          ? { background: "var(--teal-bg)", color: "var(--teal-ink)", fontWeight: 600 }
+                          : { background: "#fff", border: "1px solid var(--border)" }
+                      }
+                    >
+                      {opt}
+                      {idx === q.correct_index && " ✓"}
+                    </div>
+                  ))}
+                  {q.explanation && (
+                    <div className="mt-1.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                      Giải thích: {q.explanation}
+                    </div>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => startEditDraft(q)}
+                      className="rounded-[7px] border px-2.5 py-1 text-[11px] font-semibold"
+                      style={{ borderColor: "var(--border-strong)", color: "var(--ink)" }}
+                    >
+                      Sửa
+                    </button>
+                    <button
+                      onClick={() => handleRemoveDraft(q.id)}
+                      className="rounded-[7px] border px-2.5 py-1 text-[11px] font-semibold"
+                      style={{ borderColor: "var(--red)", color: "var(--red)" }}
+                    >
+                      Bỏ câu này
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {draftQuestions.length > 0 && (
+            <>
+              <input
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Tên bài tập, vd: Kiểm tra giữa kỳ"
+                className="mb-2 w-full rounded-[7px] border px-2.5 py-2 text-[12.5px] focus:outline-none"
+                style={{ borderColor: "var(--border-strong)" }}
+              />
+              <button
+                onClick={handleAssign}
+                disabled={creating || !newTitle.trim()}
+                className="rounded-[7px] px-4 py-2 text-[12.3px] font-semibold text-white disabled:opacity-50"
+                style={{ background: "var(--accent)" }}
+              >
+                {creating ? "Đang giao bài…" : `Giao bài (${draftQuestions.length} câu)`}
               </button>
             </>
           )}

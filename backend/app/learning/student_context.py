@@ -15,12 +15,13 @@ nhiều so với chờ biết khái niệm rồi mới truy vấn (thêm 1 round
 tuần tự).
 """
 
+import json
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Concept, Enrollment, StudentMastery
+from app.db.models import Concept, Enrollment, QuizAttempt, QuizQuestion, StudentMastery
 
 
 @dataclass
@@ -32,10 +33,29 @@ class MasteryInfo:
 
 
 @dataclass
+class RecentMistake:
+    """
+    Câu quiz SAI gần đây nhất của sinh viên - dùng để trả lời khi sinh
+    viên hỏi kiểu "giải thích câu vừa rồi tôi làm sai" mà KHÔNG nêu rõ
+    câu nào (xem build_recent_mistake_block() trong prompts.py). Đủ
+    thông tin để LLM giải thích trực tiếp, không cần hỏi lại.
+    """
+
+    quiz_question_id: int
+    question: str
+    options: list[str]
+    your_answer: str | None
+    correct_answer: str | None
+    explanation: str
+    concept_name: str
+
+
+@dataclass
 class StudentContext:
     # (concept_id, name, embedding) - đúng định dạng concept_matcher cần
     concepts: list[tuple[int, str, list[float] | None]] = field(default_factory=list)
     mastery_by_concept: dict[int, MasteryInfo] = field(default_factory=dict)
+    recent_mistake: RecentMistake | None = None
 
     def mastery_for(self, concept_id: int) -> MasteryInfo:
         """Chưa từng làm quiz khái niệm này -> trả về bản ghi rỗng (n_obs=0), không phải lỗi."""
@@ -64,8 +84,15 @@ async def load_student_context(
 
     concept_rows = (await session.execute(concept_query)).all()
 
+    # Câu làm sai gần đây nhất - tải LUÔN kể cả khi lớp CHƯA có concept
+    # nào enroll match (concept_rows rỗng vẫn có thể có mistake nếu
+    # course_id=None và sinh viên có mistake ở lớp khác) - vì vậy bước
+    # này KHÔNG return sớm theo `if not concept_rows` như trước, phải
+    # tách riêng thành helper chạy độc lập.
+    recent_mistake = await _load_recent_mistake(session, user_id=user_id, course_id=course_id)
+
     if not concept_rows:
-        return StudentContext()
+        return StudentContext(recent_mistake=recent_mistake)
 
     concept_ids = [row[0] for row in concept_rows]
     mastery_rows = (
@@ -85,4 +112,44 @@ async def load_student_context(
             )
             for m in mastery_rows
         },
+        recent_mistake=recent_mistake,
+    )
+
+
+async def _load_recent_mistake(
+    session: AsyncSession, *, user_id: int, course_id: int | None
+) -> RecentMistake | None:
+    """
+    Câu QuizAttempt SAI mới nhất của sinh viên - course_id giới hạn
+    đúng lớp đang chat (join qua Concept.course_id) nếu đã biết, None
+    thì lấy mới nhất trên MỌI lớp (đủ dùng khi Conversation chưa gắn
+    lớp nào). CHỈ 1 query nhỏ (limit 1), chạy chung batch song song với
+    Guardrail/Router như phần còn lại của load_student_context - không
+    thêm round-trip nối tiếp nào.
+    """
+    query = (
+        select(QuizAttempt, QuizQuestion, Concept.name)
+        .join(QuizQuestion, QuizQuestion.id == QuizAttempt.quiz_question_id)
+        .join(Concept, Concept.id == QuizQuestion.concept_id)
+        .where(QuizAttempt.user_id == user_id, QuizAttempt.is_correct.is_(False))
+        .order_by(QuizAttempt.attempted_at.desc())
+        .limit(1)
+    )
+    if course_id is not None:
+        query = query.where(Concept.course_id == course_id)
+
+    row = (await session.execute(query)).first()
+    if row is None:
+        return None
+
+    attempt, question, concept_name = row
+    options = json.loads(question.options)
+    return RecentMistake(
+        quiz_question_id=question.id,
+        question=question.question,
+        options=options,
+        your_answer=options[attempt.selected_index] if 0 <= attempt.selected_index < len(options) else None,
+        correct_answer=options[question.correct_index] if 0 <= question.correct_index < len(options) else None,
+        explanation=question.explanation,
+        concept_name=concept_name,
     )

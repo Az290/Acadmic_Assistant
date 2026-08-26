@@ -28,8 +28,13 @@ Yêu cầu:
 - Câu hỏi PHẢI kiểm tra hiểu biết THẬT về khái niệm, không phải câu hỏi mẹo/đánh đố chữ nghĩa.
 - Nội dung câu hỏi và các lựa chọn PHẢI dựa trên tài liệu cung cấp - KHÔNG tự bịa thông tin ngoài tài liệu.
 - Giải thích ngắn gọn (1-2 câu) tại sao đáp án đó đúng.
+- BẮT BUỘC: LUÔN LUÔN viết câu hỏi, 4 phương án trả lời và phần giải thích bằng TIẾNG VIỆT,
+  KỂ CẢ KHI đoạn tài liệu tham khảo được cung cấp bằng tiếng Anh - đây là yêu cầu bắt buộc,
+  không phải tuỳ chọn. Được phép giữ nguyên thuật ngữ kỹ thuật tiếng Anh trong ngoặc đơn nếu
+  cần thiết cho độ chính xác học thuật, ví dụ: "đệ quy (recursion)", "ngăn xếp (stack)".
+  TUYỆT ĐỐI KHÔNG trả lời bằng tiếng Anh dưới bất kỳ hình thức nào.
 
-Trả về JSON đúng định dạng:
+Trả về JSON đúng định dạng (question, options, explanation đều bằng tiếng Việt):
 {"question": "...", "options": ["...", "...", "...", "..."], "correct_index": <0-3>, "explanation": "..."}"""
 
 

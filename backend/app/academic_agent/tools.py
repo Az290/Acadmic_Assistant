@@ -194,6 +194,49 @@ _GET_MY_WEAKEST_CONCEPT = {
     },
 }
 
+_GET_MY_RECENT_MISTAKES = {
+    "type": "function",
+    "function": {
+        "name": "get_my_recent_mistakes",
+        "description": (
+            "Xem các câu quiz CỦA CHÍNH MÌNH đã làm SAI gần đây nhất, kèm đáp án đã chọn, "
+            "đáp án đúng và giải thích - dùng khi sinh viên hỏi mình hay làm sai câu nào, "
+            "muốn xem lại các câu đã làm sai để ôn tập."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "course_id": {
+                    "type": "integer",
+                    "description": "ID lớp học muốn lọc (tuỳ chọn) - bỏ trống để xem của mọi lớp.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Số câu tối đa muốn xem, mặc định 5.",
+                },
+            },
+        },
+    },
+}
+
+_EXPLAIN_MY_ANSWER = {
+    "type": "function",
+    "function": {
+        "name": "explain_my_answer",
+        "description": (
+            "Giải thích chi tiết 1 câu quiz CỤ THỂ mà CHÍNH MÌNH đã từng làm - dùng khi "
+            "sinh viên hỏi 'giải thích đáp án câu X', biết rõ ID câu hỏi cần giải thích."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "quiz_question_id": {"type": "integer", "description": "ID của câu hỏi quiz cần giải thích."},
+            },
+            "required": ["quiz_question_id"],
+        },
+    },
+}
+
 # ---------- Tool GHI - GIẢNG VIÊN (BẮT BUỘC xác nhận) ----------
 
 _CREATE_CONCEPT = {
@@ -345,6 +388,8 @@ TOOLS_STUDENT: list[dict] = [
     _GET_MY_ASSIGNMENTS,
     _GET_LEARNING_PATH,
     _GET_MY_WEAKEST_CONCEPT,
+    _GET_MY_RECENT_MISTAKES,
+    _EXPLAIN_MY_ANSWER,
 ]
 
 
@@ -391,6 +436,8 @@ TOOL_LABELS_VI: dict[str, str] = {
     "get_my_assignments": "Xem bài tập của bạn",
     "get_learning_path": "Xem lộ trình học tập của bạn",
     "get_my_weakest_concept": "Xem khái niệm bạn đang yếu nhất",
+    "get_my_recent_mistakes": "Xem các câu bạn làm sai gần đây",
+    "explain_my_answer": "Giải thích đáp án câu bạn đã làm",
     "create_concept": "Tạo khái niệm mới",
     "create_assignment": "Giao bài tập mới",
     "approve_document": "Duyệt tài liệu",
