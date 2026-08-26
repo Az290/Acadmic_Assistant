@@ -9,6 +9,7 @@ import {
   AssignmentResults,
   ConceptPublic,
   CoursePublic,
+  CreateConceptRequest,
   SubmitAssignmentResponse,
 } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
@@ -37,6 +38,13 @@ export default function AssignmentsPage() {
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [selectedConcepts, setSelectedConcepts] = useState<number[]>([]);
+
+  // Tạo khái niệm mới (giảng viên) - form thu gọn/mở tuỳ concepts.length,
+  // xem effect load bên dưới.
+  const [showConceptForm, setShowConceptForm] = useState(false);
+  const [conceptName, setConceptName] = useState("");
+  const [conceptComplexity, setConceptComplexity] = useState(3);
+  const [creatingConcept, setCreatingConcept] = useState(false);
 
   // Làm bài (sinh viên)
   const [doing, setDoing] = useState<AssignmentDetail | null>(null);
@@ -68,16 +76,45 @@ export default function AssignmentsPage() {
     }
   }
 
+  async function loadConcepts(cid: number) {
+    try {
+      const list = await api.get<ConceptPublic[]>(`/v1/concepts?course_id=${cid}`);
+      setConcepts(list);
+      // Rỗng thì mở sẵn form (đúng như thông báo hướng dẫn cũ), có rồi
+      // thì thu gọn lại - giảng viên bấm "+ Thêm khái niệm" khi cần.
+      setShowConceptForm(list.length === 0);
+    } catch {
+      setConcepts([]);
+    }
+  }
+
   useEffect(() => {
     if (courseId === null) return;
     loadAssignments(courseId);
-    if (isInstructor) {
-      api
-        .get<ConceptPublic[]>(`/v1/concepts?course_id=${courseId}`)
-        .then(setConcepts)
-        .catch(() => setConcepts([]));
-    }
+    if (isInstructor) loadConcepts(courseId);
   }, [courseId, isInstructor]);
+
+  async function handleCreateConcept() {
+    if (courseId === null || !conceptName.trim()) return;
+    setCreatingConcept(true);
+    setError(null);
+    try {
+      const body: CreateConceptRequest = {
+        course_id: courseId,
+        name: conceptName.trim(),
+        complexity: conceptComplexity,
+        prerequisites: [],
+      };
+      await api.post<ConceptPublic>("/v1/concepts", body);
+      setConceptName("");
+      setConceptComplexity(3);
+      await loadConcepts(courseId);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không tạo được khái niệm.");
+    } finally {
+      setCreatingConcept(false);
+    }
+  }
 
   async function handleCreate() {
     if (courseId === null || !newTitle.trim() || selectedConcepts.length === 0) return;
@@ -171,6 +208,75 @@ export default function AssignmentsPage() {
         >
           {error}
         </p>
+      )}
+
+      {/* ----- Giảng viên: tạo khái niệm mới -----
+          Đặt TRƯỚC form giao bài vì phải có khái niệm thì mới giao bài
+          được - luôn hiện (không chỉ khi rỗng) vì giảng viên có thể
+          muốn thêm khái niệm mới bất cứ lúc nào, chỉ thu gọn lại khi
+          lớp đã có sẵn khái niệm để đỡ chiếm chỗ. */}
+      {isInstructor && !doing && !results && (
+        <div className="card mb-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[12.5px] font-bold">Khái niệm của lớp</h3>
+            {concepts.length > 0 && (
+              <button
+                onClick={() => setShowConceptForm((v) => !v)}
+                className="rounded-[7px] border px-2.5 py-1 text-[11.5px] font-semibold"
+                style={{ borderColor: "var(--border-strong)", color: "var(--ink)" }}
+              >
+                {showConceptForm ? "Đóng" : "+ Thêm khái niệm"}
+              </button>
+            )}
+          </div>
+          {concepts.length === 0 && (
+            <p className="mb-2 mt-1 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
+              Lớp này chưa có khái niệm nào. Tạo khái niệm trước để hệ thống ra đề.
+            </p>
+          )}
+          {showConceptForm && (
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <div className="min-w-[180px] flex-1">
+                <label className="mb-1 block text-[11px] font-semibold" style={{ color: "var(--ink-soft)" }}>
+                  Tên khái niệm
+                </label>
+                <input
+                  type="text"
+                  value={conceptName}
+                  onChange={(e) => setConceptName(e.target.value)}
+                  placeholder="vd: Đệ quy"
+                  className="w-full rounded-[7px] border px-2.5 py-2 text-[12.5px] focus:outline-none"
+                  style={{ borderColor: "var(--border-strong)" }}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold" style={{ color: "var(--ink-soft)" }}>
+                  Độ phức tạp
+                </label>
+                <select
+                  value={conceptComplexity}
+                  onChange={(e) => setConceptComplexity(Number(e.target.value))}
+                  className="rounded-[7px] border px-2.5 py-2 text-[12.5px] focus:outline-none"
+                  style={{ borderColor: "var(--border-strong)" }}
+                >
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={handleCreateConcept}
+                disabled={creatingConcept || !conceptName.trim()}
+                className="rounded-[7px] px-4 py-2 text-[12.3px] font-semibold text-white disabled:opacity-50"
+                style={{ background: "var(--accent)" }}
+              >
+                {creatingConcept ? "Đang tạo…" : "Tạo khái niệm"}
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ----- Giảng viên: giao bài mới ----- */}

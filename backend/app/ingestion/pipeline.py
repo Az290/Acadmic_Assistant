@@ -6,6 +6,7 @@ kết quả vào Database - biến 1 file PDF thành các dòng thật trong b�
 Đây là hàm mà endpoint POST /v1/documents/upload sẽ gọi.
 """
 
+import asyncio
 import hashlib
 
 from sqlalchemy import select
@@ -72,7 +73,11 @@ async def ingest_document(
         raise ValueError("Tài liệu này (cùng nội dung) đã được ingest trước đó.")
 
     # --- Bước 1+2: Parse rồi Chunk ---
-    parse_result = parse_pdf(file_path)
+    # parse_pdf() dùng PyMuPDF - CPU-bound đồng bộ, có thể mất vài giây
+    # với file lớn. Bọc asyncio.to_thread() để KHÔNG chặn event loop
+    # của uvicorn (đơn luồng) - nếu không, mọi request khác (chat, quiz...)
+    # của người dùng KHÁC sẽ bị đứng khựng suốt thời gian parse.
+    parse_result = await asyncio.to_thread(parse_pdf, file_path)
     blocks = parse_result.blocks
     if not blocks:
         raise ValueError("Không đọc được nội dung nào từ file - có thể là PDF scan (ảnh), chưa hỗ trợ ở tác vụ này.")
@@ -95,7 +100,12 @@ async def ingest_document(
     chunk_drafts = chunk_document(blocks)
 
     # --- Bước 3: Embed toàn bộ chunk trong 1 loạt batch call ---
-    vectors = embed_texts([c.content for c in chunk_drafts])
+    # embed_texts() gọi OpenAI Embeddings API đồng bộ (network-bound) -
+    # với PDF nhiều chunk có thể mất hàng chục giây chờ mạng. Bọc
+    # asyncio.to_thread() cùng lý do như parse_pdf() ở trên - đây là
+    # nguyên nhân chính gây "web crash" khi upload (chặn event loop lâu
+    # nhất trong cả pipeline).
+    vectors = await asyncio.to_thread(embed_texts, [c.content for c in chunk_drafts])
 
     # Vector "đại diện" cho cả tài liệu = trung bình cộng vector các
     # chunk - KHÔNG tốn thêm lượt gọi API embedding nào (tái dùng

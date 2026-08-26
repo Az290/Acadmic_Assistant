@@ -20,11 +20,33 @@ from app.courses.schemas import (
     CreateCourseRequest,
     EnrollmentPublic,
     EnrollRequest,
+    StudentRosterItem,
 )
 from app.db.models import AppUser, Course, Enrollment
 from app.db.session import get_db
 
 router = APIRouter(prefix="/v1/courses", tags=["courses"])
+
+
+async def _require_course_owner(session: AsyncSession, *, user: AppUser, course_id: int) -> Course:
+    """
+    Kiểm tra "user có phải chủ lớp (hoặc ADMIN) không" - copy cùng
+    pattern đã có ở app/instructor/router.py và
+    app/learning/assignment_router.py (cùng tên hàm, KHÔNG import chéo
+    giữa các module để tránh phụ thuộc chồng chéo không cần thiết -
+    logic chỉ 5 dòng, trùng lặp ở đây rẻ hơn coupling 3 router lại).
+    """
+    result = await session.execute(select(Course).where(Course.id == course_id))
+    course = result.scalar_one_or_none()
+    if course is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lớp này.")
+
+    if course.owner_id != user.id and user.role != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không phải giáo viên phụ trách lớp này.",
+        )
+    return course
 
 
 @router.post("", response_model=CoursePublic, status_code=status.HTTP_201_CREATED)
@@ -129,3 +151,70 @@ async def list_my_courses(
         )
     )
     return result.scalars().all()
+
+
+@router.get("/{course_id}/students", response_model=list[StudentRosterItem])
+async def list_course_students(
+    course_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Danh sách sinh viên đang học 1 lớp - CHỈ giáo viên chủ lớp (hoặc
+    ADMIN) mới xem được (không phải mọi INSTRUCTOR trong hệ thống,
+    cùng nguyên tắc đã áp dụng ở enroll_student()).
+
+    Query tương tự pattern đã có ở app/instructor/router.py
+    get_class_analytics() (join AppUser qua Enrollment, lọc
+    role_in_course='STUDENT') - chỉ thêm email + joined_at vào SELECT.
+    """
+    await _require_course_owner(session, user=user, course_id=course_id)
+
+    students = (
+        await session.execute(
+            select(AppUser.id, AppUser.full_name, AppUser.email, Enrollment.joined_at)
+            .join(Enrollment, Enrollment.user_id == AppUser.id)
+            .where(Enrollment.course_id == course_id, Enrollment.role_in_course == "STUDENT")
+            .order_by(Enrollment.joined_at)
+        )
+    ).all()
+
+    return [
+        StudentRosterItem(user_id=row.id, full_name=row.full_name, email=row.email, enrolled_at=row.joined_at)
+        for row in students
+    ]
+
+
+@router.delete("/{course_id}/students/{student_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_course_student(
+    course_id: int,
+    student_user_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Gỡ 1 sinh viên KHỎI LỚP - chỉ xoá dòng Enrollment (quan hệ "thuộc
+    lớp nào"), KHÔNG đụng tới bất kỳ dữ liệu học tập nào khác của sinh
+    viên (StudentMastery, Message, quiz_attempt...). Đây là "unenroll",
+    không phải xoá tài khoản - sinh viên vẫn đăng nhập được, chỉ không
+    còn thấy/truy vấn được tài liệu của lớp này nữa (ACL dựa trên chính
+    bảng Enrollment này, xem access_policy.py).
+    """
+    await _require_course_owner(session, user=user, course_id=course_id)
+
+    result = await session.execute(
+        select(Enrollment).where(
+            Enrollment.course_id == course_id,
+            Enrollment.user_id == student_user_id,
+            Enrollment.role_in_course == "STUDENT",
+        )
+    )
+    enrollment = result.scalar_one_or_none()
+    if enrollment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sinh viên này không có trong lớp.",
+        )
+
+    await session.delete(enrollment)
+    await session.commit()

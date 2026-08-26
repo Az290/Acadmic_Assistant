@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  ActionResultPublic,
   api,
   ApiError,
   ChunkDetail,
@@ -11,6 +12,8 @@ import {
   CoursePublic,
   getConversationSummary,
   getSuggestedQuestions,
+  MessagePublic,
+  PendingActionPublic,
   streamChat,
 } from "@/lib/api";
 import NovaAvatar from "@/components/NovaAvatar";
@@ -51,6 +54,14 @@ interface DisplayMessage {
   retrievalSimilarity?: number | null;
   // Đánh giá của chính người dùng cho câu trả lời này (undefined = chưa đánh giá).
   feedback?: boolean;
+  // Hành động Nova ĐỀ XUẤT, đang chờ xác nhận (category "ACTION_REQUEST").
+  // ĐÃ đọc kỹ backend (agent.py::handle_chat_stream) để xác nhận: khi có
+  // pendingAction/actionResult thì KHÔNG có "chunk" nào đi kèm trong
+  // cùng lượt đó (2 loại sự kiện LOẠI TRỪ NHAU) - content ở đây sẽ RỖNG,
+  // nên UI card phải tự hiển thị đủ text (arguments_summary/summary),
+  // không thể trông chờ content đã có sẵn câu văn tương ứng.
+  pendingAction?: PendingActionPublic;
+  actionResult?: ActionResultPublic;
 }
 
 interface TabState {
@@ -91,13 +102,72 @@ function emptyTabState(): TabState {
   return { messages: [], conversationId: undefined };
 }
 
+// Key localStorage lưu conversationId theo TỪNG tab riêng biệt - Hỏi
+// đáp và Gia sư là 2 phiên hội thoại độc lập (xem comment đầu file),
+// nên phải tách key để F5 không làm trộn lẫn conversationId của 2 tab.
+function conversationStorageKey(tabMode: TabMode): string {
+  return `nova-conversation-${tabMode}`;
+}
+
+/**
+ * Đọc conversationId đã lưu từ lần trước - BỌC try/catch vì
+ * localStorage có thể ném lỗi ở private mode / trình duyệt chặn
+ * storage (Safari private browsing là ví dụ điển hình). Lỗi thì coi
+ * như chưa có gì lưu, không phải bug nghiêm trọng cần báo người dùng.
+ */
+function readStoredConversationId(tabMode: TabMode): number | undefined {
+  try {
+    const raw = localStorage.getItem(conversationStorageKey(tabMode));
+    if (!raw) return undefined;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStoredConversationId(tabMode: TabMode, conversationId: number | undefined): void {
+  try {
+    if (conversationId === undefined) {
+      localStorage.removeItem(conversationStorageKey(tabMode));
+    } else {
+      localStorage.setItem(conversationStorageKey(tabMode), String(conversationId));
+    }
+  } catch {
+    // localStorage không khả dụng (private mode, v.v.) - bỏ qua, không
+    // ảnh hưởng chức năng chat trong phiên hiện tại.
+  }
+}
+
+/** Chuyển MessagePublic (từ API lịch sử) sang DisplayMessage (state của ChatBubble). */
+function toDisplayMessage(m: MessagePublic): DisplayMessage {
+  return {
+    role: m.role,
+    content: m.content,
+    citations: m.citations,
+    messageId: m.message_id,
+    retrievalSimilarity: m.retrieval_similarity,
+    // pending_action null -> giữ undefined (khớp kiểu optional của
+    // DisplayMessage) - backend CHỈ set khác null ở tin nhắn assistant
+    // CUỐI CÙNG nếu đang có hành động chờ xác nhận (xem MessagePublic).
+    pendingAction: m.pending_action ?? undefined,
+  };
+}
+
 export default function ChatBubble() {
   const [size, setSize] = useState<PanelSize>("closed");
   const [tab, setTab] = useState<TabMode>("RAG_QUESTION");
+  // Khởi tạo conversationId từ localStorage NGAY TỪ ĐẦU (đọc string thì
+  // đồng bộ, không cần useEffect) - messages thì phải đợi useEffect gọi
+  // API để "hydrate" (xem effect bên dưới) vì đó là thao tác async.
   const [tabs, setTabs] = useState<Record<TabMode, TabState>>({
-    RAG_QUESTION: emptyTabState(),
-    SOCRATIC_REQUEST: emptyTabState(),
+    RAG_QUESTION: { messages: [], conversationId: readStoredConversationId("RAG_QUESTION") },
+    SOCRATIC_REQUEST: { messages: [], conversationId: readStoredConversationId("SOCRATIC_REQUEST") },
   });
+  // Tab nào đang hiện dòng "Tiếp tục cuộc trò chuyện trước" - chỉ bật
+  // sau khi hydrate THÀNH CÔNG (có lịch sử thật từ server), tắt ngay
+  // nếu người dùng gửi tin nhắn mới hoặc bắt đầu hội thoại mới.
+  const [hydratedTabs, setHydratedTabs] = useState<Partial<Record<TabMode, boolean>>>({});
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,9 +194,10 @@ export default function ChatBubble() {
   // conceptId về undefined, nên không thể set conceptId ngay lập tức
   // cùng lúc với courseId - phải đợi qua bước trung gian này).
   const [pendingConceptId, setPendingConceptId] = useState<number | undefined>(undefined);
-  // Citation tooltip: citation đang được hover để hiện preview text
-  const [hoveredCitation, setHoveredCitation] = useState<CitationPublic | null>(null);
-  const [citationPreview, setCitationPreview] = useState<Record<number, string>>({});
+  // Menu chọn nguồn tham khảo - lưu ĐÚNG object DisplayMessage đang mở
+  // menu (không phải id) vì message không có id ổn định khi đang stream;
+  // null nghĩa là không có menu nào đang mở.
+  const [openCitationMenuFor, setOpenCitationMenuFor] = useState<DisplayMessage | null>(null);
   // Suggested questions: câu hỏi gợi ý sau khi Nova trả lời xong
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -134,6 +205,9 @@ export default function ChatBubble() {
   const [showSummary, setShowSummary] = useState(false);
   const [summaryData, setSummaryData] = useState<ConversationSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  // Đổi label nút "Sao chép" tạm thời để báo kết quả - null nghĩa là
+  // trạng thái bình thường (chưa bấm hoặc đã hết thời gian hiện thông báo).
+  const [copyStatus, setCopyStatus] = useState<"success" | "error" | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isOpen = size !== "closed";
@@ -148,6 +222,40 @@ export default function ChatBubble() {
       .get<CoursePublic[]>("/v1/courses/me")
       .then(setCourses)
       .catch(() => setCourses([]));
+  }, []);
+
+  // Hydrate lại messages của từng tab từ conversationId đã lưu ở
+  // localStorage (đọc lúc khởi tạo state ở trên) - CHỈ chạy 1 lần khi
+  // mount, không phụ thuộc `tab` hiện tại để tránh gọi lại API mỗi khi
+  // người dùng chuyển qua lại 2 tab.
+  useEffect(() => {
+    (["RAG_QUESTION", "SOCRATIC_REQUEST"] as TabMode[]).forEach((tabMode) => {
+      const convId = readStoredConversationId(tabMode);
+      if (convId === undefined) return;
+
+      api
+        .get<MessagePublic[]>(`/v1/chat/${convId}/messages`)
+        .then((history) => {
+          setTabs((prev) => ({
+            ...prev,
+            [tabMode]: { conversationId: convId, messages: history.map(toDisplayMessage) },
+          }));
+          setHydratedTabs((prev) => ({ ...prev, [tabMode]: true }));
+        })
+        .catch((err) => {
+          // 404: conversation không còn tồn tại hoặc không thuộc user
+          // hiện tại (vd. đăng xuất rồi đăng nhập tài khoản khác) - đây
+          // là trường hợp BÌNH THƯỜNG, không phải lỗi cần báo người
+          // dùng. Dọn key cũ và coi tab đó như chưa từng có hội thoại.
+          if (err instanceof ApiError && err.status === 404) {
+            writeStoredConversationId(tabMode, undefined);
+            setTabs((prev) => ({ ...prev, [tabMode]: emptyTabState() }));
+          }
+          // Lỗi khác (mất mạng, server lỗi...) - giữ nguyên conversationId
+          // đã đọc, để lần mở panel sau vẫn còn cơ hội thử lại; chỉ là
+          // messages sẽ trống cho tới khi người dùng gửi tin nhắn mới.
+        });
+    });
   }, []);
 
   // Danh sách khái niệm chỉ có ý nghĩa khi đã chọn 1 lớp cụ thể - mỗi
@@ -174,7 +282,7 @@ export default function ChatBubble() {
   // Xoá gợi ý khi bắt đầu gửi câu hỏi mới
   function clearSuggestedQuestions() {
     setSuggestedQuestions([]);
-    setCitationPreview({});
+    setOpenCitationMenuFor(null);
   }
 
   // Tóm tắt cuộc trò chuyện
@@ -201,6 +309,8 @@ export default function ChatBubble() {
   // Bắt đầu cuộc trò chuyện mới
   function handleStartNewConversation() {
     updateCurrentTab(() => ({ messages: [], conversationId: undefined }));
+    writeStoredConversationId(tab, undefined); // xoá key cũ - không để sót conversationId đã kết thúc
+    setHydratedTabs((prev) => ({ ...prev, [tab]: false }));
     setShowSummary(false);
     setSummaryData(null);
     setSuggestedQuestions([]);
@@ -211,11 +321,26 @@ export default function ChatBubble() {
   function copySummary() {
     if (!summaryData) return;
     const text = `${summaryData.summary}\n\nĐiểm chính:\n${summaryData.key_points.map((p, i) => `${i + 1}. ${p}`).join("\n")}`;
-    navigator.clipboard.writeText(text).catch(() => {});
+    navigator.clipboard
+      .writeText(text)
+      .then(() => setCopyStatus("success"))
+      .catch(() => {
+        // Trình duyệt chặn quyền clipboard (thường gặp ở permission
+        // policy nghiêm ngặt/không phải HTTPS) - báo cho người dùng biết
+        // thay vì im lặng, để họ tự chọn văn bản thủ công nếu cần.
+        setCopyStatus("error");
+      });
+    // Tự tắt thông báo sau 2s - không cần người dùng bấm gì thêm.
+    setTimeout(() => setCopyStatus(null), 2000);
   }
 
-  async function handleSend() {
-    const text = input.trim();
+  // overrideText: dùng khi gửi tin nhắn KHÔNG qua ô nhập liệu (vd nút
+  // "Xác nhận"/"Huỷ" của thẻ pendingAction) - setInput() rồi gọi thẳng
+  // handleSend() trong cùng lượt sự kiện sẽ đọc phải `input` CŨ (closure
+  // chưa thấy state vừa cập nhật), nên phải truyền thẳng text cần gửi
+  // thay vì trông chờ state kịp đổi.
+  async function handleSend(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
     if (!text || sending) return;
 
     const activeTab = tab; // chốt lại tab tại thời điểm gửi - tránh lỗi nếu người dùng đổi tab giữa lúc đang stream
@@ -249,6 +374,7 @@ export default function ChatBubble() {
             const lastIndex = messages.length - 1;
 
             if (event.type === "start") {
+              writeStoredConversationId(activeTab, event.conversation_id);
               return { ...prev, [activeTab]: { messages, conversationId: event.conversation_id } };
             }
             if (event.type === "status") {
@@ -281,6 +407,40 @@ export default function ChatBubble() {
               };
               return { ...prev, [activeTab]: { ...state, messages } };
             }
+            if (event.type === "action_pending") {
+              // Nova đề xuất 1 hành động GHI, đang chờ xác nhận. KHÔNG
+              // có "chunk" nào đi kèm sự kiện này (đã đọc kỹ backend
+              // agent.py::handle_chat_stream để xác nhận) nên content
+              // giữ nguyên rỗng - text hiển thị lấy thẳng từ
+              // arguments_summary trong thẻ xác nhận (xem JSX bên dưới).
+              messages[lastIndex] = {
+                ...messages[lastIndex],
+                pendingAction: {
+                  tool_name: event.tool_name,
+                  tool_label_vi: event.tool_label_vi,
+                  arguments_summary: event.arguments_summary,
+                },
+                status: undefined,
+                streaming: false,
+              };
+              return { ...prev, [activeTab]: { ...state, messages } };
+            }
+            if (event.type === "action_result") {
+              // Tương tự action_pending: KHÔNG có "chunk" đi kèm, content
+              // vẫn rỗng - thẻ kết quả tự hiển thị summary.
+              messages[lastIndex] = {
+                ...messages[lastIndex],
+                actionResult: {
+                  tool_name: event.tool_name,
+                  tool_label_vi: event.tool_label_vi,
+                  success: event.success,
+                  summary: event.summary,
+                },
+                status: undefined,
+                streaming: false,
+              };
+              return { ...prev, [activeTab]: { ...state, messages } };
+            }
             if (event.type === "blocked") {
               messages[lastIndex] = {
                 role: "assistant",
@@ -288,9 +448,11 @@ export default function ChatBubble() {
                 blocked: true,
                 streaming: false,
               };
+              const nextConversationId = event.conversation_id || state.conversationId;
+              writeStoredConversationId(activeTab, nextConversationId);
               return {
                 ...prev,
-                [activeTab]: { messages, conversationId: event.conversation_id || state.conversationId },
+                [activeTab]: { messages, conversationId: nextConversationId },
               };
             }
             return prev;
@@ -371,8 +533,13 @@ export default function ChatBubble() {
     applyFeedback(isPositive);
     try {
       await api.post(`/v1/messages/${messageId}/feedback`, { is_positive: isPositive });
-    } catch {
+    } catch (err) {
+      // Revert lại icon về trạng thái CHƯA đánh giá - giữ nguyên logic
+      // optimistic-update đã có, chỉ thêm phần BÁO CHO NGƯỜI DÙNG BIẾT
+      // (trước đây im lặng hoàn toàn, người dùng thấy icon tự nhảy lại
+      // mà không hiểu vì sao, tưởng UI bị lỗi).
       applyFeedback(undefined);
+      setError(err instanceof ApiError ? err.detail : "Không gửi được đánh giá, vui lòng thử lại.");
     }
   }
 
@@ -418,26 +585,6 @@ export default function ChatBubble() {
     window.addEventListener("open-chat-tab", handleOpenChatTab);
     return () => window.removeEventListener("open-chat-tab", handleOpenChatTab);
   }, []);
-
-  // Fetch preview text khi hover citation badge
-  useEffect(() => {
-    if (!hoveredCitation) return;
-    const chunkId = hoveredCitation.chunk_id;
-    // Đã có preview rồi thì không fetch lại
-    if (citationPreview[chunkId]) return;
-
-    api
-      .get<ChunkDetail>(`/v1/chunks/${chunkId}`)
-      .then((detail) => {
-        setCitationPreview((prev) => ({
-          ...prev,
-          [chunkId]: detail.content.slice(0, 200) + (detail.content.length > 200 ? "..." : ""),
-        }));
-      })
-      .catch(() => {
-        // Lỗi thì không hiện preview, để trống
-      });
-  }, [hoveredCitation, citationPreview]);
 
   // Fetch suggested questions khi conversation hoàn tất
   useEffect(() => {
@@ -636,6 +783,15 @@ export default function ChatBubble() {
               </div>
             )}
 
+            {/* Báo cho người dùng biết đây là lịch sử cũ được khôi phục
+                (từ localStorage + API), tránh tưởng nhầm là bug hiển thị
+                sai khi mở panel lên đã thấy sẵn tin nhắn. */}
+            {hydratedTabs[tab] && current.messages.length > 0 && (
+              <p className="pb-1 text-center text-[11px]" style={{ color: "var(--ink-faint)" }}>
+                — Tiếp tục cuộc trò chuyện trước —
+              </p>
+            )}
+
             {current.messages.map((m, i) => (
               <div key={i} className={`animate-fade flex gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 {/* Avatar chỉ ở tin nhắn của Nova - tin nhắn người dùng
@@ -680,49 +836,166 @@ export default function ChatBubble() {
                     {m.streaming && !m.status && <span className="animate-pulse">▍</span>}
                   </div>
 
-                  {m.citations && m.citations.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {m.citations.map((c) => (
-                        <div key={c.chunk_id} className="relative">
+                  {/* Thẻ xác nhận hành động - chỉ hiện 2 nút Xác nhận/Huỷ
+                      ở tin nhắn CUỐI CÙNG có pendingAction (tin nhắn cũ
+                      trong lịch sử coi như đã xử lý xong về mặt hiển
+                      thị dù dữ liệu vẫn còn trong mảng messages). */}
+                  {m.pendingAction && (
+                    <div
+                      className="mt-1.5 rounded-[8px] border px-2.5 py-2"
+                      style={{ background: "var(--accent-bg)", borderColor: "var(--border)" }}
+                    >
+                      <div className="flex items-start gap-1.5">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="14"
+                          height="14"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="mt-0.5 shrink-0"
+                          style={{ color: "var(--accent-ink)" }}
+                        >
+                          <circle cx="12" cy="12" r="10" />
+                          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                          <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                        <span className="text-[12px] leading-relaxed" style={{ color: "var(--accent-ink)" }}>
+                          {m.pendingAction.arguments_summary}
+                        </span>
+                      </div>
+                      {i === current.messages.length - 1 && (
+                        <div className="mt-2 flex gap-1.5">
                           <button
-                            onClick={() => openChunk(c.chunk_id)}
-                            disabled={chunkLoading === c.chunk_id}
-                            className="rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                            title={`Bấm để xem nguyên văn đoạn này${c.page_number ? ` (trang ${c.page_number})` : ""}`}
-                            onMouseEnter={() => setHoveredCitation(c)}
-                            onMouseLeave={() => setHoveredCitation(null)}
+                            // Gửi ngay bằng ĐÚNG luồng gửi tin nhắn hiện
+                            // có (handleSend), truyền thẳng text qua
+                            // overrideText - KHÔNG qua setInput() vì
+                            // handleSend đọc input từ closure của lượt
+                            // render lúc bấm, không thấy state vừa đổi.
+                            onClick={() => handleSend("Có, làm đi")}
+                            disabled={sending}
+                            className="rounded-[6px] px-2.5 py-1 text-[11.5px] font-medium text-white disabled:opacity-50"
+                            style={{ background: "var(--accent)" }}
                           >
-                            {chunkLoading === c.chunk_id ? "…" : `#${c.chunk_id}`}
+                            Xác nhận
                           </button>
-                          {/* Tooltip preview khi hover */}
-                          {hoveredCitation === c && (
-                            <div
-                              className="absolute bottom-full left-0 z-10 mb-1.5 w-[240px] rounded-lg border bg-white p-2.5 text-[11px] leading-relaxed shadow-lg"
-                              style={{
-                                borderColor: "var(--border)",
-                                color: "var(--ink)",
-                                animation: "fadeIn 0.15s ease-out",
-                              }}
-                            >
-                              <div
-                                className="mb-1 text-[9.5px] font-medium"
-                                style={{ color: "var(--ink-faint)" }}
-                              >
-                                {c.page_number ? `Trang ${c.page_number} · Chunk #${c.chunk_id}` : `Chunk #${c.chunk_id}`}
-                              </div>
-                              <div className="max-h-[80px] overflow-hidden">
-                                {citationPreview[c.chunk_id] || "Đang tải preview..."}
-                              </div>
-                              <div
-                                className="mt-1.5 text-[9px] font-medium"
-                                style={{ color: "var(--accent-strong)" }}
-                              >
-                                Bấm để xem đầy đủ →
-                              </div>
-                            </div>
-                          )}
+                          <button
+                            onClick={() => handleSend("Không, huỷ")}
+                            disabled={sending}
+                            className="rounded-[6px] border px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-50"
+                            style={{ borderColor: "var(--border-strong)", color: "var(--ink-soft)" }}
+                          >
+                            Huỷ
+                          </button>
                         </div>
-                      ))}
+                      )}
+                    </div>
+                  )}
+
+                  {/* Thẻ kết quả hành động - chỉ thông báo, không có nút
+                      nào. content chính đã RỖNG với category
+                      ACTION_REQUEST (xem comment tại xử lý sự kiện
+                      "action_result") nên summary hiển thị đủ ở đây,
+                      không bị lặp lại với content. */}
+                  {m.actionResult && (
+                    <div
+                      className="mt-1.5 flex items-start gap-1.5 rounded-[8px] border px-2.5 py-2"
+                      style={{
+                        background: m.actionResult.success ? "var(--panel-soft)" : "var(--red-bg)",
+                        borderColor: m.actionResult.success ? "var(--border)" : "#f0d0d0",
+                      }}
+                    >
+                      {m.actionResult.success ? (
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="14"
+                          height="14"
+                          fill="none"
+                          stroke="var(--teal)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="mt-0.5 shrink-0"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      ) : (
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="14"
+                          height="14"
+                          fill="none"
+                          stroke="var(--red)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="mt-0.5 shrink-0"
+                        >
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      )}
+                      <div className="text-[12px] leading-relaxed" style={{ color: "var(--ink)" }}>
+                        <span className="font-semibold">{m.actionResult.tool_label_vi}</span>
+                        <span> — {m.actionResult.summary}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {m.citations && m.citations.length > 0 && (
+                    <div className="relative mt-1.5">
+                      {/* KHÔNG đánh số/hiện danh sách citation riêng lẻ
+                          ([1][2][3]...) ra ngoài nữa - gộp thành 1 điểm
+                          truy cập duy nhất, đỡ rối giao diện. Bấm thẳng
+                          mở luôn nếu chỉ có 1 nguồn; mở menu chọn nếu có
+                          nhiều hơn 1, vẫn giữ được khả năng xem TỪNG
+                          đoạn tài liệu gốc (không mất tính minh bạch). */}
+                      <button
+                        onClick={() => {
+                          if (m.citations!.length === 1) {
+                            openChunk(m.citations![0].chunk_id);
+                          } else {
+                            setOpenCitationMenuFor(openCitationMenuFor === m ? null : m);
+                          }
+                        }}
+                        disabled={m.citations.length === 1 && chunkLoading === m.citations[0].chunk_id}
+                        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium hover:underline disabled:opacity-50"
+                        style={{ color: "var(--accent-strong)" }}
+                      >
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                        {m.citations.length === 1 && chunkLoading === m.citations[0].chunk_id
+                          ? "Đang mở…"
+                          : `Xem nguồn tham khảo (${m.citations.length})`}
+                      </button>
+
+                      {/* Menu chọn nguồn - chỉ khi có từ 2 citation trở lên */}
+                      {openCitationMenuFor === m && m.citations.length > 1 && (
+                        <div
+                          className="absolute bottom-full left-0 z-10 mb-1.5 w-[240px] overflow-hidden rounded-lg border bg-white shadow-lg"
+                          style={{ borderColor: "var(--border)" }}
+                        >
+                          {m.citations.map((c) => (
+                            <button
+                              key={c.chunk_id}
+                              onClick={() => {
+                                setOpenCitationMenuFor(null);
+                                openChunk(c.chunk_id);
+                              }}
+                              disabled={chunkLoading === c.chunk_id}
+                              className="block w-full px-3 py-2 text-left text-[11.5px] hover:bg-[var(--panel-soft)] disabled:opacity-50"
+                              style={{ color: "var(--ink)" }}
+                            >
+                              {c.page_number ? `Trang ${c.page_number}` : "Đoạn tài liệu"}
+                              {chunkLoading === c.chunk_id && " (đang mở…)"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -750,12 +1023,21 @@ export default function ChatBubble() {
                         👎
                       </button>
                       {m.retrievalSimilarity !== null && m.retrievalSimilarity !== undefined && (
+                        // Chỉ hiện 1 icon nhỏ thay vì lộ hẳn con số % ra
+                        // ngoài - số liệu kỹ thuật này dễ gây hiểu lầm là
+                        // "xác suất đúng" nếu nhìn thấy ngay, nên đẩy vào
+                        // tooltip (title) cho ai thực sự cần mới hover xem.
                         <span
-                          className="ml-auto text-[9.5px]"
+                          className="ml-auto inline-flex cursor-help items-center"
                           style={{ color: "var(--ink-faint)" }}
-                          title={`Độ tương đồng ngữ nghĩa của đoạn tài liệu khớp nhất: ${m.retrievalSimilarity.toFixed(3)}. Đây KHÔNG phải xác suất câu trả lời đúng.`}
+                          title={`Độ khớp tài liệu: ${(m.retrievalSimilarity * 100).toFixed(0)}% - Độ tương đồng ngữ nghĩa của đoạn tài liệu khớp nhất: ${m.retrievalSimilarity.toFixed(3)}. Đây KHÔNG phải xác suất câu trả lời đúng.`}
+                          aria-label={`Độ khớp tài liệu: ${(m.retrievalSimilarity * 100).toFixed(0)}%`}
                         >
-                          Độ khớp tài liệu: {(m.retrievalSimilarity * 100).toFixed(0)}%
+                          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="12" y1="16" x2="12" y2="11" />
+                            <line x1="12" y1="8" x2="12.01" y2="8" />
+                          </svg>
                         </span>
                       )}
                     </div>
@@ -845,7 +1127,7 @@ export default function ChatBubble() {
               disabled={sending}
             />
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={sending || !input.trim()}
               className="btn btn-primary"
             >
@@ -1029,7 +1311,7 @@ export default function ChatBubble() {
                       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
                       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                     </svg>
-                    Sao chép
+                    {copyStatus === "success" ? "Đã sao chép" : copyStatus === "error" ? "Không sao chép được" : "Sao chép"}
                   </button>
                   <button
                     onClick={handleStartNewConversation}

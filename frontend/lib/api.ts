@@ -24,11 +24,19 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // FormData (upload file) cần header "Content-Type: multipart/form-data;
+  // boundary=..." do TRÌNH DUYỆT tự sinh - nếu ta set cứng
+  // "application/json" ở đây, spread ...options.headers KHÔNG ghi đè
+  // được (headers rỗng {} không xoá field đã có), khiến backend nhận
+  // body multipart nhưng header lại khai application/json và hiểu sai
+  // định dạng. Vì vậy CHỈ set Content-Type mặc định khi body không
+  // phải FormData.
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...options.headers,
     },
   });
@@ -57,7 +65,10 @@ export const api = {
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined }),
   postForm: <T>(path: string, formData: FormData) =>
-    request<T>(path, { method: "POST", body: formData, headers: {} }), // KHÔNG set Content-Type - trình duyệt tự thêm boundary đúng cho multipart
+    request<T>(path, { method: "POST", body: formData }), // request() tự bỏ qua Content-Type mặc định khi body là FormData
+  // DELETE không có body - dùng cho xoá enrollment, v.v. Backend trả
+  // 204 No Content, request() đã xử lý sẵn trường hợp response rỗng.
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
 /* ---------- Types khớp với Pydantic schema của backend ---------- */
@@ -151,6 +162,14 @@ export interface CoursePublic {
   owner_id: number;
 }
 
+/** 1 sinh viên trong danh sách lớp (roster) - dùng cho UI quản lý lớp của giảng viên. */
+export interface StudentRosterItem {
+  user_id: number;
+  full_name: string;
+  email: string;
+  enrolled_at: string;
+}
+
 export interface DocumentPublic {
   id: number;
   course_id: number;
@@ -242,12 +261,57 @@ export interface CitationPublic {
   page_number: number | null;
 }
 
+/**
+ * Hành động Nova ĐỀ XUẤT nhưng CHƯA thực thi, đang chờ người dùng xác
+ * nhận ở lượt chat tiếp theo (category "ACTION_REQUEST", tool GHI).
+ * arguments_summary là câu tiếng Việt NGƯỜI ĐỌC ĐƯỢC sẵn từ backend -
+ * không cần frontend tự diễn giải tham số JSON thô.
+ */
+export interface PendingActionPublic {
+  tool_name: string;
+  tool_label_vi: string;
+  arguments_summary: string;
+}
+
+/** Kết quả THẬT SỰ đã thực thi của 1 tool (sau khi xác nhận, hoặc tool đọc chạy ngay). */
+export interface ActionResultPublic {
+  tool_name: string;
+  tool_label_vi: string;
+  success: boolean;
+  summary: string;
+}
+
 export interface ChatResponse {
   conversation_id: number;
   answer: string;
   category: string;
   citations: CitationPublic[];
   blocked: boolean;
+  // 2 field MỚI, OPTIONAL - CHỈ có giá trị khi category="ACTION_REQUEST",
+  // và CHỈ 1 trong 2 có giá trị cùng lúc (hoặc cả 2 null nếu Nova chỉ
+  // trả lời text thường mà không gọi tool nào) - xem ChatResponse ở
+  // backend (app/academic_agent/schemas.py).
+  pending_action: PendingActionPublic | null;
+  action_result: ActionResultPublic | null;
+}
+
+/**
+ * 1 tin nhắn đã lưu trong lịch sử hội thoại - dùng để "hydrate" lại
+ * ChatBubble khi người dùng quay lại (F5, mở lại panel) với
+ * conversationId đã lưu ở localStorage. Sắp cũ -> mới theo thời gian.
+ */
+export interface MessagePublic {
+  message_id: number;
+  role: "user" | "assistant";
+  content: string;
+  citations: CitationPublic[];
+  retrieval_similarity: number | null;
+  // pending_action phản ánh cột Message.pending_action - CHỈ có ý nghĩa
+  // nếu đây là tin nhắn assistant CUỐI CÙNG của conversation (backend
+  // không set lại cho tin nhắn cũ). Không có field action_result ở đây
+  // (backend không lưu action_result lịch sử, chỉ pending_action).
+  pending_action: PendingActionPublic | null;
+  created_at: string;
 }
 
 /* ---------- Streaming chat (SSE) - dùng cho ChatBubble ---------- */
@@ -257,6 +321,15 @@ export interface ConceptPublic {
   course_id: number;
   name: string;
   complexity: number;
+}
+
+// Body gửi lên POST /v1/concepts - prerequisites để mảng rỗng ở bản
+// đầu (chưa làm UI chọn khái niệm tiên quyết).
+export interface CreateConceptRequest {
+  course_id: number;
+  name: string;
+  complexity: number;
+  prerequisites?: number[];
 }
 
 export type ChatStreamEvent =
@@ -279,7 +352,17 @@ export type ChatStreamEvent =
       message_id: number;
       retrieval_similarity: number | null;
     }
-  | { type: "blocked"; conversation_id: number; reason: string };
+  | { type: "blocked"; conversation_id: number; reason: string }
+  // Nova ĐỀ XUẤT 1 hành động GHI (vd tạo khái niệm), đang chờ người
+  // dùng xác nhận ở lượt chat tiếp theo - KHÔNG có "chunk" nào đi kèm
+  // sự kiện này trong cùng 1 lượt xử lý (đã đọc kỹ backend
+  // app/academic_agent/agent.py::handle_chat_stream, nhánh
+  // ACTION_REQUEST: pending_action/action_result và "chunk" LOẠI TRỪ
+  // NHAU - "chunk" chỉ được gửi khi KHÔNG có tool nào được gọi).
+  | { type: "action_pending"; tool_name: string; tool_label_vi: string; arguments_summary: string }
+  // Kết quả THẬT SỰ đã thực thi của 1 tool (tool đọc chạy ngay, hoặc
+  // tool ghi sau khi người dùng xác nhận/huỷ) - cũng KHÔNG kèm "chunk".
+  | { type: "action_result"; tool_name: string; tool_label_vi: string; success: boolean; summary: string };
 
 /**
  * Gửi 1 câu hỏi tới /v1/chat/stream và gọi onEvent() cho từng sự kiện

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -44,9 +46,71 @@ class CitationPublic(BaseModel):
     page_number: int | None
 
 
+class PendingActionPublic(BaseModel):
+    """
+    Hành động Nova ĐỀ XUẤT nhưng CHƯA thực thi, đang chờ người dùng xác
+    nhận ở lượt chat tiếp theo (category ACTION_REQUEST, tool GHI - xem
+    app/academic_agent/tools.py::TOOLS_REQUIRING_CONFIRMATION).
+
+    arguments_summary: text tiếng Việt NGƯỜI ĐỌC ĐƯỢC (vd "Tạo khái niệm
+    'Đệ quy', độ khó 3, cho lớp CS101") - CỐ Ý KHÔNG PHẢI JSON thô, để
+    hiển thị thẳng lên giao diện xác nhận mà không cần frontend tự diễn
+    giải cấu trúc tham số.
+    """
+
+    tool_name: str
+    tool_label_vi: str
+    arguments_summary: str
+
+
+class ActionResultPublic(BaseModel):
+    """Kết quả THẬT SỰ đã thực thi của 1 tool (sau khi người dùng xác nhận, hoặc tool đọc chạy ngay)."""
+
+    tool_name: str
+    tool_label_vi: str
+    success: bool
+    summary: str
+
+
 class ChatResponse(BaseModel):
     conversation_id: int
     answer: str
     category: str
     citations: list[CitationPublic] = []
     blocked: bool = False
+    # 2 field MỚI, OPTIONAL (mặc định None) - CHỈ có giá trị khi
+    # category="ACTION_REQUEST" (xem app/academic_agent/agent.py). Cùng
+    # lúc CHỈ 1 trong 2 field có giá trị: pending_action khi Nova vừa ĐỀ
+    # XUẤT 1 hành động GHI cần xác nhận, action_result khi 1 tool vừa
+    # THỰC SỰ được thực thi (tool đọc chạy ngay, hoặc tool ghi sau khi
+    # người dùng xác nhận/huỷ).
+    pending_action: PendingActionPublic | None = None
+    action_result: ActionResultPublic | None = None
+
+
+class MessagePublic(BaseModel):
+    """
+    1 tin nhắn trong lịch sử hội thoại - dùng cho GET
+    /v1/chat/{conversation_id}/messages để frontend "hydrate" lại
+    ChatBubble sau khi F5/đăng nhập lại.
+
+    Field đặt tên khớp đúng những gì ChatBubble.tsx cần render lại 1
+    tin nhắn đã lưu: role/content/citations như ChatResponse ở trên,
+    cộng thêm message_id (để feedback/actions gắn đúng tin nhắn) và
+    retrieval_similarity (hiển thị "Độ khớp tài liệu", NULL với
+    role='user' hoặc câu hỏi không cần retrieval - xem comment cột
+    Message.retrieval_similarity trong db/models.py).
+
+    pending_action: phản ánh cột Message.pending_action nếu tin nhắn
+    này (PHẢI là tin nhắn CUỐI CÙNG của conversation) đang có 1 hành
+    động chờ xác nhận - để frontend "hydrate" lại đúng trạng thái UI
+    xác nhận nếu người dùng F5 giữa lúc đang chờ.
+    """
+
+    message_id: int
+    role: str
+    content: str
+    citations: list[CitationPublic] = []
+    retrieval_similarity: float | None = None
+    pending_action: PendingActionPublic | None = None
+    created_at: datetime

@@ -73,7 +73,7 @@ export default function DocumentsPage() {
           </select>
           {courses.length === 0 && (
             <p className="mt-1 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
-              Bạn chưa sở hữu lớp nào — tạo lớp trước ở trang &quot;Lớp học&quot;.
+              Bạn chưa thuộc lớp nào — vào trang &quot;Lớp học&quot; để tạo hoặc tham gia một lớp trước.
             </p>
           )}
         </div>

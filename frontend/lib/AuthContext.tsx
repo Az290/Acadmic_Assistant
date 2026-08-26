@@ -51,7 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await api.post("/v1/auth/logout");
+    try {
+      await api.post("/v1/auth/logout");
+    } catch {
+      // Lỗi mạng/server khi gọi logout KHÔNG được để người dùng kẹt lại
+      // ở trạng thái "đã đăng nhập" trên giao diện - dù API thất bại,
+      // vẫn phải xoá state phía client ngay (cookie hết hạn tự nhiên
+      // sau đó, hoặc người dùng có thể đăng nhập lại bình thường).
+    }
     setUser(null);
   };
 

@@ -41,9 +41,12 @@ from app.academic_agent.prompts import (
     get_model_for_category,
     get_temperature_for_category,
 )
+from app.academic_agent.schemas import ActionResultPublic, PendingActionPublic
 from app.academic_agent.system_kb_service import SystemKBQuerier
+from app.academic_agent.tool_executor import ToolExecutionResult, execute_tool
+from app.academic_agent.tools import TOOL_LABELS_VI, TOOLS_REQUIRING_CONFIRMATION, get_tools_for_role
 from app.config import get_settings
-from app.db.models import Conversation, Message, SecurityLog
+from app.db.models import AppUser, Conversation, Message, SecurityLog
 from app.guardrail.guardrail import check_input, check_output
 from app.ingestion.embedder import embed_texts
 from app.learning.concept_matcher import find_best_concept
@@ -76,6 +79,11 @@ class ChatResult:
     citations: list[dict] = field(default_factory=list)
     blocked: bool = False
     block_reason: str | None = None
+    # CHỈ có giá trị khi category="ACTION_REQUEST" - xem docstring
+    # PendingActionPublic/ActionResultPublic (schemas.py) và
+    # _handle_action_request() bên dưới.
+    pending_action: PendingActionPublic | None = None
+    action_result: ActionResultPublic | None = None
 
 
 async def _log_security_block(
@@ -120,6 +128,331 @@ async def _fetch_recent_history(session: AsyncSession, conversation_id: int) -> 
     )
     recent_messages = list(reversed(result.scalars().all()))  # đảo lại thành thứ tự CŨ -> MỚI
     return [{"role": m.role, "content": m.content} for m in recent_messages]
+
+
+# ============================================================
+# ACTION_REQUEST - function-calling cho phép Nova THỰC HIỆN hành động
+# thay vì chỉ trả lời câu hỏi (xem app/academic_agent/tools.py +
+# tool_executor.py). Helper dùng CHUNG giữa handle_chat() và
+# handle_chat_stream() được gom vào đây - cùng nguyên tắc đã áp dụng
+# cho _get_or_create_conversation/_fetch_recent_history phía trên,
+# tránh copy-paste logic 2 lần cho 2 hàm.
+# ============================================================
+
+ACTION_TOOL_MODEL = "gpt-4o-mini"
+
+# Rule-based trước (rẻ, tức thì) cho ý định xác nhận/huỷ - CÙNG triết
+# lý 2 tầng đã dùng ở router_agent/classifier.py::_check_chitchat_rules:
+# case rõ ràng xử lý bằng regex, chỉ câu mơ hồ mới tốn 1 lượt gọi LLM.
+_CONFIRM_PATTERNS = [
+    r"^(có|đồng ý|ok|oke|okay|được|làm đi|xác nhận|yes|yep|ừ|ừm|uh)[!.,]?$",
+]
+_CANCEL_PATTERNS = [
+    r"^(không|thôi|huỷ|hủy|đừng|cancel|no|nope)[!.,]?$",
+]
+_COMPILED_CONFIRM = [re.compile(p, re.IGNORECASE) for p in _CONFIRM_PATTERNS]
+_COMPILED_CANCEL = [re.compile(p, re.IGNORECASE) for p in _CANCEL_PATTERNS]
+
+
+def _check_confirmation_rules(text: str) -> bool | None:
+    """
+    True = xác nhận, False = huỷ, None = không khớp rule rõ ràng nào
+    (câu dài/mơ hồ) - lúc đó gọi tiếp _classify_confirmation_with_llm().
+    """
+    stripped = text.strip()
+    if any(p.match(stripped) for p in _COMPILED_CONFIRM):
+        return True
+    if any(p.match(stripped) for p in _COMPILED_CANCEL):
+        return False
+    return None
+
+
+def _classify_confirmation_with_llm(text: str, pending_summary: str) -> tuple[bool, bool]:
+    """
+    Trả về (is_confirmation, confirmed). is_confirmation=False nghĩa là
+    câu này KHÔNG phải lời xác nhận/từ chối cho hành động đang chờ, mà
+    là 1 câu hỏi/yêu cầu MỚI khác - lúc đó confirmed vô nghĩa (luôn
+    False), pending_action cũ coi như tự động hết hạn/bị thay thế (xem
+    logic gọi hàm này trong _handle_action_request_turn()).
+
+    Dùng model RẺ (gpt-4o-mini), KHÔNG tools, response_format json_object
+    - đây chỉ là bước phân loại Ý ĐỊNH ngắn, không cần model mạnh.
+    """
+    try:
+        response = _client.chat.completions.create(
+            model=ACTION_TOOL_MODEL,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Hệ thống đang có 1 hành động CHỜ người dùng xác nhận: "
+                        f"\"{pending_summary}\". Xét câu trả lời mới nhất của người dùng: "
+                        "đây có phải lời XÁC NHẬN (đồng ý thực hiện) hay TỪ CHỐI (huỷ) hành "
+                        "động đó, hay là một câu hỏi/yêu cầu HOÀN TOÀN KHÁC (không liên quan "
+                        "tới việc xác nhận/huỷ)? Trả về JSON: "
+                        '{"is_confirmation": <true nếu là xác nhận/từ chối, false nếu là câu khác>, '
+                        '"confirmed": <true nếu đồng ý, false nếu từ chối - chỉ có ý nghĩa khi is_confirmation=true>}'
+                    ),
+                },
+                {"role": "user", "content": text},
+            ],
+        )
+        parsed = json.loads(response.choices[0].message.content)
+        return bool(parsed.get("is_confirmation", False)), bool(parsed.get("confirmed", False))
+    except Exception:
+        # Lỗi bất kỳ (mạng, JSON hỏng...) -> AN TOÀN hơn là coi như KHÔNG
+        # phải xác nhận, để rơi xuống xử lý như 1 ACTION_REQUEST mới -
+        # tránh trường hợp tệ hơn: hiểu nhầm 1 câu hỏi khác thành "đồng
+        # ý" rồi lỡ thực thi hành động người dùng không thật sự muốn.
+        return False, False
+
+
+def _build_arguments_summary(tool_name: str, arguments: dict) -> str:
+    """
+    Text tiếng Việt NGƯỜI ĐỌC ĐƯỢC mô tả tham số của 1 tool - dùng cho
+    PendingActionPublic.arguments_summary, KHÔNG hiện JSON thô cho
+    người dùng (xem docstring PendingActionPublic).
+    """
+    parts = [f"{key}: {value}" for key, value in arguments.items()]
+    return f"{TOOL_LABELS_VI.get(tool_name, tool_name)} ({', '.join(parts)})" if parts else TOOL_LABELS_VI.get(
+        tool_name, tool_name
+    )
+
+
+def _summarize_tool_result_with_llm(user_question: str, data: dict) -> str:
+    """
+    "Kể lại" kết quả 1 tool ĐỌC thành câu văn tự nhiên tiếng Việt, thay
+    vì hiện JSON thô cho người dùng - dùng model RẺ, KHÔNG tools, prompt
+    ngắn. Lỗi bất kỳ -> fallback về chuỗi JSON thô (an toàn hơn là làm
+    sập cả lượt trả lời chỉ vì bước "văn vẻ hoá" phụ này gặp sự cố).
+    """
+    try:
+        response = _client.chat.completions.create(
+            model=ACTION_TOOL_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Dựa vào dữ liệu JSON sau, trả lời câu hỏi của người dùng bằng tiếng "
+                        "Việt tự nhiên, ngắn gọn, dễ hiểu - KHÔNG hiện lại JSON thô, không bịa "
+                        "thêm thông tin ngoài dữ liệu đã cho."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Câu hỏi: {user_question}\n\nDữ liệu:\n{json.dumps(data, ensure_ascii=False)}",
+                },
+            ],
+        )
+        content = response.choices[0].message.content
+        return content.strip() if content else json.dumps(data, ensure_ascii=False)
+    except Exception:
+        return json.dumps(data, ensure_ascii=False)
+
+
+async def _fetch_last_pending_action(session: AsyncSession, conversation_id: int) -> tuple[int, dict] | None:
+    """
+    Tin nhắn ASSISTANT CUỐI CÙNG của conversation này có pending_action
+    đang chờ không - trả về (message_id, parsed_pending_action) hoặc
+    None. CHỈ xét tin nhắn CUỐI CÙNG (không phải "bất kỳ pending_action
+    nào trong lịch sử") - đúng thiết kế cột Message.pending_action: chỉ
+    có ý nghĩa nếu là tin nhắn MỚI NHẤT (xem docstring cột trong
+    db/models.py).
+    """
+    result = await session.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id, Message.role == "assistant")
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    last_assistant_message = result.scalar_one_or_none()
+    if last_assistant_message is None or not last_assistant_message.pending_action:
+        return None
+
+    try:
+        parsed = json.loads(last_assistant_message.pending_action)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return last_assistant_message.id, parsed
+
+
+@dataclass
+class ActionRequestOutcome:
+    """
+    Kết quả của 1 lượt xử lý ACTION_REQUEST - đủ thông tin để CẢ 2 hàm
+    (handle_chat/handle_chat_stream) tự build response/SSE event theo
+    đúng định dạng riêng của mình, không phải parse lại text.
+    """
+
+    answer_text: str
+    pending_action: PendingActionPublic | None
+    action_result: ActionResultPublic | None
+    pending_action_json: str | None  # để lưu vào cột Message.pending_action, None nếu không có
+
+
+async def _handle_action_request_turn(
+    session: AsyncSession, *, conversation_id: int, user: AppUser, message: str
+) -> ActionRequestOutcome:
+    """
+    LÕI xử lý 1 lượt ACTION_REQUEST - dùng chung cho cả handle_chat() và
+    handle_chat_stream(). KHÔNG lưu Message ở đây (2 hàm gọi có cách lưu
+    khác nhau đôi chút, vd handle_chat_stream cần message_id để yield) -
+    chỉ trả về ActionRequestOutcome, người gọi tự lưu Message.
+
+    Luồng (đã mô tả chi tiết trong kế hoạch, tóm tắt lại đây):
+    1. Có pending_action từ tin nhắn assistant cuối cùng?
+       a. CÓ -> câu hiện tại có phải xác nhận/huỷ? (rule trước, LLM sau)
+          - Xác nhận -> execute_tool() -> trả kết quả.
+          - Huỷ -> trả lời đã huỷ.
+          - Không phải (câu mới khác) -> rơi xuống bước 2, pending cũ
+            coi như hết hiệu lực (KHÔNG set lại pending_action cũ).
+       b. KHÔNG -> bước 2.
+    2. Gọi LLM với tools=get_tools_for_role(), tool_choice="auto".
+       - Có tool_call (tool GHI) -> đề xuất, chờ xác nhận.
+       - Có tool_call (tool ĐỌC) -> thực thi ngay, kể lại kết quả.
+       - Không tool_call -> trả lời text thường.
+    """
+    pending = await _fetch_last_pending_action(session, conversation_id)
+
+    if pending is not None:
+        _, pending_data = pending
+        tool_name = pending_data.get("tool_name", "")
+        arguments = pending_data.get("arguments", {})
+        pending_summary = _build_arguments_summary(tool_name, arguments)
+
+        confirmed = _check_confirmation_rules(message)
+        is_confirmation = confirmed is not None
+        if not is_confirmation:
+            is_confirmation, confirmed = await asyncio.to_thread(
+                _classify_confirmation_with_llm, message, pending_summary
+            )
+
+        if is_confirmation:
+            if confirmed:
+                result = await execute_tool(
+                    session,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    user=user,
+                    conversation_id=conversation_id,
+                )
+                label = TOOL_LABELS_VI.get(tool_name, tool_name)
+                if result.success:
+                    answer = f"Mình đã thực hiện xong: {label.lower()}."
+                    if result.data:
+                        answer += f" Kết quả: {json.dumps(result.data, ensure_ascii=False)}"
+                else:
+                    answer = f"Rất tiếc, mình không thực hiện được: {result.error_message}"
+                return ActionRequestOutcome(
+                    answer_text=answer,
+                    pending_action=None,
+                    action_result=ActionResultPublic(
+                        tool_name=tool_name, tool_label_vi=label, success=result.success,
+                        summary=result.error_message if not result.success else answer,
+                    ),
+                    pending_action_json=None,
+                )
+            else:
+                label = TOOL_LABELS_VI.get(tool_name, tool_name)
+                answer = f"Đã huỷ. Mình sẽ không thực hiện: {label.lower()}."
+                return ActionRequestOutcome(
+                    answer_text=answer,
+                    pending_action=None,
+                    action_result=ActionResultPublic(
+                        tool_name=tool_name, tool_label_vi=label, success=False, summary="Người dùng đã huỷ hành động."
+                    ),
+                    pending_action_json=None,
+                )
+        # is_confirmation=False -> rơi xuống xử lý như ACTION_REQUEST
+        # mới bên dưới, pending cũ tự động hết hiệu lực (không set lại).
+
+    # --- Không có pending_action (hoặc vừa hết hiệu lực) - gọi LLM tool-calling ---
+    tools = get_tools_for_role(user.role)
+    if not tools:
+        return ActionRequestOutcome(
+            answer_text="Xin lỗi, tài khoản của bạn hiện chưa được hỗ trợ thực hiện hành động qua chat.",
+            pending_action=None,
+            action_result=None,
+            pending_action_json=None,
+        )
+
+    def _call_llm_with_tools():
+        return _client.chat.completions.create(
+            model=ACTION_TOOL_MODEL,
+            tools=tools,
+            tool_choice="auto",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Bạn là Nova, trợ lý học thuật. Người dùng vừa yêu cầu 1 hành động "
+                        "hoặc muốn xem thông tin quản trị/tiến độ cụ thể. Nếu có tool phù hợp, "
+                        "hãy gọi ĐÚNG 1 tool với tham số chính xác nhất suy luận được từ câu hỏi. "
+                        "Nếu KHÔNG có tool nào phù hợp, hãy trả lời trực tiếp bằng tiếng Việt, "
+                        "ngắn gọn - đừng cố gọi tool không liên quan."
+                    ),
+                },
+                {"role": "user", "content": message},
+            ],
+        )
+
+    response = await asyncio.to_thread(_call_llm_with_tools)
+    choice_message = response.choices[0].message
+
+    if not choice_message.tool_calls:
+        answer = choice_message.content or "Xin lỗi, mình chưa hiểu rõ yêu cầu này."
+        return ActionRequestOutcome(
+            answer_text=answer, pending_action=None, action_result=None, pending_action_json=None
+        )
+
+    # CHỈ xử lý tool_call ĐẦU TIÊN - đúng triết lý "if/else xác định
+    # trước", KHÔNG lặp gọi nhiều tool trong 1 lượt (xem docstring đầu file).
+    tool_call = choice_message.tool_calls[0]
+    tool_name = tool_call.function.name
+    try:
+        arguments = json.loads(tool_call.function.arguments)
+    except json.JSONDecodeError:
+        return ActionRequestOutcome(
+            answer_text="Xin lỗi, mình không xác định được chính xác tham số cho yêu cầu này. Bạn có thể nói rõ hơn không?",
+            pending_action=None,
+            action_result=None,
+            pending_action_json=None,
+        )
+
+    if tool_name in TOOLS_REQUIRING_CONFIRMATION:
+        label = TOOL_LABELS_VI.get(tool_name, tool_name)
+        arguments_summary = _build_arguments_summary(tool_name, arguments)
+        answer = f"Bạn có muốn mình thực hiện: {arguments_summary} không? Trả lời \"có\" để xác nhận hoặc \"không\" để huỷ."
+        return ActionRequestOutcome(
+            answer_text=answer,
+            pending_action=PendingActionPublic(
+                tool_name=tool_name, tool_label_vi=label, arguments_summary=arguments_summary
+            ),
+            action_result=None,
+            pending_action_json=json.dumps({"tool_name": tool_name, "arguments": arguments}, ensure_ascii=False),
+        )
+
+    # Tool ĐỌC - thực thi ngay, không cần xác nhận.
+    result = await execute_tool(
+        session, tool_name=tool_name, arguments=arguments, user=user, conversation_id=conversation_id
+    )
+    label = TOOL_LABELS_VI.get(tool_name, tool_name)
+    if result.success:
+        answer = await asyncio.to_thread(_summarize_tool_result_with_llm, message, result.data or {})
+    else:
+        answer = f"Rất tiếc, mình không lấy được thông tin này: {result.error_message}"
+
+    return ActionRequestOutcome(
+        answer_text=answer,
+        pending_action=None,
+        action_result=ActionResultPublic(
+            tool_name=tool_name, tool_label_vi=label, success=result.success,
+            summary=result.error_message if not result.success else answer,
+        ),
+        pending_action_json=None,
+    )
 
 
 def _looks_context_dependent(text: str) -> bool:
@@ -514,6 +847,43 @@ async def handle_chat(
             )
         # Không match KB -> falls through để xử lý bình thường (LLM dùng system knowledge)
 
+    # --- Bước 3.6: ACTION_REQUEST - function-calling, KHÔNG qua Retrieval/Generate ---
+    # Đặt SAU System Knowledge Query, TRƯỚC Hybrid Search - cùng vị trí
+    # "category có xử lý ĐẶC BIỆT" như nhánh SYSTEM_QUESTION ở trên (xem
+    # docstring _handle_action_request_turn() để hiểu toàn bộ luồng).
+    if route.category == "ACTION_REQUEST":
+        # user_result cần cho _handle_action_request_turn (RBAC dùng
+        # AppUser đầy đủ, không chỉ user_id) - route/classify chỉ có
+        # user_id/is_admin, phải tra lại đúng đối tượng AppUser ở đây.
+        user_result = await session.execute(select(AppUser).where(AppUser.id == user_id))
+        current_user = user_result.scalar_one()
+
+        outcome = await _handle_action_request_turn(
+            session, conversation_id=conversation.id, user=current_user, message=message
+        )
+
+        session.add(Message(conversation_id=conversation.id, role="user", content=message))
+        session.add(
+            Message(
+                conversation_id=conversation.id,
+                role="assistant",
+                content=outcome.answer_text,
+                category="ACTION_REQUEST",
+                needs_retrieval=False,
+                pending_action=outcome.pending_action_json,
+            )
+        )
+        await session.commit()
+
+        return ChatResult(
+            conversation_id=conversation.id,
+            answer=outcome.answer_text,
+            category="ACTION_REQUEST",
+            citations=[],
+            pending_action=outcome.pending_action,
+            action_result=outcome.action_result,
+        )
+
     # --- Bước 4: Hybrid Search (chỉ nếu cần) ---
     search_results: list[SearchResult] = []
     # dict nhận số đo độ tương đồng từ hybrid_search kể cả khi kết quả
@@ -844,6 +1214,72 @@ async def handle_chat_stream(
                 "retrieval_similarity": None,
             }
             return
+
+    # --- ACTION_REQUEST - function-calling, KHÔNG qua Retrieval/Generate ---
+    # Cùng vị trí "category có xử lý ĐẶC BIỆT" như SYSTEM_QUESTION ở
+    # trên, cùng logic LÕI với handle_chat() (xem
+    # _handle_action_request_turn()) - chỉ khác ở CÁCH phát sự kiện SSE:
+    # "status" trước khi gọi LLM tool-call, rồi "action_pending" HOẶC
+    # "action_result" (2 event type MỚI - xem VIỆC 7 trong kế hoạch),
+    # KHÔNG stream từng chữ như category khác vì câu trả lời ở đây
+    # thường ngắn và mang tính XÁC NHẬN/KẾT QUẢ hơn là văn bản dài.
+    if route.category == "ACTION_REQUEST":
+        yield {"type": "status", "stage": "generating"}
+
+        user_result = await session.execute(select(AppUser).where(AppUser.id == user_id))
+        current_user = user_result.scalar_one()
+
+        outcome = await _handle_action_request_turn(
+            session, conversation_id=conversation.id, user=current_user, message=message
+        )
+
+        yield {
+            "type": "start",
+            "conversation_id": conversation.id,
+            "category": "ACTION_REQUEST",
+            "concept_id": None,
+        }
+
+        session.add(Message(conversation_id=conversation.id, role="user", content=message))
+        assistant_message = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=outcome.answer_text,
+            category="ACTION_REQUEST",
+            needs_retrieval=False,
+            pending_action=outcome.pending_action_json,
+        )
+        session.add(assistant_message)
+        await session.commit()
+
+        if outcome.pending_action is not None:
+            yield {
+                "type": "action_pending",
+                "tool_name": outcome.pending_action.tool_name,
+                "tool_label_vi": outcome.pending_action.tool_label_vi,
+                "arguments_summary": outcome.pending_action.arguments_summary,
+            }
+        elif outcome.action_result is not None:
+            yield {
+                "type": "action_result",
+                "tool_name": outcome.action_result.tool_name,
+                "tool_label_vi": outcome.action_result.tool_label_vi,
+                "success": outcome.action_result.success,
+                "summary": outcome.action_result.summary,
+            }
+        else:
+            # Không tool nào được gọi (LLM tự trả lời text thường) -
+            # vẫn stream nội dung để giao diện có gì đó hiển thị nhất
+            # quán với các category khác (không chỉ im lặng rồi "done").
+            yield {"type": "chunk", "text": outcome.answer_text}
+
+        yield {
+            "type": "done",
+            "citations": [],
+            "message_id": assistant_message.id,
+            "retrieval_similarity": None,
+        }
+        return
 
     retrieval_start = time.monotonic()
     search_results: list[SearchResult] = []

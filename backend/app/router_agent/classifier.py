@@ -9,7 +9,7 @@ chưa có Agent nào tồn tại để mà "route") - giờ có đủ ngữ cả
 lời cuối cùng (tốn kém hơn) sẽ dùng model phù hợp tuỳ category, do
 Academic Agent quyết định sau này.
 
-6 danh mục:
+7 danh mục:
 - RAG_QUESTION: câu hỏi cần tra cứu tài liệu (Hybrid Search) trước khi
   trả lời - loại phổ biến nhất, câu hỏi học thuật thông thường.
 - SOCRATIC_REQUEST: user yêu cầu kiểu gia sư gợi mở (không muốn được
@@ -35,6 +35,18 @@ Academic Agent quyết định sau này.
   đáp được", "giảng viên có đọc được câu hỏi của tôi không") - trả lời
   bằng kiến thức có sẵn về hệ thống (xem app/academic_agent/
   system_knowledge.py), không cần tra tài liệu PDF.
+- ACTION_REQUEST: người dùng YÊU CẦU THỰC HIỆN một hành động cụ thể
+  trong hệ thống - tạo/sửa/xoá dữ liệu (vd "tạo giúp tôi 1 khái niệm
+  tên X", "giao bài tập về Y cho lớp Z", "duyệt tài liệu số 5", "xoá
+  sinh viên A khỏi lớp"), HOẶC xem thông tin quản trị/tiến độ CỤ THỂ
+  của lớp/chính họ (vd "lớp CS101 có bao nhiêu sinh viên cần hỗ trợ",
+  "tiến độ học của tôi tới đâu rồi", "danh sách bài tập chưa nộp") -
+  PHÂN BIỆT RÕ với 2 category dễ nhầm: khác RAG_QUESTION (chỉ hỏi KIẾN
+  THỨC môn học từ tài liệu, không đòi xem/sửa dữ liệu hệ thống), và
+  khác SYSTEM_QUESTION (chỉ hỏi CÁCH hệ thống hoạt động nói chung -
+  "tôi có làm quiz được không" - KHÔNG yêu cầu làm gì cụ thể hay xem
+  dữ liệu THẬT của riêng họ/lớp họ). Xử lý bằng function-calling (xem
+  app/academic_agent/tools.py), KHÔNG cần tra tài liệu PDF.
 
 Chiến lược 2 tầng - RẺ trước, LLM sau (cùng triết lý với Guardrail,
 xem app/guardrail/guardrail.py): case rõ ràng (chitchat cực ngắn) xử
@@ -58,6 +70,7 @@ CATEGORIES = [
     "OFF_TOPIC",
     "GENERAL_KNOWLEDGE",
     "SYSTEM_QUESTION",
+    "ACTION_REQUEST",
 ]
 CLASSIFIER_MODEL = "gpt-4o-mini"
 
@@ -77,7 +90,7 @@ _CHITCHAT_PATTERNS = [
 ]
 _COMPILED_CHITCHAT = [re.compile(p, re.IGNORECASE) for p in _CHITCHAT_PATTERNS]
 
-_CLASSIFIER_SYSTEM_PROMPT = f"""Bạn là bộ phân loại câu hỏi cho hệ thống trợ lý học thuật. Nhiệm vụ DUY NHẤT: xếp câu hỏi của người dùng vào ĐÚNG 1 trong 6 danh mục sau, KHÔNG trả lời câu hỏi:
+_CLASSIFIER_SYSTEM_PROMPT = f"""Bạn là bộ phân loại câu hỏi cho hệ thống trợ lý học thuật. Nhiệm vụ DUY NHẤT: xếp câu hỏi của người dùng vào ĐÚNG 1 trong 7 danh mục sau, KHÔNG trả lời câu hỏi:
 
 - RAG_QUESTION: câu hỏi học thuật thông thường, cần tra cứu tài liệu để trả lời (định nghĩa, giải thích khái niệm, cách hoạt động của gì đó...)
 - SOCRATIC_REQUEST: người dùng chủ động yêu cầu được HƯỚNG DẪN/GỢI MỞ thay vì được cho đáp án trực tiếp (vd: "đừng cho tôi đáp án, hãy gợi ý thôi", "giúp tôi tự nghĩ ra cách giải")
@@ -85,8 +98,9 @@ _CLASSIFIER_SYSTEM_PROMPT = f"""Bạn là bộ phân loại câu hỏi cho hệ 
 - OFF_TOPIC: câu hỏi lạc đề, không liên quan tới học thuật/môn học (nhưng KHÔNG độc hại - nếu độc hại đã bị chặn ở bước khác trước đó)
 - GENERAL_KNOWLEDGE: kiến thức phổ thông CHẮC CHẮN không liên quan môn học, trả lời được ngay không cần tài liệu (vd "1+1 bằng mấy", "thủ đô nước Pháp là gì", "hôm nay là thứ mấy"). QUAN TRỌNG: nếu còn nghi ngờ câu hỏi có thể liên quan tới nội dung môn học (kể cả khái niệm phổ biến như "Python là gì", "đạo hàm là gì") thì PHẢI xếp RAG_QUESTION, không xếp vào đây - tài liệu môn học có thể định nghĩa cụ thể khác với hiểu biết chung.
 - SYSTEM_QUESTION: hỏi về CÁCH HỆ THỐNG NÀY hoạt động (không phải nội dung môn học) - vd "tôi có làm quiz được không", "sao tôi không hỏi đáp được", "giảng viên có đọc được câu hỏi của tôi không", "làm sao để vào lớp".
+- ACTION_REQUEST: người dùng YÊU CẦU THỰC HIỆN một hành động cụ thể trong hệ thống - tạo/sửa/xoá dữ liệu (vd "tạo giúp tôi 1 khái niệm tên X", "giao bài tập về Y cho lớp Z", "duyệt tài liệu số 5", "xoá sinh viên A khỏi lớp"), HOẶC xem thông tin quản trị/tiến độ CỤ THỂ của lớp/chính họ (vd "lớp CS101 có bao nhiêu sinh viên cần hỗ trợ", "tiến độ học của tôi tới đâu rồi", "danh sách bài tập chưa nộp"). KHÁC với RAG_QUESTION (chỉ hỏi kiến thức môn học) và SYSTEM_QUESTION (chỉ hỏi CÁCH hệ thống hoạt động nói chung, không yêu cầu làm gì cụ thể hay xem dữ liệu cụ thể của họ).
 
-Trả về JSON đúng định dạng: {{"category": "<một trong 6 giá trị trên>", "reasoning": "<giải thích ngắn gọn 1 câu>"}}"""
+Trả về JSON đúng định dạng: {{"category": "<một trong 7 giá trị trên>", "reasoning": "<giải thích ngắn gọn 1 câu>"}}"""
 
 
 @dataclass

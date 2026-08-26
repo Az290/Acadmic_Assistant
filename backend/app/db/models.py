@@ -421,6 +421,17 @@ class Message(Base):
     # trả lời được tạo trước khi cột này tồn tại.
     retrieval_similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Hành động Nova ĐỀ XUẤT nhưng CHƯA thực thi, đang chờ người dùng
+    # xác nhận ở lượt chat tiếp theo (category ACTION_REQUEST - xem
+    # app/academic_agent/tools.py) - JSON string {"tool_name": "...",
+    # "arguments": {...}}. CHỈ có ý nghĩa với message role='assistant'
+    # LÀ TIN NHẮN CUỐI CÙNG của conversation - agent.py tự đặt về NULL
+    # ngay khi có tin nhắn mới KHÔNG PHẢI xác nhận/huỷ, để tránh người
+    # dùng đổi ý giữa chừng rồi vô tình xác nhận nhầm hành động cũ.
+    # Đây là cơ chế AN TOÀN CỐT LÕI: Nova KHÔNG BAO GIỜ tự ý ghi dữ liệu
+    # ngay trong lượt LLM chọn tool - luôn phải qua bước xác nhận riêng.
+    pending_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
@@ -464,6 +475,38 @@ class SecurityLog(Base):
     # chứa nội dung độc hại) - bảng này KHÔNG có endpoint đọc công khai,
     # chỉ dùng cho việc tra cứu trực tiếp trên database khi cần điều tra.
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentActionLog(Base):
+    """
+    Nhật ký MỌI hành động Nova THỰC SỰ THỰC THI thay người dùng (category
+    ACTION_REQUEST, xem app/academic_agent/tool_executor.py) - TÁCH RIÊNG
+    khỏi SecurityLog vì ý nghĩa khác hẳn: SecurityLog ghi nhận nội dung bị
+    CHẶN (vi phạm), còn bảng này ghi nhận hành động ĐÃ CHẠY THÀNH CÔNG hoặc
+    thất bại vì lý do nghiệp vụ (không phải vi phạm bảo mật) - vd RBAC từ
+    chối, tham số sai.
+
+    Mục đích thực dụng: nếu 1 concept/assignment/roster bị thay đổi bất
+    thường, đây là nơi DUY NHẤT trả lời được câu hỏi "Nova đã làm gì, cho
+    ai, lúc nào, kết quả ra sao" - không có log này thì hành động do AI
+    thực hiện thay người dùng sẽ HOÀN TOÀN không có dấu vết audit riêng,
+    lẫn vào chung với hành động người dùng tự làm qua UI thường.
+    """
+
+    __tablename__ = "agent_action_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id"), nullable=False)
+    conversation_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("conversation.id"), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    # JSON string - tham số THẬT đã dùng để gọi tool (sau khi validate),
+    # không phải tham số thô LLM đề xuất ban đầu.
+    arguments: Mapped[str] = mapped_column(Text, nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Tóm tắt kết quả HOẶC lý do thất bại - text ngắn cho người xem log
+    # hiểu nhanh, không cần tự suy luận từ arguments.
+    result_summary: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

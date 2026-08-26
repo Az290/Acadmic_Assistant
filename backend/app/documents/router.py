@@ -3,6 +3,7 @@ Endpoint upload tài liệu - nơi giáo viên đưa 1 file PDF vào hệ thốn
 kích hoạt toàn bộ Ingestion Pipeline: Parse -> Chunk -> Embed -> Lưu Database.
 """
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -124,7 +125,10 @@ async def upload_document(
     # nhau, và tránh ký tự lạ trong tên file gây lỗi hệ điều hành.
     stored_filename = f"{uuid.uuid4().hex}.pdf"
     stored_path = UPLOAD_DIR / stored_filename
-    stored_path.write_bytes(file_bytes)
+    # Ghi file tối đa 50MB (xem MAX_FILE_SIZE_BYTES) là I/O đồng bộ - đủ
+    # lớn để đáng bọc asyncio.to_thread(), cùng lý do chặn event loop
+    # như parse_pdf()/embed_texts() trong ingestion/pipeline.py.
+    await asyncio.to_thread(stored_path.write_bytes, file_bytes)
 
     try:
         document = await ingest_document(

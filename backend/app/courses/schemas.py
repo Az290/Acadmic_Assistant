@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -25,3 +27,17 @@ class EnrollmentPublic(BaseModel):
     role_in_course: str
 
     model_config = {"from_attributes": True}
+
+
+class StudentRosterItem(BaseModel):
+    """
+    1 dòng trong danh sách sinh viên của lớp - dùng cho GET
+    /v1/courses/{course_id}/students. `enrolled_at` lấy từ cột
+    `joined_at` của bảng Enrollment (có server_default=func.now(),
+    luôn có giá trị nên không cần Optional).
+    """
+
+    user_id: int
+    full_name: str
+    email: EmailStr
+    enrolled_at: datetime

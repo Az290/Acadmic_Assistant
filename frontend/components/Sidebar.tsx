@@ -127,10 +127,16 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/history", label: "Lịch sử hỏi đáp", icon: <IconHistory />, roles: ["STUDENT"], group: "Học tập" },
   { href: "/courses", label: "Lớp học", icon: <IconCourses />, group: "Học tập" },
 
+  // Không giới hạn roles: sinh viên ĐANG HỌC lớp cũng được đóng góp
+  // tài liệu (backend documents/router.py đã cho phép), không chỉ
+  // giảng viên tải lên. Đặt ở nhóm "Học tập" (giống "Bài tập" ở trên,
+  // cũng không giới hạn role) thay vì "Giảng dạy" - tránh sinh viên
+  // thấy mục của mình lạc trong 1 nhóm mang tên dành cho giảng viên.
+  { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, group: "Học tập" },
+
   // Giảng dạy - việc giảng viên làm với lớp mình phụ trách
   { href: "/instructor", label: "Thống kê lớp", icon: <IconChart />, roles: ["INSTRUCTOR", "ADMIN"], group: "Giảng dạy" },
   { href: "/review", label: "Duyệt tài liệu", icon: <IconCheck />, roles: ["INSTRUCTOR", "ADMIN"], group: "Giảng dạy" },
-  { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, roles: ["INSTRUCTOR", "ADMIN"], group: "Giảng dạy" },
 
   // Hệ thống - toàn hệ thống, không thuộc lớp nào
   { href: "/admin", label: "Quản trị", icon: <IconShield />, roles: ["ADMIN"], group: "Hệ thống" },
