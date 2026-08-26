@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import Image from "next/image";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -39,9 +40,26 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-1 text-xl font-bold text-slate-900">Đăng ký</h1>
+    <div className="auth-shell">
+      <section className="auth-showcase">
+        <div className="auth-showcase__content">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#58779a]">Academic Assistant</p>
+        <h1 className="auth-heading mt-12 max-w-xl text-[34px] font-bold leading-tight tracking-[-0.035em] text-[#132f50]">Bắt đầu hành trình học tập của bạn</h1>
+        <p className="auth-lead mt-4 max-w-xl text-[14px] leading-7 text-[#58708b]">Tham gia lớp học, khám phá tài liệu đã kiểm duyệt và nhận hướng dẫn riêng từ Nova.</p>
+        <div className="auth-feature"><span className="auth-feature__icon">✓</span><div><h2 className="font-semibold text-[#183b62]">Nguồn học liệu tin cậy</h2><p className="mt-1 text-sm leading-6 text-[#657b92]">Câu trả lời có trích dẫn từ tài liệu đã được giảng viên duyệt.</p></div></div>
+        <div className="auth-feature"><span className="auth-feature__icon">✦</span><div><h2 className="font-semibold text-[#183b62]">Gia sư luôn sẵn sàng</h2><p className="mt-1 text-sm leading-6 text-[#657b92]">Nova gợi mở từng bước để bạn thực sự hiểu bài.</p></div></div>
+        <div className="auth-feature"><span className="auth-feature__icon">↗</span><div><h2 className="font-semibold text-[#183b62]">Lộ trình phù hợp</h2><p className="mt-1 text-sm leading-6 text-[#657b92]">Biết phần nào đã vững và chủ động ôn lại đúng phần còn yếu.</p></div></div>
+        <div className="auth-proof" aria-label="Điểm nổi bật của hệ thống">
+          <div><strong>Một nơi</strong><span>Lớp, bài tập, tài liệu</span></div>
+          <div><strong>Rõ nguồn</strong><span>Trích dẫn kiểm chứng</span></div>
+          <div><strong>Đúng lúc</strong><span>Gợi ý học tiếp</span></div>
+        </div>
+        </div>
+      </section>
+      <section className="auth-stage">
+      <div className="auth-card">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[.14em] text-[#6684a5]">Tài khoản sinh viên</p>
+        <h1 className="mb-1 text-2xl font-bold tracking-[-.025em] text-slate-900">Đăng ký</h1>
         <p className="mb-6 text-sm text-slate-500">Tạo tài khoản sinh viên mới</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -87,7 +105,7 @@ export default function RegisterPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="btn btn-primary w-full py-2.5 text-sm disabled:opacity-60"
           >
             {submitting ? "Đang đăng ký…" : "Đăng ký"}
           </button>
@@ -100,6 +118,10 @@ export default function RegisterPage() {
           </Link>
         </p>
       </div>
+      <div className="auth-nova" aria-hidden="true">
+        <Image src="/nova-mascot.png" alt="" width={300} height={300} priority />
+      </div>
+      </section>
     </div>
   );
 }

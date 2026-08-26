@@ -43,11 +43,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return null; // đợi useEffect redirect, tránh chớp nội dung trước khi chuyển trang
 
   return (
-    <div className="flex min-h-screen" style={{ background: "var(--bg)" }}>
+    <div className="dashboard-shell flex min-h-screen" style={{ background: "var(--bg)" }}>
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="dashboard-stage flex min-w-0 flex-1 flex-col">
         <Topbar />
-        <main className="flex-1 overflow-y-auto px-7 py-[22px]">{children}</main>
+        <main className="dashboard-content flex-1 overflow-y-auto px-7 py-[22px]">
+          <div className="dashboard-content__inner">{children}</div>
+        </main>
       </div>
       <ChatBubble />
     </div>

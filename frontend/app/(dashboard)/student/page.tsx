@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, CoursePublic, MasteryOverview } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
-import NovaAvatar from "@/components/NovaAvatar";
 import WeakestConceptToast from "@/components/WeakestConceptToast";
 import LearningPathCard from "@/components/learning-path/LearningPathCard";
+import Image from "next/image";
 
 /**
  * Trang chủ sinh viên - trả lời đúng 1 câu hỏi: "hôm nay tôi làm gì
@@ -58,16 +58,16 @@ export default function StudentDashboard() {
   const weakest = mastery?.weak_concepts?.[0];
 
   return (
-    <div className="animate-enter max-w-3xl">
+    <div className="student-dashboard animate-enter max-w-3xl">
       <WeakestConceptToast />
 
       {/* Khối chào - nền tối làm mỏ neo thị giác cho cả trang, đồng thời
           là nơi duy nhất Nova tự giới thiệu sự hiện diện. */}
-      <section className="rounded-[12px] px-6 py-5" style={{ background: "var(--sidebar)" }}>
-        <div className="flex items-start gap-3">
-          <NovaAvatar size={34} />
+      <section className="student-hero rounded-[12px] px-6 py-5">
+        <div className="relative z-[1] flex items-center gap-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-[17px] font-semibold text-white">Chào {firstName}</h2>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[.14em] text-[#91bfe6]">Nova · Trợ lý học tập</p>
+            <h2 className="text-[22px] font-semibold text-white">Chào {firstName}</h2>
             <p className="mt-1 text-[13px] leading-relaxed" style={{ color: "var(--sidebar-ink)" }}>
               {loading
                 ? "Đang tải…"
@@ -77,6 +77,9 @@ export default function StudentDashboard() {
                     ? `Mình là Nova. Hôm nay bạn có thể ôn lại "${weakest.concept_name}" — phần đang yếu nhất.`
                     : "Mình là Nova, hỏi mình bất cứ điều gì về nội dung môn học."}
             </p>
+          </div>
+          <div className="student-hero__nova" aria-hidden="true">
+            <Image src="/nova-mascot.png" alt="" width={210} height={210} priority />
           </div>
         </div>
       </section>
@@ -130,7 +133,7 @@ export default function StudentDashboard() {
       )}
 
       <h3 className="text-label mt-6 mb-2.5">Bắt đầu từ đâu</h3>
-      <div className="space-y-2">
+      <div className="action-grid grid grid-cols-2 gap-3">
         <ActionRow
           title="Hỏi đáp học thuật"
           description="Đặt câu hỏi bất kỳ — Nova trả lời dựa trên tài liệu đã được giảng viên duyệt, kèm trích dẫn để bạn tự kiểm chứng."
@@ -181,7 +184,8 @@ function ActionRow({
 }) {
   return (
     <button onClick={onClick} className="card-interactive group block w-full text-left">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <span className="action-row-icon" aria-hidden="true">{title === "Hỏi đáp học thuật" ? "?" : title === "Gia sư Socratic" ? "✦" : title === "Tiến độ học tập" ? "↗" : "◷"}</span>
         <span className="text-section-title">{title}</span>
         <span
           className="text-[15px] opacity-0 transition-opacity group-hover:opacity-100"

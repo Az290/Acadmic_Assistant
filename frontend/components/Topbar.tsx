@@ -48,7 +48,7 @@ export default function Topbar() {
 
   return (
     <header
-      className="flex h-14 flex-shrink-0 items-center justify-between border-b px-7"
+      className="app-topbar flex h-14 flex-shrink-0 items-center justify-between border-b px-7"
       style={{ borderColor: "var(--border)", background: "var(--panel)" }}
     >
       <h1 className="text-page-title m-0">{pageTitleFor(pathname)}</h1>
@@ -56,7 +56,7 @@ export default function Topbar() {
       {/* Đã bỏ nhãn "● Online": người dùng đang nhìn thấy giao diện thì
           hiển nhiên là đang kết nối - nhãn đó chiếm chỗ mà không mang
           thông tin nào. */}
-      <div className="flex items-center gap-2.5">
+      <div className="topbar-profile flex items-center gap-2.5">
         <span className="text-support hidden sm:block">{user.full_name}</span>
         <div
           className="flex h-7 w-7 items-center justify-center rounded-full text-[11.5px] font-semibold"

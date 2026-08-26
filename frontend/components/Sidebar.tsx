@@ -168,13 +168,18 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="sticky top-0 flex h-screen w-60 flex-shrink-0 flex-col"
+      className="app-sidebar sticky top-0 flex h-screen w-60 flex-shrink-0 flex-col"
       style={{ background: "var(--sidebar)", color: "var(--sidebar-ink)" }}
     >
-      <div className="px-5 py-5">
+      <div className="sidebar-brand px-5 py-5">
+        <div className="flex items-center gap-2.5">
+          <span className="brand-mark" aria-hidden="true">A</span>
+          <div>
         <div className="text-[13.5px] font-semibold leading-tight text-white">Academic Assistant</div>
         <div className="mt-0.5 text-[11px]" style={{ color: "var(--sidebar-ink)" }}>
           {ROLE_LABEL[user.role]}
+        </div>
+          </div>
         </div>
       </div>
 
@@ -196,7 +201,7 @@ export default function Sidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="relative flex items-center gap-2.5 px-5 py-[7px] text-[12.8px]"
+                    className="sidebar-link relative flex items-center gap-2.5 px-5 py-[7px] text-[12.8px]"
                     style={{
                       color: active ? "#fff" : "var(--sidebar-ink)",
                       fontWeight: active ? 600 : 400,
@@ -226,8 +231,14 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t px-5 py-4" style={{ borderColor: "var(--sidebar-line)" }}>
-        <div className="mb-2.5 truncate text-[12px] text-white">{user.full_name}</div>
+      <div className="sidebar-account border-t px-5 py-4" style={{ borderColor: "var(--sidebar-line)" }}>
+        <div className="mb-2.5 flex items-center gap-2.5">
+          <span className="sidebar-user-avatar">{user.full_name.trim().slice(-1).toUpperCase()}</span>
+          <div className="min-w-0">
+            <div className="truncate text-[12px] font-semibold text-white">{user.full_name}</div>
+            <div className="text-[10px]">{ROLE_LABEL[user.role]}</div>
+          </div>
+        </div>
         <button
           onClick={handleLogout}
           className="w-full rounded-[6px] border py-1.5 text-[11.5px] font-medium"

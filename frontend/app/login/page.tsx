@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError, dashboardPathForRole } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import Image from "next/image";
 
 // Tài khoản demo CÔNG KHAI dùng cho khách/doanh nghiệp xem thử sản phẩm -
 // không phải bí mật cần giấu, đã tạo sẵn trong DB để bấm-là-vào-luôn.
@@ -45,9 +46,39 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-1 text-xl font-bold text-slate-900">Đăng nhập</h1>
+    <div className="auth-shell">
+      <section className="auth-showcase">
+        <div className="auth-showcase__content">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#58779a]">Academic Assistant</p>
+        <h1 className="auth-heading mt-12 max-w-xl text-[34px] font-bold leading-tight tracking-[-0.035em] text-[#132f50]">
+          Học thông minh hơn cùng Nova
+        </h1>
+        <p className="auth-lead mt-4 max-w-xl text-[14px] leading-7 text-[#58708b]">
+          Một không gian học tập liền mạch, nơi tài liệu, tiến độ và trợ lý AI cùng đồng hành với bạn.
+        </p>
+        <div className="auth-feature">
+          <span className="auth-feature__icon">⌂</span>
+          <div><h2 className="font-semibold text-[#183b62]">Trung tâm học tập</h2><p className="mt-1 text-sm leading-6 text-[#657b92]">Mọi lớp học, bài tập và tài liệu được tổ chức rõ ràng tại một nơi.</p></div>
+        </div>
+        <div className="auth-feature">
+          <span className="auth-feature__icon">↗</span>
+          <div><h2 className="font-semibold text-[#183b62]">Tiến độ cá nhân</h2><p className="mt-1 text-sm leading-6 text-[#657b92]">Theo dõi mức độ nắm vững và nhận gợi ý ôn tập phù hợp.</p></div>
+        </div>
+        <div className="auth-feature">
+          <span className="auth-feature__icon">✦</span>
+          <div><h2 className="font-semibold text-[#183b62]">Nova đồng hành</h2><p className="mt-1 text-sm leading-6 text-[#657b92]">Hỏi đáp có trích dẫn hoặc học theo phương pháp gợi mở Socratic.</p></div>
+        </div>
+        <div className="auth-proof" aria-label="Điểm nổi bật của hệ thống">
+          <div><strong>24/7</strong><span>Trợ lý học tập</span></div>
+          <div><strong>100%</strong><span>Nguồn có kiểm duyệt</span></div>
+          <div><strong>Riêng bạn</strong><span>Lộ trình thích ứng</span></div>
+        </div>
+        </div>
+      </section>
+      <section className="auth-stage">
+      <div className="auth-card">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[.14em] text-[#6684a5]">Chào mừng trở lại</p>
+        <h1 className="mb-1 text-2xl font-bold tracking-[-.025em] text-slate-900">Đăng nhập</h1>
         <p className="mb-6 text-sm text-slate-500">Academic Assistant</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -83,7 +114,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            className="btn btn-primary w-full py-2.5 text-sm disabled:opacity-60"
           >
             {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
           </button>
@@ -104,17 +135,17 @@ export default function LoginPage() {
               type="button"
               disabled={submitting}
               onClick={() => void loginWith(DEMO_INSTRUCTOR.email, DEMO_INSTRUCTOR.password)}
-              className="w-full rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-60"
+              className="card-interactive w-full !p-3 text-sm font-semibold text-[#285f9f] disabled:opacity-60"
             >
-              🎓 Xem demo Giảng viên
+              🎓 Giảng viên
             </button>
             <button
               type="button"
               disabled={submitting}
               onClick={() => void loginWith(DEMO_STUDENT.email, DEMO_STUDENT.password)}
-              className="w-full rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 disabled:opacity-60"
+              className="card-interactive w-full !p-3 text-sm font-semibold text-[#285f9f] disabled:opacity-60"
             >
-              📚 Xem demo Sinh viên
+              📚 Sinh viên
             </button>
           </div>
         </div>
@@ -126,6 +157,10 @@ export default function LoginPage() {
           </Link>
         </p>
       </div>
+      <div className="auth-nova" aria-hidden="true">
+        <Image src="/nova-mascot.png" alt="" width={300} height={300} priority />
+      </div>
+      </section>
     </div>
   );
 }
