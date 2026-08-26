@@ -37,8 +37,8 @@ export default function DocumentsPage() {
       );
       setUploaded((prev) => [doc, ...prev]);
       setFile(null);
-      (document.getElementById("fileInput") as HTMLInputElement | null)?.value &&
-        ((document.getElementById("fileInput") as HTMLInputElement).value = "");
+      const fileInput = document.getElementById("fileInput") as HTMLInputElement | null;
+      if (fileInput) fileInput.value = "";
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Không thể tải tài liệu lên.");
     } finally {
@@ -47,12 +47,15 @@ export default function DocumentsPage() {
   }
 
   return (
-    <div className="max-w-3xl">
-      <p className="mb-4 text-[13px]" style={{ color: "var(--ink-soft)" }}>
-        Tải lên file PDF — hệ thống tự động phân tích và đưa vào kho tra cứu cho sinh viên.
-      </p>
+    <div className="documents-page max-w-3xl">
+      <section className="page-visual-hero page-visual-hero--documents">
+        <div><span className="page-visual-hero__eyebrow">Kho tri thức</span><h2>Biến tài liệu thành kiến thức có thể hỏi</h2><p>Nova tự động đọc, chia nhỏ và lập chỉ mục PDF để hỗ trợ học tập có trích dẫn.</p></div>
+        <div className="document-stack-visual" aria-hidden="true"><span>PDF</span><i></i><i></i></div>
+      </section>
 
-      <form onSubmit={handleUpload} className="card space-y-4">
+      <div className="documents-layout">
+      <form onSubmit={handleUpload} className="card document-upload-card space-y-4">
+        <div className="section-heading-row"><span className="section-heading-icon">↑</span><div><h2>Tải tài liệu mới</h2><p>PDF tối đa 50MB, hệ thống sẽ kiểm tra trước khi xử lý.</p></div></div>
         <div>
           <label className="mb-1 block text-[11.5px] font-semibold" style={{ color: "var(--ink-soft)" }}>
             Lớp học
@@ -78,17 +81,19 @@ export default function DocumentsPage() {
           )}
         </div>
 
-        <div>
+        <div className="file-drop-zone">
+          <span className="file-drop-zone__icon">⇧</span>
           <label className="mb-1 block text-[11.5px] font-semibold" style={{ color: "var(--ink-soft)" }}>
-            File PDF (tối đa 50MB)
+            {file ? file.name : "Chọn file PDF từ thiết bị"}
           </label>
+          <p>{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB · Sẵn sàng tải lên` : "Kéo thả hoặc bấm để chọn · tối đa 50MB"}</p>
           <input
             id="fileInput"
             type="file"
             required
             accept=".pdf"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="w-full rounded-[7px] border px-2.5 py-2 text-[12.5px] file:mr-3 file:rounded file:border-0 file:bg-[#E8EAF0] file:px-3 file:py-1 file:text-[12.5px]"
+            className="file-drop-zone__input"
             style={{ borderColor: "var(--border-strong)" }}
           />
         </div>
@@ -129,6 +134,18 @@ export default function DocumentsPage() {
         </button>
       </form>
 
+      <aside className="document-process-card">
+        <span className="page-visual-hero__eyebrow">Quy trình tự động</span>
+        <h3>Từ PDF đến câu trả lời</h3>
+        <ol>
+          <li><span>1</span><div><strong>Kiểm tra an toàn</strong><p>Định dạng, kích thước và nội dung.</p></div></li>
+          <li><span>2</span><div><strong>Phân tích tài liệu</strong><p>Nhận diện cấu trúc và chia đoạn.</p></div></li>
+          <li><span>3</span><div><strong>Lập chỉ mục</strong><p>Sẵn sàng tìm kiếm có trích dẫn.</p></div></li>
+          <li><span>4</span><div><strong>Duyệt nội dung</strong><p>Giảng viên kiểm soát trước khi dùng.</p></div></li>
+        </ol>
+      </aside>
+      </div>
+
       {uploaded.length > 0 && (
         <div className="mt-5">
           <h2 className="mb-2 text-[12.5px] font-bold">Đã tải lên phiên này</h2>
@@ -145,7 +162,7 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      <p className="mt-5 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
+      <p className="document-note mt-5 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
         Ghi chú: hệ thống hiện chưa có trang xem lại toàn bộ lịch sử tài liệu đã tải lên (backend chưa
         có endpoint liệt kê) — chỉ hiển thị các tài liệu vừa tải lên trong phiên làm việc này.
       </p>

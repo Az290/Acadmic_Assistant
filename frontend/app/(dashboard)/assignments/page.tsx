@@ -178,9 +178,16 @@ export default function AssignmentsPage() {
     }
   }
 
+  const activeCourse = courses.find((course) => course.id === courseId);
+
   return (
-    <div className="max-w-4xl">
+    <div className="assignments-page max-w-4xl">
       {!isInstructor && <WeakestConceptToast />}
+
+      <section className="page-visual-hero page-visual-hero--assignments">
+        <div><span className="page-visual-hero__eyebrow">{activeCourse?.code ?? "Bài tập"}</span><h2>{isInstructor ? "Thiết kế hoạt động luyện tập" : "Luyện tập để tiến bộ mỗi ngày"}</h2><p>{isInstructor ? "Tạo bài kiểm tra theo khái niệm và quan sát kết quả của cả lớp." : "Hoàn thành bài tập, xem giải thích và củng cố phần kiến thức còn yếu."}</p></div>
+        <div className="assignment-visual" aria-hidden="true"><span>✓</span><i></i><i></i><i></i></div>
+      </section>
 
       {courses.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-1.5">
@@ -496,17 +503,14 @@ export default function AssignmentsPage() {
             </p>
           )}
           {!loading && assignments.length === 0 && (
-            <div className="card">
-              <p className="text-[13px]" style={{ color: "var(--ink-faint)" }}>
-                Lớp này chưa có bài tập nào.
-              </p>
-            </div>
+            <div className="visual-empty-state"><span className="visual-empty-state__icon">✓</span><h3>Chưa có bài tập</h3><p>{isInstructor ? "Tạo khái niệm và giao bài đầu tiên bằng công cụ phía trên." : "Giảng viên chưa giao bài cho lớp này. Hãy khám phá tài liệu hoặc hỏi Nova trong lúc chờ nhé."}</p></div>
           )}
           <div className="space-y-2.5">
             {assignments.map((a) => (
-              <div key={a.id} className="card">
+              <div key={a.id} className="card assignment-card">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
+                  <span className="assignment-card__visual" aria-hidden="true">✓</span>
+                  <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-semibold">{a.title}</div>
                     <div className="text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
                       {a.question_count} câu

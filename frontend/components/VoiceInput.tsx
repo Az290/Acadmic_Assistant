@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api } from "@/lib/api";
 
 type VoiceState = "idle" | "recording" | "transcribing" | "error";
@@ -27,18 +27,72 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const mountedRef = useRef(true);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleReset = useCallback((delay: number) => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => {
+      if (!mountedRef.current) return;
+      setState("idle");
+      setErrorMessage(null);
+    }, delay);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+
+      const recorder = mediaRecorderRef.current;
+      mediaRecorderRef.current = null;
+      audioChunksRef.current = [];
+      if (recorder) {
+        // Đóng panel làm VoiceInput unmount. Hủy callbacks TRƯỚC khi
+        // dừng recorder để onstop không gửi một request transcription
+        // sau khi giao diện đã biến mất.
+        recorder.ondataavailable = null;
+        recorder.onstop = null;
+        recorder.onerror = null;
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch {
+            // Recorder có thể vừa tự chuyển inactive giữa hai dòng.
+          }
+        }
+        recorder.stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const stopRecording = useCallback(async () => {
     if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
       return;
     }
 
-    mediaRecorderRef.current.stop();
-    mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
-  }, []);
+    const recorder = mediaRecorderRef.current;
+    // Không stop MediaStream ngay ở đây. Chrome cần stream còn sống
+    // đến khi phát xong dataavailable/onstop để flush phần audio cuối.
+    try {
+      recorder.requestData();
+      recorder.stop();
+    } catch (err) {
+      console.error("Unable to stop MediaRecorder safely:", err);
+      recorder.stream.getTracks().forEach((track) => track.stop());
+      mediaRecorderRef.current = null;
+      if (mountedRef.current) {
+        setErrorMessage("Không thể kết thúc ghi âm, vui lòng thử lại.");
+        setState("error");
+        scheduleReset(3000);
+      }
+    }
+  }, [scheduleReset]);
 
   const sendAudioToBackend = useCallback(
     async (audioBlob: Blob) => {
+      if (!mountedRef.current || audioBlob.size === 0) return;
       setState("transcribing");
       setErrorMessage(null);
 
@@ -51,18 +105,18 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
           formData
         );
 
+        if (!mountedRef.current) return;
         if (response.text && response.text.trim()) {
           onTranscriptionComplete(response.text.trim());
+          setState("idle");
         } else {
           setErrorMessage("Không nhận diện được giọng nói, vui lòng thử lại.");
           setState("error");
           // Reset về idle sau 2 giây nếu có lỗi
-          setTimeout(() => {
-            setState("idle");
-            setErrorMessage(null);
-          }, 2000);
+          scheduleReset(2000);
         }
       } catch (err) {
+        if (!mountedRef.current) return;
         console.error("Transcription error:", err);
         if (err instanceof ApiError) {
           setErrorMessage(err.detail);
@@ -71,13 +125,10 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
         }
         setState("error");
         // Reset về idle sau 3 giây nếu có lỗi
-        setTimeout(() => {
-          setState("idle");
-          setErrorMessage(null);
-        }, 3000);
+        scheduleReset(3000);
       }
     },
-    [onTranscriptionComplete]
+    [onTranscriptionComplete, scheduleReset]
   );
 
   const startRecording = useCallback(async () => {
@@ -93,6 +144,13 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
           noiseSuppression: true,
         },
       });
+
+      // Người dùng có thể đóng Nova trong lúc hộp thoại cấp quyền mic
+      // vẫn đang mở. Không tạo recorder cho component đã unmount.
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
 
       // Create MediaRecorder with preferred mime type
       let mimeType = "audio/webm;codecs=opus";
@@ -123,27 +181,30 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
 
         // Clean up
         stream.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current = null;
         audioChunksRef.current = [];
 
         // Send to backend for transcription
-        sendAudioToBackend(audioBlob);
+        if (mountedRef.current && audioBlob.size > 0) {
+          void sendAudioToBackend(audioBlob);
+        }
       };
 
       mediaRecorder.onerror = (event) => {
         console.error("MediaRecorder error:", event);
         stream.getTracks().forEach((track) => track.stop());
+        mediaRecorderRef.current = null;
+        if (!mountedRef.current) return;
         setErrorMessage("Lỗi khi ghi âm, vui lòng thử lại.");
         setState("error");
-        setTimeout(() => {
-          setState("idle");
-          setErrorMessage(null);
-        }, 3000);
+        scheduleReset(3000);
       };
 
       // Start recording
       mediaRecorder.start(1000); // Collect data every second
       setState("recording");
     } catch (err) {
+      if (!mountedRef.current) return;
       console.error("Microphone access error:", err);
 
       if (err instanceof DOMException) {
@@ -159,12 +220,9 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
       }
 
       setState("error");
-      setTimeout(() => {
-        setState("idle");
-        setErrorMessage(null);
-      }, 3000);
+      scheduleReset(3000);
     }
-  }, [sendAudioToBackend]);
+  }, [scheduleReset, sendAudioToBackend]);
 
   const handleClick = useCallback(() => {
     if (disabled) return;

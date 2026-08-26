@@ -55,11 +55,24 @@ export default function HistoryPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const citedCount = items.filter((item) => (item.source_count ?? 0) > 0).length;
+  const tutorCount = items.filter((item) => item.category === "SOCRATIC_REQUEST").length;
+
   return (
-    <div className="max-w-4xl">
-      <div className="card !p-0">
-        <div className="border-b px-4 py-3 text-[12.5px] font-bold" style={{ borderColor: "var(--border)" }}>
-          Lịch sử câu hỏi
+    <div className="history-page max-w-4xl">
+      <section className="page-visual-hero page-visual-hero--history">
+        <div><span className="page-visual-hero__eyebrow">Nhật ký học tập</span><h2>Hành trình cùng Nova</h2><p>Tìm lại câu hỏi, phương pháp học và nguồn tài liệu bạn đã sử dụng.</p></div>
+        <div className="history-summary">
+          <div><strong>{items.length}</strong><span>Lượt hỏi</span></div>
+          <div><strong>{citedCount}</strong><span>Có trích dẫn</span></div>
+          <div><strong>{tutorCount}</strong><span>Phiên gia sư</span></div>
+        </div>
+      </section>
+
+      <div className="history-content">
+        <div className="section-heading-row">
+          <span className="section-heading-icon">◷</span>
+          <div><h2>Lịch sử câu hỏi</h2><p>Các hoạt động gần đây nhất của bạn.</p></div>
         </div>
 
         {loading && (
@@ -73,45 +86,30 @@ export default function HistoryPage() {
           </p>
         )}
         {!loading && !error && items.length === 0 && (
-          <p className="px-4 py-3 text-[13px]" style={{ color: "var(--ink-faint)" }}>
-            Bạn chưa hỏi câu nào. Bấm biểu tượng chat ở góc phải dưới để bắt đầu.
-          </p>
+          <div className="visual-empty-state"><span className="visual-empty-state__icon">?</span><h3>Chưa có cuộc trò chuyện</h3><p>Bấm biểu tượng Nova ở góc phải để đặt câu hỏi đầu tiên.</p></div>
         )}
 
         {items.length > 0 && (
-          <table className="w-full text-[12.5px]">
-            <thead>
-              <tr style={{ color: "var(--ink-faint)" }}>
-                <th className="px-4 py-2 text-left text-[10.5px] font-bold uppercase tracking-wide">Câu hỏi</th>
-                <th className="px-3 py-2 text-left text-[10.5px] font-bold uppercase tracking-wide">Agent</th>
-                <th className="px-3 py-2 text-left text-[10.5px] font-bold uppercase tracking-wide">Thời gian</th>
-                <th className="px-4 py-2 text-left text-[10.5px] font-bold uppercase tracking-wide">Nguồn</th>
-              </tr>
-            </thead>
-            <tbody>
+          <div className="history-timeline">
               {items.map((item, i) => (
-                <tr key={i} className="border-t" style={{ borderColor: "var(--border)" }}>
-                  <td className="max-w-[320px] truncate px-4 py-2.5" title={item.question}>
-                    {item.question}
-                  </td>
-                  <td className="px-3 py-2.5">
+                <article key={i} className="history-item">
+                  <span className="history-item__visual" aria-hidden="true">{item.category === "SOCRATIC_REQUEST" ? "✦" : item.category === "RAG_QUESTION" ? "?" : "·"}</span>
+                  <div className="history-item__body">
+                    <div className="history-item__topline">
                     <span
                       className="rounded-full px-2.5 py-[3px] text-[10.5px] font-bold"
                       style={CATEGORY_STYLE[item.category]}
                     >
                       {CATEGORY_LABEL[item.category]}
                     </span>
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: "var(--ink-soft)" }}>
-                    {formatRelativeTime(item.created_at)}
-                  </td>
-                  <td className="px-4 py-2.5" style={{ color: "var(--ink-soft)" }}>
-                    {formatSource(item)}
-                  </td>
-                </tr>
+                      <span>{formatRelativeTime(item.created_at)}</span>
+                    </div>
+                    <h3 title={item.question}>{item.question}</h3>
+                    <div className="history-item__source"><span>⌁</span>{formatSource(item)}</div>
+                  </div>
+                </article>
               ))}
-            </tbody>
-          </table>
+          </div>
         )}
       </div>
     </div>

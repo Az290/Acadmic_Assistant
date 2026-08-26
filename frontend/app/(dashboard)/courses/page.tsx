@@ -133,10 +133,26 @@ export default function CoursesPage() {
   }
 
   return (
-    <div className="max-w-3xl">
+    <div className="courses-page max-w-3xl">
+      <section className="page-visual-hero page-visual-hero--courses">
+        <div>
+          <span className="page-visual-hero__eyebrow">Không gian học tập</span>
+          <h2>{canManage ? "Quản lý lớp học của bạn" : "Các lớp bạn đang tham gia"}</h2>
+          <p>
+            {canManage
+              ? "Tạo lớp, quản lý sinh viên và kết nối tài liệu với từng môn học."
+              : "Mỗi lớp là một không gian riêng cho bài tập, tài liệu và trợ lý Nova."}
+          </p>
+        </div>
+        <div className="page-visual-hero__metric"><strong>{courses.length}</strong><span>Lớp học</span></div>
+        <div className="hero-orbit" aria-hidden="true"><span>⌘</span><span>✦</span><span>●</span></div>
+      </section>
       {canManage && (
-        <form onSubmit={handleCreateCourse} className="card mb-4">
-          <h2 className="mb-2.5 text-[12.5px] font-bold">Tạo lớp mới</h2>
+        <form onSubmit={handleCreateCourse} className="card create-course-card mb-4">
+          <div className="section-heading-row">
+            <span className="section-heading-icon">＋</span>
+            <div><h2>Tạo lớp mới</h2><p>Mở một không gian học tập và bắt đầu thêm sinh viên.</p></div>
+          </div>
           <div className="flex gap-2">
             <input
               type="text"
@@ -181,16 +197,24 @@ export default function CoursesPage() {
       )}
 
       {!loading && courses.length === 0 && (
-        <p className="text-[13px]" style={{ color: "var(--ink-faint)" }}>Bạn chưa thuộc lớp nào.</p>
+        <div className="visual-empty-state">
+          <span className="visual-empty-state__icon">▱</span>
+          <h3>Chưa có lớp học</h3>
+          <p>{canManage ? "Tạo lớp đầu tiên bằng biểu mẫu phía trên." : "Liên hệ giảng viên để được thêm vào lớp."}</p>
+        </div>
       )}
 
-      <div className="space-y-2.5">
-        {courses.map((c) => (
-          <div key={c.id} className="card">
+      <div className="courses-grid">
+        {courses.map((c, index) => (
+          <div key={c.id} className={`card course-card course-card--${index % 3} ${viewingRosterCourseId === c.id ? "course-card--expanded" : ""}`}>
             <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[13px] font-semibold">{c.name}</div>
-                <div className="text-[11.5px]" style={{ color: "var(--ink-soft)" }}>{c.code}</div>
+              <div className="course-card__identity">
+                <span className="course-card__visual" aria-hidden="true">{c.code.slice(0, 2)}</span>
+                <div>
+                  <span className="course-card__code">{c.code}</span>
+                  <div className="course-card__name">{c.name}</div>
+                  <div className="course-card__meta">Không gian môn học · Nova sẵn sàng</div>
+                </div>
               </div>
               {canManage && c.owner_id === user?.id && (
                 <div className="flex gap-2">

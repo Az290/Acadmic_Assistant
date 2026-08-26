@@ -106,10 +106,11 @@ export default function InstructorDashboard() {
     : 0;
 
   return (
-    <div className="max-w-5xl">
-      <p className="mb-4 text-[13px]" style={{ color: "var(--ink-soft)" }}>
-        Thống kê tổng hợp theo lớp — không hiển thị nội dung hội thoại riêng của sinh viên.
-      </p>
+    <div className="instructor-page max-w-5xl">
+      <section className="page-visual-hero page-visual-hero--analytics">
+        <div><span className="page-visual-hero__eyebrow">Trung tâm giảng dạy</span><h2>Nhìn thấy điều lớp học đang cần</h2><p>Tổng hợp tiến độ, nhu cầu hỗ trợ và khoảng trống tài liệu mà không hiển thị hội thoại riêng của sinh viên.</p></div>
+        <div className="analytics-visual" aria-hidden="true"><i style={{height:"38%"}}></i><i style={{height:"66%"}}></i><i style={{height:"48%"}}></i><i style={{height:"86%"}}></i><span>↗</span></div>
+      </section>
 
       {courses.length === 0 && (
         <div className="card">
