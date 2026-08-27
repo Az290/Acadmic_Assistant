@@ -24,7 +24,11 @@ from app.learning.mastery_overview import (
     compute_weak_concepts,
 )
 from app.learning.learning_path import get_learning_path
-from app.learning.quiz_generator import QuizGenerationError, generate_quiz_question
+from app.learning.quiz_generator import (
+    QuizGenerationError,
+    generate_quiz_question,
+    generate_quiz_questions_batch,
+)
 from app.learning.schemas import (
     AnswerResponse,
     ConceptProgressPublic,
@@ -35,9 +39,14 @@ from app.learning.schemas import (
     RecommendationPublic,
     MasteryOverview,
     MasteryPublic,
+    QuizAnswerResult,
     QuizQuestionPublic,
     QuizQuestionRequest,
+    QuizSetRequest,
+    QuizSetResponse,
     SubmitAnswerRequest,
+    SubmitAnswersRequest,
+    SubmitAnswersResponse,
     WeakConceptPublic,
     WeakestConceptPublic,
 )
@@ -445,4 +454,177 @@ async def get_learning_path_endpoint(
         course_name=result.course_name,
         concepts=concepts,
         recommendations=recommendations,
+    )
+
+
+@router.post("/v1/learn/quiz-set", response_model=QuizSetResponse)
+@limiter.limit(DEFAULT_RATE_LIMIT)
+async def get_quiz_set(
+    request: Request,
+    body: QuizSetRequest,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Lấy MỘT BỘ câu hỏi để sinh viên làm liền mạch rồi nộp 1 lần.
+
+    KHÁC /v1/learn/quiz (1 câu): làm từng câu rồi nộp ngay khiến mạch
+    làm bài bị cắt vụn, và không có cảm giác "đang làm bài kiểm tra".
+    Bộ đề cho phép xem lại/đổi đáp án trước khi chốt.
+
+    Ưu tiên TÁI DÙNG câu đã có trong kho (cùng lý do cache-first ở
+    _get_or_create_quiz_question: nhiều sinh viên cùng ôn 1 khái niệm
+    thì không việc gì phải trả tiền LLM lặp lại). Chỉ sinh bù phần
+    THIẾU, và sinh trong 1 lượt gọi duy nhất để các câu không trùng
+    nhau (xem generate_quiz_questions_batch).
+    """
+    concept_result = await session.execute(select(Concept).where(Concept.id == body.concept_id))
+    concept = concept_result.scalar_one_or_none()
+    if concept is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khái niệm này.")
+
+    await _require_enrolled(session, user_id=user.id, course_id=concept.course_id)
+
+    existing = (
+        await session.execute(
+            select(QuizQuestion)
+            .where(QuizQuestion.concept_id == concept.id)
+            .order_by(QuizQuestion.id)
+            .limit(body.num_questions)
+        )
+    ).scalars().all()
+
+    questions = list(existing)
+    missing = body.num_questions - len(questions)
+
+    if missing > 0:
+        try:
+            generated_list = await generate_quiz_questions_batch(
+                session, concept_name=concept.name, user_id=user.id, count=missing
+            )
+        except QuizGenerationError as e:
+            # Kho đã có sẵn vài câu thì vẫn dùng được - chỉ báo lỗi khi
+            # KHÔNG có câu nào để làm, tránh chặn cả lượt ôn tập chỉ vì
+            # không sinh bù được.
+            if not questions:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+            generated_list = []
+
+        for generated in generated_list:
+            question = QuizQuestion(
+                concept_id=concept.id,
+                question=generated["question"],
+                options=json.dumps(generated["options"], ensure_ascii=False),
+                correct_index=generated["correct_index"],
+                explanation=generated["explanation"],
+            )
+            session.add(question)
+            await session.flush()
+            questions.append(question)
+
+        await session.commit()
+
+    return QuizSetResponse(
+        concept_id=concept.id,
+        concept_name=concept.name,
+        questions=[
+            QuizQuestionPublic(
+                id=q.id,
+                concept_id=q.concept_id,
+                question=q.question,
+                options=json.loads(q.options),
+            )
+            for q in questions
+        ],
+    )
+
+
+@router.post("/v1/learn/answers", response_model=SubmitAnswersResponse)
+@limiter.limit(DEFAULT_RATE_LIMIT)
+async def submit_answers(
+    request: Request,
+    body: SubmitAnswersRequest,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Nộp CẢ BỘ đáp án một lần (sau khi sinh viên làm xong toàn bộ).
+
+    Mastery được cập nhật cho TỪNG câu theo đúng thứ tự làm bài - dùng
+    lại apply_answer() y hệt luồng 1 câu, không viết lại heuristic
+    streak (nếu tính khác đi thì cùng 1 sinh viên sẽ có 2 mức mastery
+    khác nhau tuỳ họ chọn cách nộp nào, vô lý).
+    """
+    question_ids = [a.quiz_question_id for a in body.answers]
+    questions = (
+        await session.execute(select(QuizQuestion).where(QuizQuestion.id.in_(question_ids)))
+    ).scalars().all()
+    questions_by_id = {q.id: q for q in questions}
+
+    if len(questions_by_id) != len(set(question_ids)):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Có câu hỏi không tồn tại."
+        )
+
+    # Mọi câu trong 1 lượt nộp phải cùng 1 concept - bộ đề được lấy theo
+    # concept nên trộn nhiều concept nghĩa là client gửi sai/cố tình.
+    concept_ids = {q.concept_id for q in questions}
+    if len(concept_ids) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Các câu hỏi trong một lượt nộp phải thuộc cùng một khái niệm.",
+        )
+
+    concept = (
+        await session.execute(select(Concept).where(Concept.id == concept_ids.pop()))
+    ).scalar_one()
+    await _require_enrolled(session, user_id=user.id, course_id=concept.course_id)
+
+    mastery = await get_or_create_mastery(session, user_id=user.id, concept_id=concept.id)
+
+    results: list[QuizAnswerResult] = []
+    score = 0
+    for answer in body.answers:
+        question = questions_by_id[answer.quiz_question_id]
+        is_correct = answer.selected_index == question.correct_index
+        if is_correct:
+            score += 1
+
+        session.add(
+            QuizAttempt(
+                user_id=user.id,
+                quiz_question_id=question.id,
+                selected_index=answer.selected_index,
+                is_correct=is_correct,
+            )
+        )
+        apply_answer(mastery, is_correct=is_correct)
+
+        results.append(
+            QuizAnswerResult(
+                quiz_question_id=question.id,
+                question=question.question,
+                options=json.loads(question.options),
+                selected_index=answer.selected_index,
+                correct_index=question.correct_index,
+                is_correct=is_correct,
+                explanation=question.explanation,
+            )
+        )
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Có yêu cầu khác đang xử lý đồng thời, vui lòng thử lại.",
+        )
+
+    return SubmitAnswersResponse(
+        score=score,
+        total=len(body.answers),
+        results=results,
+        streak=mastery.streak,
+        mastered=mastery.mastered,
     )

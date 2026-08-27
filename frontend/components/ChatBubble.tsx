@@ -586,6 +586,36 @@ export default function ChatBubble() {
     return () => window.removeEventListener("open-chat-tab", handleOpenChatTab);
   }, []);
 
+  // Mở panel VÀ GỬI LUÔN 1 câu hỏi có sẵn - phát ra từ nút "Hỏi Nova
+  // giải thích" ở trang quiz (kèm nguyên văn câu hỏi + đáp án sinh viên
+  // chọn + đáp án đúng, để Nova giải thích ĐÚNG câu đó thay vì phải
+  // hỏi lại "bạn đang nói câu nào?").
+  //
+  // Dùng ref cho handleSend: hàm này được tạo lại mỗi lần render, nếu
+  // đưa vào deps thì listener bị gỡ/gắn liên tục; nếu để deps rỗng mà
+  // gọi thẳng thì lại bắt phải closure cũ (state tabs/courseId lỗi thời).
+  const sendRef = useRef(handleSend);
+  // Cập nhật ref trong effect, KHÔNG gán thẳng trong thân render: React
+  // 19 coi việc ghi ref lúc render là tác dụng phụ không hợp lệ (render
+  // phải thuần khiết để có thể bị huỷ/chạy lại an toàn).
+  useEffect(() => {
+    sendRef.current = handleSend;
+  });
+
+  useEffect(() => {
+    function handleAskNova(e: Event) {
+      const detail = (e as CustomEvent<{ question: string; tab?: TabMode }>).detail;
+      setTab(detail.tab ?? "RAG_QUESTION");
+      setSize((prev) => (prev === "closed" ? "compact" : prev));
+      setUnreadCount(0);
+      // Đợi 1 nhịp để setTab kịp áp dụng trước khi gửi - handleSend đọc
+      // `tab` để quyết định gửi vào phiên hội thoại nào.
+      setTimeout(() => sendRef.current(detail.question), 0);
+    }
+    window.addEventListener("ask-nova", handleAskNova);
+    return () => window.removeEventListener("ask-nova", handleAskNova);
+  }, []);
+
   // Fetch suggested questions khi conversation hoàn tất
   useEffect(() => {
     const convId = current.conversationId;

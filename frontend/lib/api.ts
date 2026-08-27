@@ -157,6 +157,34 @@ export interface AnswerResponse {
   mastered: boolean;
 }
 
+/* ---------- Quiz theo BỘ (làm hết rồi nộp 1 lần) ---------- */
+
+/** Bộ câu hỏi cho 1 khái niệm - KHÔNG kèm đáp án đúng (lộ ra thì quiz vô nghĩa). */
+export interface QuizSetResponse {
+  concept_id: number;
+  concept_name: string;
+  questions: QuizQuestionPublic[];
+}
+
+/** Kết quả 1 câu sau khi nộp cả bộ - đủ dữ liệu để hiển thị lại đề + đáp án đã chọn. */
+export interface QuizAnswerResult {
+  quiz_question_id: number;
+  question: string;
+  options: string[];
+  selected_index: number;
+  correct_index: number;
+  is_correct: boolean;
+  explanation: string;
+}
+
+export interface SubmitAnswersResponse {
+  score: number;
+  total: number;
+  results: QuizAnswerResult[];
+  streak: number;
+  mastered: boolean;
+}
+
 export interface CoursePublic {
   id: number;
   code: string;

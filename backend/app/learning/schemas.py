@@ -126,3 +126,50 @@ class LearningPathResponsePublic(BaseModel):
     course_name: str
     concepts: list[ConceptProgressPublic]
     recommendations: list[RecommendationPublic]
+
+
+class QuizSetRequest(BaseModel):
+    """
+    Lấy MỘT BỘ câu hỏi để làm liền mạch rồi nộp 1 lần - khác
+    QuizQuestionRequest (1 câu/1 lượt nộp, gây gián đoạn mạch làm bài).
+    """
+
+    concept_id: int
+    # Trần 20: đủ cho 1 lượt ôn tập, chặn yêu cầu vô lý (sinh 200 câu
+    # = rất nhiều lượt gọi LLM nếu kho chưa có sẵn).
+    num_questions: int = Field(default=5, ge=1, le=20)
+
+
+class QuizSetResponse(BaseModel):
+    concept_id: int
+    concept_name: str
+    questions: list[QuizQuestionPublic]
+
+
+class SubmitAnswersRequest(BaseModel):
+    """Nộp CẢ BỘ đáp án một lần, sau khi sinh viên làm xong toàn bộ."""
+
+    answers: list[SubmitAnswerRequest] = Field(min_length=1)
+
+
+class QuizAnswerResult(BaseModel):
+    """Kết quả 1 câu trong bộ - kèm đủ dữ liệu để hiển thị lại đề bài
+    và đáp án đã chọn, tránh frontend phải tự ghép từ nhiều nguồn."""
+
+    quiz_question_id: int
+    question: str
+    options: list[str]
+    selected_index: int
+    correct_index: int
+    is_correct: bool
+    explanation: str
+
+
+class SubmitAnswersResponse(BaseModel):
+    score: int
+    total: int
+    results: list[QuizAnswerResult]
+    # Mastery SAU KHI đã tính cả bộ - chỉ trả 1 lần ở cuối thay vì sau
+    # từng câu, đúng với việc nộp theo bộ.
+    streak: int
+    mastered: bool
