@@ -17,7 +17,7 @@ tuần tự).
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +33,8 @@ from app.db.models import (
     QuizQuestion,
     StudentMastery,
 )
+
+DUE_SOON_HOURS = 48
 
 
 @dataclass
@@ -72,6 +74,7 @@ class AssignmentProgress:
     total: int | None = None
     submitted_at: datetime | None = None
     overdue: bool = False
+    due_soon: bool = False
 
 
 @dataclass
@@ -107,17 +110,20 @@ async def load_student_context(
     user_role: str | None = None,
 ) -> StudentContext:
     """
-    course_id: giới hạn trong 1 lớp cụ thể nếu người dùng đã chọn lớp;
-    None -> lấy khái niệm của MỌI lớp sinh viên đang theo học.
+    course_id: lớp đã được xác định chắc chắn cho conversation hiện tại.
+    None -> trả context rỗng, không trộn hồ sơ của nhiều lớp.
 
     Điều kiện lọc theo `enrollment` là BẮT BUỘC (không phải tuỳ chọn):
     cùng nguyên tắc ACL đã áp dụng cho Retrieval - sinh viên không được
     thấy khái niệm của lớp mình không thuộc về, kể cả gián tiếp qua
     việc gia sư nhắc tới tên khái niệm đó.
     """
-    # Không gắn hồ sơ của một "sinh viên giả định" vào prompt giảng viên.
-    # None giữ tương thích cho các caller/test cũ chưa truyền role.
+    # user_role ở đây là effective_role trong lớp, không phải mặc định
+    # role toàn cục. Không có lớp xác định thì caller không được nạp
+    # hồ sơ tổng hợp từ nhiều lớp.
     if user_role is not None and user_role != "STUDENT":
+        return StudentContext()
+    if course_id is None:
         return StudentContext()
 
     concept_query = select(Concept.id, Concept.name, Concept.embedding).where(
@@ -211,6 +217,7 @@ async def _load_assignment_context(
     ).all()
     question_count = {assignment_id: count for assignment_id, count in count_rows}
     now = datetime.now(timezone.utc)
+    due_soon_window = timedelta(hours=DUE_SOON_HOURS)
     progress = []
     for assignment in assignments:
         submission = submission_by_assignment.get(assignment.id)
@@ -228,6 +235,11 @@ async def _load_assignment_context(
                 total=submission.total if submission else None,
                 submitted_at=submission.submitted_at if submission else None,
                 overdue=submission is None and due_at is not None and due_at < now,
+                due_soon=(
+                    submission is None
+                    and due_at is not None
+                    and timedelta(0) < due_at - now <= due_soon_window
+                ),
             )
         )
 

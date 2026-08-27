@@ -144,7 +144,12 @@ _ACL_FILTER_SQL_POSITIONAL = chunk_access_sql(user_id_param="$2", is_admin_param
 
 
 async def _vector_search(
-    session: AsyncSession, query_vector: list[float], user_id: int, limit: int, is_admin: bool
+    session: AsyncSession,
+    query_vector: list[float],
+    user_id: int,
+    limit: int,
+    is_admin: bool,
+    course_id: int | None,
 ) -> tuple[list[tuple[int, int]], float]:
     """
     Trả về ([(chunk_id, rank)], similarity_cao_nhat) xếp theo khoảng
@@ -181,10 +186,18 @@ async def _vector_search(
                1 - (embedding <=> $1::vector) AS similarity
         FROM chunk
         WHERE embedding IS NOT NULL AND {_ACL_FILTER_SQL_POSITIONAL}
+          AND (
+              $5::bigint IS NULL
+              OR EXISTS (
+                  SELECT 1 FROM document_course scoped_dc
+                  WHERE scoped_dc.document_id = chunk.document_id
+                    AND scoped_dc.course_id = $5
+              )
+          )
         ORDER BY embedding <=> $1::vector
         LIMIT $3
         """,
-        (str(query_vector), user_id, limit, is_admin),
+        (str(query_vector), user_id, limit, is_admin, course_id),
     )
     rows = list(result)
     ranked = [(row.id, row.rank) for row in rows]
@@ -193,7 +206,12 @@ async def _vector_search(
 
 
 async def _fulltext_search(
-    session: AsyncSession, query_text: str, user_id: int, limit: int, is_admin: bool
+    session: AsyncSession,
+    query_text: str,
+    user_id: int,
+    limit: int,
+    is_admin: bool,
+    course_id: int | None,
 ) -> list[tuple[int, int]]:
     """
     Trả về [(chunk_id, rank)] xếp theo ts_rank giảm dần (khớp từ khoá
@@ -209,11 +227,25 @@ async def _fulltext_search(
             ) AS rank
             FROM chunk
             WHERE content_tsv @@ websearch_to_tsquery('simple', :query_text) AND {_ACL_FILTER_SQL}
+              AND (
+                  :course_id IS NULL
+                  OR EXISTS (
+                      SELECT 1 FROM document_course scoped_dc
+                      WHERE scoped_dc.document_id = chunk.document_id
+                        AND scoped_dc.course_id = :course_id
+                  )
+              )
             ORDER BY ts_rank(content_tsv, websearch_to_tsquery('simple', :query_text)) DESC
             LIMIT :limit
             """
         ),
-        {"query_text": query_text, "user_id": user_id, "limit": limit, "is_admin": is_admin},
+        {
+            "query_text": query_text,
+            "user_id": user_id,
+            "limit": limit,
+            "is_admin": is_admin,
+            "course_id": course_id,
+        },
     )
     return [(row.id, row.rank) for row in result]
 
@@ -242,6 +274,7 @@ async def hybrid_search(
     query_vector: list[float] | None = None,
     is_admin: bool = False,
     stats: dict | None = None,
+    course_id: int | None = None,
 ) -> list[SearchResult]:
     """
     Hàm chính - nhận câu hỏi dạng text, trả về danh sách chunk liên
@@ -276,7 +309,7 @@ async def hybrid_search(
         query_vector = embed_texts([query_text])[0]
 
     vector_ranked, best_similarity = await _vector_search(
-        session, query_vector, user_id, TOP_K_PER_BRANCH, is_admin
+        session, query_vector, user_id, TOP_K_PER_BRANCH, is_admin, course_id
     )
 
     # Ghi số đo RA NGOÀI NGAY tại đây - TRƯỚC mọi nhánh return sớm bên
@@ -295,7 +328,9 @@ async def hybrid_search(
     if best_similarity < MIN_RELEVANCE_SIMILARITY:
         return []
 
-    fulltext_ranked = await _fulltext_search(session, query_text, user_id, TOP_K_PER_BRANCH, is_admin)
+    fulltext_ranked = await _fulltext_search(
+        session, query_text, user_id, TOP_K_PER_BRANCH, is_admin, course_id
+    )
 
     # RRF hoạt động đúng kể cả khi 1 trong 2 danh sách rỗng (vd câu hỏi
     # thuần khái niệm không khớp từ khoá nào, hoặc chuỗi ký tự lạ

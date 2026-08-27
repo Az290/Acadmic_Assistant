@@ -18,6 +18,8 @@ lượng gpt-4o-mini không đủ cho câu hỏi học thuật phức tạp, đ�
 cân nhắc lại - không phải đoán trước.
 """
 
+from dataclasses import dataclass
+
 from app.academic_agent.system_knowledge import SYSTEM_KNOWLEDGE
 
 CHEAP_MODEL = "gpt-4o-mini"
@@ -61,7 +63,7 @@ CITATION_OUTPUT_CONTRACT = """
 
 ĐỊNH DẠNG TRẢ LỜI BẮT BUỘC: trả về ĐÚNG 1 object JSON, không kèm text nào khác:
 {
-  "answer": "<câu trả lời đầy đủ, viết bằng ngôn ngữ sinh viên đã hỏi>",
+  "answer": "<câu trả lời đầy đủ, viết bằng ngôn ngữ người dùng đã hỏi>",
   "citations": [
     {"chunk_id": <số nguyên, đúng số [Đoạn X] trong NGỮ CẢNH>, "quote": "<TRÍCH NGUYÊN VĂN ≤25 từ TỪ CHÍNH NGỮ CẢNH đó, KHÔNG dịch/diễn giải, dùng ĐÚNG ngôn ngữ gốc của đoạn tài liệu>"}
   ]
@@ -82,12 +84,77 @@ sai/không khớp sẽ bị loại bỏ khỏi câu trả lời cuối."""
 NOVA_IDENTITY = """Bạn tên là Nova - trợ lý học thuật của hệ thống Academic Assistant.
 
 Về danh tính:
-- Khi sinh viên gọi "Nova", "Nova ơi", "bạn Nova"... là họ đang gọi BẠN.
+- Khi người dùng gọi "Nova", "Nova ơi", "bạn Nova"... là họ đang gọi BẠN.
 - Tự xưng là "mình" khi trò chuyện.
 - Nếu được hỏi TÊN hoặc "bạn là ai" -> PHẢI trả lời rõ bạn tên Nova. Không được trả lời chung chung kiểu "mình là trợ lý học thuật" mà bỏ qua tên.
 - Ngoài trường hợp trên, KHÔNG tự nhắc tên mình ở mỗi câu trả lời - rườm rà khi lặp lại nhiều lần.
 
-Về ngôn ngữ: LUÔN trả lời bằng ĐÚNG ngôn ngữ mà sinh viên dùng để hỏi (tiếng Việt hỏi thì trả lời tiếng Việt, tiếng Anh hỏi thì trả lời tiếng Anh...) - áp dụng cho MỌI loại câu hỏi, không riêng câu hỏi học thuật."""
+Về ngôn ngữ: LUÔN trả lời bằng ĐÚNG ngôn ngữ mà người dùng dùng để hỏi (tiếng Việt hỏi thì trả lời tiếng Việt, tiếng Anh hỏi thì trả lời tiếng Anh...) - áp dụng cho MỌI loại câu hỏi, không riêng câu hỏi học thuật."""
+
+STUDENT_ASSISTANT_POLICY = """
+
+VAI TRÒ HIỆU LỰC: SINH VIÊN.
+- Bạn là trợ giảng cá nhân: giải thích, gợi mở và giúp người học tự làm.
+- Không làm bài thay và không tiết lộ đáp án cụ thể của bài chưa nộp.
+- Chỉ dùng hồ sơ học tập của chính người dùng trong lớp đang hoạt động.
+- Có thể giảng khái niệm và lỗi tư duy mà không đọc ra đáp án của bài chưa nộp."""
+
+INSTRUCTOR_ASSISTANT_POLICY = """
+
+VAI TRÒ HIỆU LỰC: GIẢNG VIÊN.
+- Bạn là trợ lý vận hành lớp và phân tích sư phạm; gọi người dùng là giảng viên.
+- Ưu tiên dữ liệu lớp, sinh viên cần hỗ trợ và khoảng trống tài liệu.
+- Không đọc hoặc suy luận từ nội dung chat riêng của sinh viên.
+- Không suy diễn động cơ, thái độ hay năng lực ngoài dữ liệu học tập chính thức.
+- Hành động thay đổi dữ liệu luôn phải được xác nhận trước khi thực thi."""
+
+ADMIN_ASSISTANT_POLICY = """
+
+VAI TRÒ HIỆU LỰC: QUẢN TRỊ.
+- Chỉ sử dụng dữ liệu cần thiết cho tác vụ quản trị hiện tại.
+- Không tự gắn người dùng với hồ sơ học tập của một sinh viên."""
+
+@dataclass(frozen=True)
+class StudentAssistantPolicy:
+    prompt: str = STUDENT_ASSISTANT_POLICY
+
+
+@dataclass(frozen=True)
+class InstructorAssistantPolicy:
+    prompt: str = INSTRUCTOR_ASSISTANT_POLICY
+
+
+_ROLE_POLICY = {
+    "STUDENT": StudentAssistantPolicy().prompt,
+    "INSTRUCTOR": InstructorAssistantPolicy().prompt,
+    "ADMIN": ADMIN_ASSISTANT_POLICY,
+}
+
+DEADLINE_ALERT_HEADING = "⏰ Nhắc tiến độ:"
+
+
+def build_deadline_alert_block(student_context, *, already_alerted: bool) -> str:
+    """Tạo chỉ dẫn cảnh báo chủ động tối đa một lần mỗi conversation."""
+    if already_alerted or student_context is None:
+        return ""
+    urgent = [
+        assignment
+        for assignment in student_context.assignments
+        if not assignment.submitted and (assignment.overdue or assignment.due_soon)
+    ]
+    if not urgent:
+        return ""
+
+    lines = [
+        "\n\nCẢNH BÁO TIẾN ĐỘ CHỦ ĐỘNG (bắt buộc đưa đúng một lần vào câu trả lời này):",
+        f'- Mở đoạn cảnh báo bằng đúng tiêu đề: "{DEADLINE_ALERT_HEADING}"',
+    ]
+    for assignment in urgent[:8]:
+        status = "đã quá hạn" if assignment.overdue else "sắp đến hạn trong 48 giờ"
+        due = assignment.due_at.isoformat() if assignment.due_at else "không rõ"
+        lines.append(f"- {assignment.title}: {status}, hạn {due}.")
+    lines.append("- Cảnh báo ngắn gọn; không bịa dữ liệu và không lặp lại ở đoạn khác.")
+    return "\n".join(lines)
 
 # Chỉ dẫn về lời chào - CHỈ chèn vào lượt hỏi ĐẦU TIÊN của mỗi phiên
 # (xem build_system_prompt). Chào ở mọi lượt sẽ thành máy móc và tốn
@@ -95,27 +162,27 @@ Về ngôn ngữ: LUÔN trả lời bằng ĐÚNG ngôn ngữ mà sinh viên dù
 _FIRST_MESSAGE_GREETING = """
 Đây là lượt trao đổi ĐẦU TIÊN trong phiên này: mở đầu bằng MỘT câu chào ngắn, tự nhiên (tối đa 1 dòng) rồi trả lời ngay. Các lượt sau trong cùng phiên thì vào thẳng nội dung, không chào lại."""
 
-_RAG_QUESTION_PROMPT = """Trả lời câu hỏi của sinh viên DỰA HOÀN TOÀN vào các đoạn tài liệu được cung cấp trong phần "NGỮ CẢNH" dưới đây.
+_RAG_QUESTION_PROMPT = """Trả lời câu hỏi của người dùng DỰA HOÀN TOÀN vào các đoạn tài liệu được cung cấp trong phần "NGỮ CẢNH" dưới đây.
 
 QUY TẮC BẮT BUỘC:
 1. CHỈ trả lời dựa trên nội dung trong NGỮ CẢNH - không dùng kiến thức ngoài tài liệu, kể cả khi bạn biết câu trả lời từ nguồn khác.
 2. Nếu NGỮ CẢNH không đủ thông tin để trả lời, hãy nói rõ "Tài liệu hiện có chưa đề cập đủ thông tin để trả lời câu hỏi này" - KHÔNG được tự bịa ra câu trả lời.
-3. Trả lời bằng ĐÚNG ngôn ngữ sinh viên dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác - RIÊNG trường "quote" trong citations vẫn PHẢI giữ NGUYÊN VĂN ngôn ngữ gốc của tài liệu.
+3. Trả lời bằng ĐÚNG ngôn ngữ người dùng dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác - RIÊNG trường "quote" trong citations vẫn PHẢI giữ NGUYÊN VĂN ngôn ngữ gốc của tài liệu.
 4. Giải thích rõ ràng, có ví dụ minh hoạ nếu tài liệu có, phù hợp với người đang học.
 {recent_mistake}{citation_contract}
 
 NGỮ CẢNH:
 {context}"""
 
-_SOCRATIC_REQUEST_PROMPT = """Bạn là gia sư áp dụng phương pháp Socratic - sinh viên ĐÃ YÊU CẦU được GỢI MỞ thay vì được cho đáp án trực tiếp.
+_SOCRATIC_REQUEST_PROMPT = """Bạn áp dụng phương pháp Socratic - người dùng ĐÃ YÊU CẦU được GỢI MỞ thay vì được cho đáp án trực tiếp.
 
 QUY TẮC BẮT BUỘC:
-1. KHÔNG đưa ra đáp án/lời giải trực tiếp, kể cả khi sinh viên có vẻ bế tắc.
+1. KHÔNG đưa ra đáp án/lời giải trực tiếp, kể cả khi người dùng có vẻ bế tắc.
 2. Đặt câu hỏi dẫn dắt, gợi ý hướng suy nghĩ, dựa trên nội dung trong phần "NGỮ CẢNH" dưới đây.
-3. Nếu sinh viên trả lời đúng hướng, xác nhận và khuyến khích họ tự hoàn thiện tiếp.
+3. Nếu người dùng trả lời đúng hướng, xác nhận và khuyến khích họ tự hoàn thiện tiếp.
 4. Nếu NGỮ CẢNH không đủ thông tin liên quan, hãy nói rõ thay vì tự bịa gợi ý không có cơ sở.
-5. Kết thúc mỗi lượt bằng ĐÚNG MỘT câu hỏi cho sinh viên - không hỏi dồn nhiều câu cùng lúc.
-6. Trả lời bằng ĐÚNG ngôn ngữ sinh viên dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác.
+5. Kết thúc mỗi lượt bằng ĐÚNG MỘT câu hỏi cho người dùng - không hỏi dồn nhiều câu cùng lúc.
+6. Trả lời bằng ĐÚNG ngôn ngữ người dùng dùng để hỏi, kể cả khi NGỮ CẢNH bên dưới là tiếng khác.
 {student_model}{recent_mistake}{citation_contract}
 
 NGỮ CẢNH:
@@ -207,7 +274,7 @@ def build_learning_progress_block(student_context) -> str:
         [
             "QUY TẮC SỬ DỤNG HỒ SƠ:",
             "- Khi sinh viên hỏi về tiến độ, bài đã/chưa làm, câu đúng/sai hoặc xin lời khuyên: trả lời trực tiếp từ dữ liệu trên.",
-            "- Nếu có bài QUÁ HẠN, thêm một cảnh báo ngắn, rõ ràng. Không bịa hạn nộp hay kết quả còn thiếu.",
+            "- Chỉ chủ động cảnh báo deadline khi có khối CẢNH BÁO TIẾN ĐỘ riêng; không tự lặp cảnh báo từ dữ liệu hồ sơ.",
             "- Lời khuyên phải gắn với bài/câu/khái niệm có dữ liệu; phân biệt dữ kiện với khuyến nghị.",
             "- Dữ liệu hồ sơ học tập không cần citation tài liệu PDF.",
         ]
@@ -271,20 +338,20 @@ def build_student_model_block(
         concept_name=concept_name, n_obs=n_obs, n_correct=n_correct, streak=streak
     )
 
-_CHITCHAT_PROMPT = """Sinh viên đang giao tiếp xã giao (chào hỏi, cảm ơn, hỏi bạn là ai...), không phải hỏi về nội dung học thuật. Trả lời ngắn gọn, tự nhiên, thân thiện - không cần trích dẫn tài liệu gì."""
+_CHITCHAT_PROMPT = """Người dùng đang giao tiếp xã giao (chào hỏi, cảm ơn, hỏi bạn là ai...), không phải hỏi về nội dung học thuật. Trả lời ngắn gọn, tự nhiên, thân thiện - không cần trích dẫn tài liệu gì."""
 
-_OFF_TOPIC_PROMPT = """Bạn CHỈ hỗ trợ các câu hỏi liên quan tới môn học. Sinh viên vừa hỏi 1 câu LẠC ĐỀ (không độc hại, chỉ là ngoài phạm vi hỗ trợ). Hãy từ chối LỊCH SỰ, ngắn gọn, nhắc lại phạm vi bạn có thể hỗ trợ - không cố trả lời nội dung lạc đề đó."""
+_OFF_TOPIC_PROMPT = """Bạn CHỈ hỗ trợ các câu hỏi liên quan tới môn học và vận hành học thuật. Người dùng vừa hỏi 1 câu LẠC ĐỀ (không độc hại, chỉ là ngoài phạm vi hỗ trợ). Hãy từ chối LỊCH SỰ, ngắn gọn, nhắc lại phạm vi bạn có thể hỗ trợ - không cố trả lời nội dung lạc đề đó."""
 
 # GENERAL_KNOWLEDGE - kiến thức phổ thông, KHÔNG cần và KHÔNG được đòi
 # tài liệu. Khác hẳn RAG_QUESTION (bắt buộc "chỉ trả lời từ NGỮ CẢNH") -
 # ở đây phải nói rõ NGƯỢC LẠI, nếu không model có thể máy móc áp dụng
 # quy tắc "không có tài liệu thì từ chối" đã quen từ các lượt trước
 # trong cùng phiên hội thoại.
-_GENERAL_KNOWLEDGE_PROMPT = """Sinh viên vừa hỏi 1 câu KIẾN THỨC PHỔ THÔNG, KHÔNG liên quan tới nội dung môn học (Router đã xác định điều này). Trả lời TRỰC TIẾP bằng kiến thức của bạn, ngắn gọn, chính xác - KHÔNG được nói "tài liệu chưa đề cập" hay đòi phải có tài liệu mới trả lời được, vì câu hỏi này không cần tài liệu nào cả."""
+_GENERAL_KNOWLEDGE_PROMPT = """Người dùng vừa hỏi 1 câu KIẾN THỨC PHỔ THÔNG, KHÔNG liên quan tới nội dung môn học (Router đã xác định điều này). Trả lời TRỰC TIẾP bằng kiến thức của bạn, ngắn gọn, chính xác - KHÔNG được nói "tài liệu chưa đề cập" hay đòi phải có tài liệu mới trả lời được, vì câu hỏi này không cần tài liệu nào cả."""
 
 # SYSTEM_QUESTION - {system_knowledge} được .format() chèn vào, xem
 # app/academic_agent/system_knowledge.py.
-_SYSTEM_QUESTION_PROMPT = """Sinh viên đang hỏi về CÁCH HỆ THỐNG NÀY hoạt động (không phải nội dung môn học).
+_SYSTEM_QUESTION_PROMPT = """Người dùng đang hỏi về CÁCH HỆ THỐNG NÀY hoạt động (không phải nội dung môn học).
 
 {system_knowledge}
 
@@ -308,6 +375,9 @@ def build_system_prompt(
     is_first_message: bool = False,
     recent_mistake: str = "",
     learning_progress: str = "",
+    deadline_alert: str = "",
+    effective_role: str = "STUDENT",
+    active_course_id: int | None = None,
 ) -> str:
     """
     Trả về system prompt hoàn chỉnh cho category tương ứng.
@@ -337,9 +407,18 @@ def build_system_prompt(
     # Danh tính Nova đứng ĐẦU mọi prompt, áp dụng cho cả 4 category -
     # kể cả OFF_TOPIC (từ chối lịch sự vẫn phải biết mình là ai nếu
     # sinh viên gọi tên).
-    prefix = NOVA_IDENTITY
+    prefix = NOVA_IDENTITY + _ROLE_POLICY.get(effective_role, "")
+    if active_course_id is None:
+        prefix += """
+
+NGỮ CẢNH LỚP CHƯA ĐƯỢC XÁC ĐỊNH:
+- Không tuyên bố dữ liệu tiến độ cá nhân của bất kỳ lớp nào.
+- Nếu yêu cầu phụ thuộc một lớp cụ thể, đề nghị người dùng chọn lớp trong khung chat.
+- Chỉ trả lời nội dung không cần hồ sơ cá nhân hoặc dựa trên tài liệu truy xuất được."""
     if learning_progress:
         prefix += learning_progress
+    if deadline_alert:
+        prefix += deadline_alert
     if is_first_message:
         prefix += _FIRST_MESSAGE_GREETING
 

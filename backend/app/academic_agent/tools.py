@@ -108,6 +108,45 @@ _GET_ASSIGNMENT_RESULTS = {
     },
 }
 
+_GET_STUDENT_ASSIGNMENT_DETAILS = {
+    "type": "function",
+    "function": {
+        "name": "get_student_assignment_details",
+        "description": (
+            "Xem chi tiết các câu làm sai trong bài nộp CHÍNH THỨC của đúng một "
+            "sinh viên. Chỉ dùng khi giảng viên hỏi đích danh sinh viên; không dùng "
+            "để quét chi tiết cả lớp và không đọc lịch sử chat Nova."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "course_id": {"type": "integer", "description": "ID lớp do giảng viên phụ trách."},
+                "student_id": {"type": "integer", "description": "ID của đúng một sinh viên."},
+                "assignment_id": {"type": "integer", "description": "ID bài tập để lọc hẹp (tùy chọn)."},
+            },
+            "required": ["course_id", "student_id"],
+        },
+    },
+}
+
+_DRAFT_ASSIGNMENT_REMINDER = {
+    "type": "function",
+    "function": {
+        "name": "draft_assignment_reminder",
+        "description": (
+            "Soạn BẢN NHÁP nhắc bài tập từ dữ liệu thật để giảng viên tự sao chép. "
+            "Tool không gửi email, thông báo hay tin nhắn cho sinh viên."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assignment_id": {"type": "integer", "description": "ID bài tập cần soạn lời nhắc."},
+            },
+            "required": ["assignment_id"],
+        },
+    },
+}
+
 _GET_COSTS = {
     "type": "function",
     "function": {
@@ -372,6 +411,8 @@ TOOLS_INSTRUCTOR: list[dict] = [
     _GET_POPULAR_CONCEPTS,
     _GET_PENDING_DOCUMENTS,
     _GET_ASSIGNMENT_RESULTS,
+    _GET_STUDENT_ASSIGNMENT_DETAILS,
+    _DRAFT_ASSIGNMENT_REMINDER,
     _GET_COSTS,
     _GET_PIPELINE_TIMING,
     _CREATE_CONCEPT,
@@ -430,6 +471,8 @@ TOOL_LABELS_VI: dict[str, str] = {
     "get_popular_concepts": "Xem khái niệm được hỏi nhiều nhất",
     "get_pending_documents": "Xem tài liệu chờ duyệt",
     "get_assignment_results": "Xem kết quả bài tập",
+    "get_student_assignment_details": "Xem chi tiết bài làm của một sinh viên",
+    "draft_assignment_reminder": "Soạn bản nháp nhắc bài tập",
     "get_costs": "Xem chi phí sử dụng AI",
     "get_pipeline_timing": "Xem thời gian xử lý hệ thống",
     "get_my_mastery": "Xem tiến độ nắm vững của bạn",

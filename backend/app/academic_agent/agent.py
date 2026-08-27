@@ -36,6 +36,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.academic_agent.citation_verifier import verify_citations
 from app.academic_agent.prompts import (
+    DEADLINE_ALERT_HEADING,
+    build_deadline_alert_block,
     build_learning_progress_block,
     build_recent_mistake_block,
     build_student_model_block,
@@ -43,6 +45,7 @@ from app.academic_agent.prompts import (
     get_model_for_category,
     get_temperature_for_category,
 )
+from app.academic_agent.role_policy import RoleContext, resolve_role_context
 from app.academic_agent.schemas import ActionResultPublic, PendingActionPublic
 from app.academic_agent.system_kb_service import SystemKBQuerier
 from app.academic_agent.tool_executor import ToolExecutionResult, execute_tool
@@ -107,7 +110,12 @@ async def _get_or_create_conversation(
     session: AsyncSession, conversation_id: int | None, user_id: int, course_id: int | None
 ) -> Conversation:
     if conversation_id is not None:
-        result = await session.execute(select(Conversation).where(Conversation.id == conversation_id))
+        result = await session.execute(
+            select(Conversation).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
         conversation = result.scalar_one_or_none()
         if conversation is not None:
             return conversation
@@ -121,15 +129,61 @@ async def _get_or_create_conversation(
     return conversation
 
 
-async def _fetch_recent_history(session: AsyncSession, conversation_id: int) -> list[dict]:
+async def _fetch_recent_history(
+    session: AsyncSession, conversation_id: int, user_id: int
+) -> list[dict]:
     result = await session.execute(
         select(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(Message.conversation_id == conversation_id)
+        .where(Conversation.user_id == user_id)
         .order_by(Message.created_at.desc())
         .limit(HISTORY_LIMIT)
     )
     recent_messages = list(reversed(result.scalars().all()))  # đảo lại thành thứ tự CŨ -> MỚI
     return [{"role": m.role, "content": m.content} for m in recent_messages]
+
+
+async def _conversation_has_deadline_alert(
+    session: AsyncSession, conversation_id: int | None, user_id: int
+) -> bool:
+    if conversation_id is None:
+        return False
+    found = (
+        await session.execute(
+            select(Message.id)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Message.conversation_id == conversation_id,
+                Conversation.user_id == user_id,
+                Message.role == "assistant",
+                Message.content.contains(DEADLINE_ALERT_HEADING),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return found is not None
+
+
+async def _resolve_active_course_id(
+    session: AsyncSession,
+    *,
+    conversation_id: int | None,
+    user_id: int,
+    requested_course_id: int | None,
+) -> int | None:
+    """Conversation đã có lớp thì giữ nguyên; không tin ID phiên của user khác."""
+    if conversation_id is None:
+        return requested_course_id
+    stored_course_id = (
+        await session.execute(
+            select(Conversation.course_id).where(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+        )
+    ).scalar_one_or_none()
+    return stored_course_id if stored_course_id is not None else requested_course_id
 
 
 # ============================================================
@@ -295,7 +349,12 @@ class ActionRequestOutcome:
 
 
 async def _handle_action_request_turn(
-    session: AsyncSession, *, conversation_id: int, user: AppUser, message: str
+    session: AsyncSession,
+    *,
+    conversation_id: int,
+    user: AppUser,
+    message: str,
+    role_context: RoleContext,
 ) -> ActionRequestOutcome:
     """
     LÕI xử lý 1 lượt ACTION_REQUEST - dùng chung cho cả handle_chat() và
@@ -371,7 +430,7 @@ async def _handle_action_request_turn(
         # mới bên dưới, pending cũ tự động hết hiệu lực (không set lại).
 
     # --- Không có pending_action (hoặc vừa hết hiệu lực) - gọi LLM tool-calling ---
-    tools = get_tools_for_role(user.role)
+    tools = get_tools_for_role(role_context.effective_role)
     if not tools:
         return ActionRequestOutcome(
             answer_text="Xin lỗi, tài khoản của bạn hiện chưa được hỗ trợ thực hiện hành động qua chat.",
@@ -391,6 +450,8 @@ async def _handle_action_request_turn(
                     "content": (
                         "Bạn là Nova, trợ lý học thuật. Người dùng vừa yêu cầu 1 hành động "
                         "hoặc muốn xem thông tin quản trị/tiến độ cụ thể. Nếu có tool phù hợp, "
+                        f"Vai trò hiệu lực hiện tại là {role_context.effective_role}; "
+                        f"lớp đang hoạt động là {role_context.course_id}. "
                         "hãy gọi ĐÚNG 1 tool với tham số chính xác nhất suy luận được từ câu hỏi. "
                         "Nếu KHÔNG có tool nào phù hợp, hãy trả lời trực tiếp bằng tiếng Việt, "
                         "ngắn gọn - đừng cố gọi tool không liên quan."
@@ -442,7 +503,19 @@ async def _handle_action_request_turn(
     )
     label = TOOL_LABELS_VI.get(tool_name, tool_name)
     if result.success:
-        answer = await asyncio.to_thread(_summarize_tool_result_with_llm, message, result.data or {})
+        if tool_name == "draft_assignment_reminder":
+            data = result.data or {}
+            recipients = data.get("intended_recipients", [])
+            answer = (
+                "Đây chỉ là bản nháp, Nova chưa gửi thông báo cho bất kỳ ai.\n\n"
+                f"Đối tượng dự kiến: {len(recipients)} sinh viên chưa nộp bài.\n"
+                f"Lý do: {data.get('reason', 'Chưa ghi nhận bài nộp')}.\n\n"
+                f"{data.get('draft_content', '')}"
+            )
+        else:
+            answer = await asyncio.to_thread(
+                _summarize_tool_result_with_llm, message, result.data or {}
+            )
     else:
         answer = f"Rất tiếc, mình không lấy được thông tin này: {result.error_message}"
 
@@ -623,8 +696,8 @@ def _build_citations(search_results: list[SearchResult]) -> list[dict]:
 
 def _infer_course_id(search_results: list[SearchResult]) -> int | None:
     """
-    Suy ra Conversation này thuộc lớp nào từ chính các chunk đã tra cứu
-    được - lấy course_id XUẤT HIỆN NHIỀU NHẤT trong kết quả tìm kiếm.
+    Suy ra Conversation này thuộc lớp nào từ các chunk đã tra cứu, nhưng
+    chỉ khi toàn bộ kết quả cùng chỉ tới đúng một lớp.
 
     VÌ SAO CẦN: Dashboard giảng viên (app/instructor/) thống kê theo
     Conversation.course_id - nếu cột đó luôn NULL thì mọi số liệu bằng
@@ -634,16 +707,17 @@ def _infer_course_id(search_results: list[SearchResult]) -> int | None:
     GIỚI HẠN CÓ CHỦ Ý: câu CHITCHAT/OFF_TOPIC không tra cứu tài liệu
     nên không suy ra được gì (trả None, Conversation giữ NULL) - chấp
     nhận được vì những câu đó không mang ý nghĩa thống kê học thuật.
-    Nếu client CÓ gửi course_id tường minh, giá trị đó được ưu tiên,
-    không dùng hàm này.
+    Nếu kết quả thuộc nhiều lớp thì trả None để tránh dùng suy luận mơ
+    hồ cho dữ liệu học tập cá nhân. Nếu client gửi course_id tường minh,
+    giá trị đó được ưu tiên và không dùng hàm này.
     """
     if not search_results:
         return None
 
-    counts: dict[int, int] = {}
-    for r in search_results:
-        counts[r.course_id] = counts.get(r.course_id, 0) + 1
-    return max(counts, key=counts.get)
+    course_ids = {result.course_id for result in search_results}
+    # Không âm thầm chọn lớp theo đa số khi retrieval trả tài liệu của
+    # nhiều lớp. Lớp suy luận mơ hồ không đủ cơ sở để nạp dữ liệu cá nhân.
+    return next(iter(course_ids)) if len(course_ids) == 1 else None
 
 
 async def _has_no_enrollment(session: AsyncSession, user_id: int) -> bool:
@@ -770,7 +844,31 @@ async def handle_chat(
     # có lịch sử nào để tra cứu (history=[] không cần query DB).
     history: list[dict] = []
     if conversation_id is not None:
-        history = await _fetch_recent_history(session, conversation_id)
+        history = await _fetch_recent_history(session, conversation_id, user_id)
+    deadline_already_alerted = await _conversation_has_deadline_alert(
+        session, conversation_id, user_id
+    )
+
+    active_course_id = await _resolve_active_course_id(
+        session,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        requested_course_id=course_id,
+    )
+    role_context = await resolve_role_context(
+        session,
+        user_id=user_id,
+        global_role=user_role or ("ADMIN" if is_admin else "STUDENT"),
+        course_id=active_course_id,
+    )
+    if active_course_id is not None and not role_context.has_course_access:
+        active_course_id = None
+        role_context = await resolve_role_context(
+            session,
+            user_id=user_id,
+            global_role=user_role or ("ADMIN" if is_admin else "STUDENT"),
+            course_id=None,
+        )
 
     # --- Bước 1+2 CHẠY SONG SONG: Guardrail input và Router classify ---
     # PHÁT HIỆN QUA ĐO THẬT (không phải đoán): 2 bước này tuần tự tốn
@@ -804,7 +902,10 @@ async def handle_chat(
         asyncio.to_thread(classify, message, history),
         _embed_early(),
         load_student_context(
-            session, user_id=user_id, course_id=course_id, user_role=user_role
+            session,
+            user_id=user_id,
+            course_id=active_course_id,
+            user_role=role_context.effective_role,
         ),
     )
 
@@ -829,7 +930,9 @@ async def handle_chat(
     # cũ - hàm này tự tra history đã đọc ở trên vẫn đúng nếu là phiên
     # cũ, vì conversation.id sẽ khớp với conversation_id đã dùng để
     # đọc history phía trên).
-    conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
+    conversation = await _get_or_create_conversation(
+        session, conversation_id, user_id, active_course_id
+    )
 
     # --- Bước 3.5: System Knowledge Query (chỉ nếu SYSTEM_QUESTION) ---
     # Kiểm tra System Knowledge Base TRƯỚC khi xử lý retrieval thông thường.
@@ -871,7 +974,11 @@ async def handle_chat(
         current_user = user_result.scalar_one()
 
         outcome = await _handle_action_request_turn(
-            session, conversation_id=conversation.id, user=current_user, message=message
+            session,
+            conversation_id=conversation.id,
+            user=current_user,
+            message=message,
+            role_context=role_context,
         )
 
         session.add(Message(conversation_id=conversation.id, role="user", content=message))
@@ -955,6 +1062,7 @@ async def handle_chat(
             # early_vector, phải để hybrid_search tự embed lại.
             query_vector=None if query_was_rewritten else early_vector,
             stats=retrieval_stats,
+            course_id=active_course_id,
         )
 
     # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - phải
@@ -972,6 +1080,10 @@ async def handle_chat(
     if route.category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
         recent_mistake_block = build_recent_mistake_block(student_context.recent_mistake)
     learning_progress_block = build_learning_progress_block(student_context)
+    deadline_alert_block = build_deadline_alert_block(
+        student_context,
+        already_alerted=deadline_already_alerted,
+    )
 
     context_text = _build_context_text(search_results)
     # history rỗng = lượt hỏi đầu tiên của phiên -> cho phép Nova chào
@@ -982,6 +1094,9 @@ async def handle_chat(
         is_first_message=not history,
         recent_mistake=recent_mistake_block,
         learning_progress=learning_progress_block,
+        deadline_alert=deadline_alert_block,
+        effective_role=role_context.effective_role,
+        active_course_id=active_course_id,
     )
     model = get_model_for_category(route.category)
     temperature = get_temperature_for_category(route.category)
@@ -1131,7 +1246,31 @@ async def handle_chat_stream(
 
     history: list[dict] = []
     if conversation_id is not None:
-        history = await _fetch_recent_history(session, conversation_id)
+        history = await _fetch_recent_history(session, conversation_id, user_id)
+    deadline_already_alerted = await _conversation_has_deadline_alert(
+        session, conversation_id, user_id
+    )
+
+    active_course_id = await _resolve_active_course_id(
+        session,
+        conversation_id=conversation_id,
+        user_id=user_id,
+        requested_course_id=course_id,
+    )
+    role_context = await resolve_role_context(
+        session,
+        user_id=user_id,
+        global_role=user_role or ("ADMIN" if is_admin else "STUDENT"),
+        course_id=active_course_id,
+    )
+    if active_course_id is not None and not role_context.has_course_access:
+        active_course_id = None
+        role_context = await resolve_role_context(
+            session,
+            user_id=user_id,
+            global_role=user_role or ("ADMIN" if is_admin else "STUDENT"),
+            course_id=None,
+        )
 
     # Tải hồ sơ học tập (khái niệm của lớp + mức độ nắm vững) SONG SONG
     # với Guardrail và Router - 3 việc này KHÔNG phụ thuộc kết quả của
@@ -1144,7 +1283,10 @@ async def handle_chat_stream(
     # song, không thêm độ trễ mà người dùng cảm nhận được.
     async def _load_context_if_needed():
         return await load_student_context(
-            session, user_id=user_id, course_id=course_id, user_role=user_role
+            session,
+            user_id=user_id,
+            course_id=active_course_id,
+            user_role=role_context.effective_role,
         )
 
     # Tính LUÔN vector câu hỏi ở giai đoạn này, song song với Guardrail/
@@ -1199,7 +1341,9 @@ async def handle_chat_stream(
         yield {"type": "blocked", "conversation_id": conversation_id or 0, "reason": "invalid"}
         return
 
-    conversation = await _get_or_create_conversation(session, conversation_id, user_id, course_id)
+    conversation = await _get_or_create_conversation(
+        session, conversation_id, user_id, active_course_id
+    )
 
     # --- System Knowledge Query (chỉ nếu SYSTEM_QUESTION) ---
     # Kiểm tra System Knowledge Base TRƯỚC khi xử lý retrieval.
@@ -1254,7 +1398,11 @@ async def handle_chat_stream(
         current_user = user_result.scalar_one()
 
         outcome = await _handle_action_request_turn(
-            session, conversation_id=conversation.id, user=current_user, message=message
+            session,
+            conversation_id=conversation.id,
+            user=current_user,
+            message=message,
+            role_context=role_context,
         )
 
         yield {
@@ -1378,6 +1526,7 @@ async def handle_chat_stream(
             query_vector=query_vector,
             is_admin=is_admin,
             stats=retrieval_stats,
+            course_id=active_course_id,
         )
     retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
 
@@ -1443,6 +1592,10 @@ async def handle_chat_stream(
     if route.category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
         recent_mistake_block = build_recent_mistake_block(student_context.recent_mistake)
     learning_progress_block = build_learning_progress_block(student_context)
+    deadline_alert_block = build_deadline_alert_block(
+        student_context,
+        already_alerted=deadline_already_alerted,
+    )
 
     context_text = _build_context_text(search_results)
     # with_citation_contract=False: luồng streaming đẩy thẳng text ra
@@ -1455,6 +1608,9 @@ async def handle_chat_stream(
         is_first_message=not history,
         recent_mistake=recent_mistake_block,
         learning_progress=learning_progress_block,
+        deadline_alert=deadline_alert_block,
+        effective_role=role_context.effective_role,
+        active_course_id=active_course_id,
     )
     model = get_model_for_category(route.category)
     temperature = get_temperature_for_category(route.category)

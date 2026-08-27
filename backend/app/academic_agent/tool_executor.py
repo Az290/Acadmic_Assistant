@@ -36,6 +36,7 @@ from app.db.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentSubmission,
+    AssignmentSubmissionAnswer,
     AppUser,
     Concept,
     Conversation,
@@ -294,6 +295,146 @@ async def _tool_get_assignment_results(session: AsyncSession, args: dict, user: 
             "students": [
                 {"full_name": u.full_name, "score": s.score, "total": s.total} for s, u in submissions[:20]
             ],
+        },
+    )
+
+
+async def _tool_get_student_assignment_details(
+    session: AsyncSession, args: dict, user: AppUser
+) -> ToolExecutionResult:
+    """Đọc bài nộp chính thức của đúng một sinh viên, không đọc chat."""
+    course_id = args.get("course_id")
+    student_id = args.get("student_id")
+    assignment_id = args.get("assignment_id")
+    course = await _get_course_or_none(session, course_id)
+    if course is None:
+        return ToolExecutionResult(success=False, error_message="Không tìm thấy lớp học này.")
+    if not _is_course_owner(course, user):
+        return ToolExecutionResult(success=False, error_message="Bạn không phải giáo viên phụ trách lớp này.")
+
+    student = (
+        await session.execute(
+            select(AppUser)
+            .join(Enrollment, Enrollment.user_id == AppUser.id)
+            .where(
+                AppUser.id == student_id,
+                Enrollment.course_id == course_id,
+                Enrollment.role_in_course == "STUDENT",
+            )
+        )
+    ).scalar_one_or_none()
+    if student is None:
+        return ToolExecutionResult(success=False, error_message="Sinh viên không thuộc lớp này.")
+
+    query = (
+        select(AssignmentSubmissionAnswer, Assignment.title, AssignmentSubmission.submitted_at)
+        .join(Assignment, Assignment.id == AssignmentSubmissionAnswer.assignment_id)
+        .join(
+            AssignmentSubmission,
+            (AssignmentSubmission.assignment_id == AssignmentSubmissionAnswer.assignment_id)
+            & (AssignmentSubmission.user_id == AssignmentSubmissionAnswer.user_id),
+        )
+        .where(
+            Assignment.course_id == course_id,
+            AssignmentSubmissionAnswer.user_id == student_id,
+            AssignmentSubmissionAnswer.is_correct.is_(False),
+        )
+        .order_by(AssignmentSubmission.submitted_at.desc())
+        .limit(20)
+    )
+    if assignment_id is not None:
+        assignment_belongs = (
+            await session.execute(
+                select(Assignment.id).where(
+                    Assignment.id == assignment_id,
+                    Assignment.course_id == course_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if assignment_belongs is None:
+            return ToolExecutionResult(success=False, error_message="Bài tập không thuộc lớp này.")
+        query = query.where(AssignmentSubmissionAnswer.assignment_id == assignment_id)
+
+    rows = (await session.execute(query)).all()
+    mistakes = []
+    for answer, assignment_title, submitted_at in rows:
+        options = json.loads(answer.options)
+        selected = (
+            options[answer.selected_index]
+            if answer.selected_index is not None and 0 <= answer.selected_index < len(options)
+            else None
+        )
+        correct = options[answer.correct_index] if 0 <= answer.correct_index < len(options) else None
+        mistakes.append(
+            {
+                "assignment_id": answer.assignment_id,
+                "assignment_title": assignment_title,
+                "submitted_at": str(submitted_at),
+                "concept_name": answer.concept_name,
+                "question": answer.question,
+                "student_answer": selected,
+                "correct_answer": correct,
+                "explanation": answer.explanation,
+            }
+        )
+    return ToolExecutionResult(
+        success=True,
+        data={
+            "student_id": student.id,
+            "student_name": student.full_name,
+            "mistakes": mistakes,
+            "result_limit": 20,
+        },
+    )
+
+
+async def _tool_draft_assignment_reminder(
+    session: AsyncSession, args: dict, user: AppUser
+) -> ToolExecutionResult:
+    assignment_id = args.get("assignment_id")
+    assignment = (
+        await session.execute(select(Assignment).where(Assignment.id == assignment_id))
+    ).scalar_one_or_none()
+    if assignment is None:
+        return ToolExecutionResult(success=False, error_message="Không tìm thấy bài tập này.")
+    course = await _get_course_or_none(session, assignment.course_id)
+    if course is None or not _is_course_owner(course, user):
+        return ToolExecutionResult(success=False, error_message="Bạn không phải giáo viên phụ trách lớp có bài tập này.")
+
+    submitted_ids = select(AssignmentSubmission.user_id).where(
+        AssignmentSubmission.assignment_id == assignment.id
+    )
+    recipients = (
+        await session.execute(
+            select(AppUser.id, AppUser.full_name)
+            .join(Enrollment, Enrollment.user_id == AppUser.id)
+            .where(
+                Enrollment.course_id == assignment.course_id,
+                Enrollment.role_in_course == "STUDENT",
+                AppUser.id.not_in(submitted_ids),
+            )
+            .order_by(AppUser.full_name)
+        )
+    ).all()
+    due_text = assignment.due_at.isoformat() if assignment.due_at else "không có hạn nộp"
+    draft = (
+        f"Nhắc bài: {assignment.title}. Hạn nộp: {due_text}. "
+        "Các bạn chưa hoàn thành vui lòng kiểm tra nội dung bài và chủ động sắp xếp thời gian làm bài."
+    )
+    return ToolExecutionResult(
+        success=True,
+        data={
+            "draft_only": True,
+            "sent": False,
+            "assignment_id": assignment.id,
+            "assignment_title": assignment.title,
+            "due_at": due_text,
+            "reason": "Chưa ghi nhận bài nộp",
+            "intended_recipients": [
+                {"student_id": student_id, "full_name": full_name}
+                for student_id, full_name in recipients
+            ],
+            "draft_content": draft,
         },
     )
 
@@ -836,6 +977,8 @@ _DISPATCH_READ = {
     "get_popular_concepts": _tool_get_popular_concepts,
     "get_pending_documents": _tool_get_pending_documents,
     "get_assignment_results": _tool_get_assignment_results,
+    "get_student_assignment_details": _tool_get_student_assignment_details,
+    "draft_assignment_reminder": _tool_draft_assignment_reminder,
     "get_costs": _tool_get_costs,
     "get_pipeline_timing": _tool_get_pipeline_timing,
     "get_my_mastery": _tool_get_my_mastery,
@@ -871,10 +1014,9 @@ async def execute_tool(
     Điểm vào DUY NHẤT để thực thi 1 tool - agent.py chỉ cần gọi hàm này,
     không cần biết tool nào thuộc nhóm đọc/ghi hay dispatch ra sao.
 
-    Ghi AgentActionLog CHO MỌI tool GHI (cả thành công lẫn thất bại) -
-    tool ĐỌC KHÔNG ghi log (không thay đổi dữ liệu, không cần audit
-    trail loại này - AgentActionLog dành riêng cho hành động THAY ĐỔI
-    dữ liệu, xem docstring model).
+    Ghi AgentActionLog cho mọi tool GHI và các tool ĐỌC có dữ liệu định
+    danh sinh viên. Thống kê vận hành không định danh không bị ghi để
+    tránh audit log phình lên mà không tăng giá trị điều tra.
     """
     handler = _DISPATCH_READ.get(tool_name) or _DISPATCH_WRITE.get(tool_name)
     if handler is None:
@@ -882,7 +1024,12 @@ async def execute_tool(
 
     result = await handler(session, arguments, user)
 
-    if tool_name in TOOLS_REQUIRING_CONFIRMATION:
+    audited_read_tools = {
+        "get_class_analytics",
+        "get_course_roster",
+        "get_student_assignment_details",
+    }
+    if tool_name in TOOLS_REQUIRING_CONFIRMATION or tool_name in audited_read_tools:
         session.add(
             AgentActionLog(
                 user_id=user.id,

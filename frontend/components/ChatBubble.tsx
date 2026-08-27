@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import NovaAvatar from "@/components/NovaAvatar";
 import VoiceInput from "@/components/VoiceInput";
+import { useAuth } from "@/lib/AuthContext";
 
 /**
  * ChatBubble - panel chat nổi kiểu Messenger, hiện ở MỌI trang (được
@@ -153,6 +154,7 @@ function toDisplayMessage(m: MessagePublic): DisplayMessage {
 }
 
 export default function ChatBubble() {
+  const { user } = useAuth();
   const [size, setSize] = useState<PanelSize>("closed");
   const [tab, setTab] = useState<TabMode>("RAG_QUESTION");
   // Khởi tạo conversationId từ localStorage NGAY TỪ ĐẦU (đọc string thì
@@ -210,6 +212,10 @@ export default function ChatBubble() {
 
   const isOpen = size !== "closed";
   const current = tabs[tab];
+  const selectedCourse = courses.find((course) => course.id === courseId);
+  const isInstructorContext =
+    user?.role === "ADMIN" ||
+    (user?.role === "INSTRUCTOR" && (courseId === undefined || selectedCourse?.owner_id === user.id));
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -259,6 +265,8 @@ export default function ChatBubble() {
   // Danh sách khái niệm chỉ có ý nghĩa khi đã chọn 1 lớp cụ thể - mỗi
   // lớp có bộ khái niệm riêng do giảng viên lớp đó tạo.
   useEffect(() => {
+    // Reset nguyên tử state phụ thuộc khi người dùng chủ động đổi lớp.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setConceptId(pendingConceptId);
     setPendingConceptId(undefined);
     setDetectedConceptId(null);
@@ -360,7 +368,7 @@ export default function ChatBubble() {
           message: text,
           conversation_id: tabs[activeTab].conversationId,
           course_id: courseId,
-          force_category: activeTab,
+          force_category: isInstructorContext ? undefined : activeTab,
           // Chỉ gửi khi ở chế độ Gia sư - chế độ Hỏi đáp không dùng
           // khái niệm để điều chỉnh cách trả lời.
           concept_id: activeTab === "SOCRATIC_REQUEST" ? conceptId : undefined,
@@ -646,6 +654,9 @@ export default function ChatBubble() {
     return () => {
       cancelled = true;
     };
+  // Chỉ chạy lại khi số lượng tin nhắn/phiên đổi; phụ thuộc cả mảng sẽ
+  // gọi lại sau các cập nhật trạng thái streaming của cùng một tin.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current.messages.length, current.conversationId]);
 
   return (
@@ -730,9 +741,10 @@ export default function ChatBubble() {
             </div>
           </div>
 
-          {/* Tabs: Hỏi đáp / Gia sư */}
+          {/* Sinh viên chọn Hỏi đáp/Gia sư; giảng viên dùng một chế độ
+              trợ lý để Router có thể nhận diện cả yêu cầu gọi tool. */}
           <div className="flex border-b" style={{ borderColor: "var(--border)" }}>
-            {(["RAG_QUESTION", "SOCRATIC_REQUEST"] as const).map((t) => (
+            {(isInstructorContext ? (["RAG_QUESTION"] as const) : (["RAG_QUESTION", "SOCRATIC_REQUEST"] as const)).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -744,7 +756,7 @@ export default function ChatBubble() {
                   transition: "color var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease)",
                 }}
               >
-                {TAB_LABEL[t]}
+                {isInstructorContext ? "Trợ lý giảng dạy" : TAB_LABEL[t]}
               </button>
             ))}
           </div>
@@ -754,11 +766,31 @@ export default function ChatBubble() {
             <div className="border-b px-3 py-1.5" style={{ borderColor: "var(--border)", background: "var(--panel-soft)" }}>
               <select
                 value={courseId ?? ""}
-                onChange={(e) => setCourseId(e.target.value ? Number(e.target.value) : undefined)}
+                onChange={(e) => {
+                  const nextCourseId = e.target.value ? Number(e.target.value) : undefined;
+                  setCourseId(nextCourseId);
+                  // Conversation đã gắn với một lớp thì không được tái sử
+                  // dụng cho lớp khác; tạo phiên mới để role/context không
+                  // bị trộn giữa hai lớp.
+                  writeStoredConversationId("RAG_QUESTION", undefined);
+                  writeStoredConversationId("SOCRATIC_REQUEST", undefined);
+                  setTabs({
+                    RAG_QUESTION: emptyTabState(),
+                    SOCRATIC_REQUEST: emptyTabState(),
+                  });
+                  setHydratedTabs({});
+                  const nextCourse = courses.find((course) => course.id === nextCourseId);
+                  if (
+                    user?.role === "ADMIN" ||
+                    (user?.role === "INSTRUCTOR" && (nextCourseId === undefined || nextCourse?.owner_id === user.id))
+                  ) {
+                    setTab("RAG_QUESTION");
+                  }
+                }}
                 className="w-full bg-transparent text-[11px] focus:outline-none"
                 style={{ color: "var(--ink-soft)" }}
               >
-                <option value="">Tất cả lớp (tự nhận diện)</option>
+                <option value="">Chọn lớp để cá nhân hóa</option>
                 {courses.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.code} — {c.name}
@@ -770,7 +802,7 @@ export default function ChatBubble() {
 
           {/* Chế độ Gia sư: khái niệm đang học - hệ thống tự nhận diện,
               sinh viên sửa lại được nếu đoán sai */}
-          {tab === "SOCRATIC_REQUEST" && concepts.length > 0 && (
+          {!isInstructorContext && tab === "SOCRATIC_REQUEST" && concepts.length > 0 && (
             <div
               className="flex items-center gap-2 border-b px-3 py-1.5"
               style={{ borderColor: "var(--border)", background: "var(--panel-soft)" }}
@@ -809,7 +841,9 @@ export default function ChatBubble() {
               <div className="flex flex-col items-center gap-2.5 pt-6 text-center">
                 <NovaAvatar size={38} />
                 <p className="text-support max-w-[260px]">
-                  {tab === "RAG_QUESTION"
+                  {isInstructorContext
+                    ? "Hỏi Nova về tình hình lớp, kết quả học tập hoặc nhờ soạn nội dung hỗ trợ. Mọi thao tác thay đổi dữ liệu đều cần bạn xác nhận."
+                    : tab === "RAG_QUESTION"
                     ? "Hỏi Nova về nội dung môn học — mỗi câu trả lời đều kèm trích dẫn để bạn tự kiểm chứng."
                     : "Chế độ Gia sư: Nova gợi mở từng bước để bạn tự tìm ra đáp án, thay vì đưa lời giải ngay."}
                 </p>

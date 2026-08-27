@@ -497,7 +497,7 @@ class SecurityLog(Base):
 
 class AgentActionLog(Base):
     """
-    Nhật ký MỌI hành động Nova THỰC SỰ THỰC THI thay người dùng (category
+    Nhật ký hành động Nova THỰC SỰ THỰC THI thay người dùng (category
     ACTION_REQUEST, xem app/academic_agent/tool_executor.py) - TÁCH RIÊNG
     khỏi SecurityLog vì ý nghĩa khác hẳn: SecurityLog ghi nhận nội dung bị
     CHẶN (vi phạm), còn bảng này ghi nhận hành động ĐÃ CHẠY THÀNH CÔNG hoặc
@@ -508,7 +508,9 @@ class AgentActionLog(Base):
     thường, đây là nơi DUY NHẤT trả lời được câu hỏi "Nova đã làm gì, cho
     ai, lúc nào, kết quả ra sao" - không có log này thì hành động do AI
     thực hiện thay người dùng sẽ HOÀN TOÀN không có dấu vết audit riêng,
-    lẫn vào chung với hành động người dùng tự làm qua UI thường.
+    lẫn vào chung với hành động người dùng tự làm qua UI thường. Ngoài
+    hành động ghi, bảng còn audit có chọn lọc các tool đọc dữ liệu định
+    danh sinh viên; không ghi các thống kê vận hành không định danh.
     """
 
     __tablename__ = "agent_action_log"
