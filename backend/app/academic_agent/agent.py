@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.academic_agent.citation_verifier import verify_citations
 from app.academic_agent.prompts import (
+    build_learning_progress_block,
     build_recent_mistake_block,
     build_student_model_block,
     build_system_prompt,
@@ -744,6 +745,7 @@ async def handle_chat(
     session: AsyncSession,
     *,
     user_id: int,
+    user_role: str | None = None,
     is_admin: bool = False,
     message: str,
     conversation_id: int | None = None,
@@ -801,7 +803,9 @@ async def handle_chat(
         asyncio.to_thread(check_input, message),
         asyncio.to_thread(classify, message, history),
         _embed_early(),
-        load_student_context(session, user_id=user_id, course_id=course_id),
+        load_student_context(
+            session, user_id=user_id, course_id=course_id, user_role=user_role
+        ),
     )
 
     if not input_check.allowed:
@@ -967,6 +971,7 @@ async def handle_chat(
     recent_mistake_block = ""
     if route.category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
         recent_mistake_block = build_recent_mistake_block(student_context.recent_mistake)
+    learning_progress_block = build_learning_progress_block(student_context)
 
     context_text = _build_context_text(search_results)
     # history rỗng = lượt hỏi đầu tiên của phiên -> cho phép Nova chào
@@ -976,6 +981,7 @@ async def handle_chat(
         context_text,
         is_first_message=not history,
         recent_mistake=recent_mistake_block,
+        learning_progress=learning_progress_block,
     )
     model = get_model_for_category(route.category)
     temperature = get_temperature_for_category(route.category)
@@ -1083,6 +1089,7 @@ async def handle_chat_stream(
     session_factory,
     *,
     user_id: int,
+    user_role: str | None = None,
     is_admin: bool = False,
     message: str,
     conversation_id: int | None = None,
@@ -1136,7 +1143,9 @@ async def handle_chat_stream(
     # tài liệu không đáp ứng được"). Đây là 1 truy vấn nhỏ chạy song
     # song, không thêm độ trễ mà người dùng cảm nhận được.
     async def _load_context_if_needed():
-        return await load_student_context(session, user_id=user_id, course_id=course_id)
+        return await load_student_context(
+            session, user_id=user_id, course_id=course_id, user_role=user_role
+        )
 
     # Tính LUÔN vector câu hỏi ở giai đoạn này, song song với Guardrail/
     # Router - ĐO ĐƯỢC QUA SỐ LIỆU THẬT: trước đây embedding chạy nối
@@ -1433,6 +1442,7 @@ async def handle_chat_stream(
     recent_mistake_block = ""
     if route.category in ("RAG_QUESTION", "SOCRATIC_REQUEST"):
         recent_mistake_block = build_recent_mistake_block(student_context.recent_mistake)
+    learning_progress_block = build_learning_progress_block(student_context)
 
     context_text = _build_context_text(search_results)
     # with_citation_contract=False: luồng streaming đẩy thẳng text ra
@@ -1444,6 +1454,7 @@ async def handle_chat_stream(
         with_citation_contract=False,
         is_first_message=not history,
         recent_mistake=recent_mistake_block,
+        learning_progress=learning_progress_block,
     )
     model = get_model_for_category(route.category)
     temperature = get_temperature_for_category(route.category)

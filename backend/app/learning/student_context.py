@@ -17,11 +17,22 @@ tuần tự).
 
 import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Concept, Enrollment, QuizAttempt, QuizQuestion, StudentMastery
+from app.db.models import (
+    Assignment,
+    AssignmentQuestion,
+    AssignmentSubmission,
+    AssignmentSubmissionAnswer,
+    Concept,
+    Enrollment,
+    QuizAttempt,
+    QuizQuestion,
+    StudentMastery,
+)
 
 
 @dataclass
@@ -51,11 +62,37 @@ class RecentMistake:
 
 
 @dataclass
+class AssignmentProgress:
+    assignment_id: int
+    title: str
+    due_at: datetime | None
+    question_count: int
+    submitted: bool
+    score: int | None = None
+    total: int | None = None
+    submitted_at: datetime | None = None
+    overdue: bool = False
+
+
+@dataclass
+class AssignmentAnswerInfo:
+    assignment_title: str
+    concept_name: str
+    question: str
+    your_answer: str | None
+    correct_answer: str
+    is_correct: bool
+    explanation: str
+
+
+@dataclass
 class StudentContext:
     # (concept_id, name, embedding) - đúng định dạng concept_matcher cần
     concepts: list[tuple[int, str, list[float] | None]] = field(default_factory=list)
     mastery_by_concept: dict[int, MasteryInfo] = field(default_factory=dict)
     recent_mistake: RecentMistake | None = None
+    assignments: list[AssignmentProgress] = field(default_factory=list)
+    recent_assignment_answers: list[AssignmentAnswerInfo] = field(default_factory=list)
 
     def mastery_for(self, concept_id: int) -> MasteryInfo:
         """Chưa từng làm quiz khái niệm này -> trả về bản ghi rỗng (n_obs=0), không phải lỗi."""
@@ -63,7 +100,11 @@ class StudentContext:
 
 
 async def load_student_context(
-    session: AsyncSession, *, user_id: int, course_id: int | None = None
+    session: AsyncSession,
+    *,
+    user_id: int,
+    course_id: int | None = None,
+    user_role: str | None = None,
 ) -> StudentContext:
     """
     course_id: giới hạn trong 1 lớp cụ thể nếu người dùng đã chọn lớp;
@@ -74,6 +115,11 @@ async def load_student_context(
     thấy khái niệm của lớp mình không thuộc về, kể cả gián tiếp qua
     việc gia sư nhắc tới tên khái niệm đó.
     """
+    # Không gắn hồ sơ của một "sinh viên giả định" vào prompt giảng viên.
+    # None giữ tương thích cho các caller/test cũ chưa truyền role.
+    if user_role is not None and user_role != "STUDENT":
+        return StudentContext()
+
     concept_query = select(Concept.id, Concept.name, Concept.embedding).where(
         Concept.course_id.in_(
             select(Enrollment.course_id).where(Enrollment.user_id == user_id)
@@ -84,6 +130,10 @@ async def load_student_context(
 
     concept_rows = (await session.execute(concept_query)).all()
 
+    assignments, assignment_answers = await _load_assignment_context(
+        session, user_id=user_id, course_id=course_id
+    )
+
     # Câu làm sai gần đây nhất - tải LUÔN kể cả khi lớp CHƯA có concept
     # nào enroll match (concept_rows rỗng vẫn có thể có mistake nếu
     # course_id=None và sinh viên có mistake ở lớp khác) - vì vậy bước
@@ -92,7 +142,11 @@ async def load_student_context(
     recent_mistake = await _load_recent_mistake(session, user_id=user_id, course_id=course_id)
 
     if not concept_rows:
-        return StudentContext(recent_mistake=recent_mistake)
+        return StudentContext(
+            recent_mistake=recent_mistake,
+            assignments=assignments,
+            recent_assignment_answers=assignment_answers,
+        )
 
     concept_ids = [row[0] for row in concept_rows]
     mastery_rows = (
@@ -113,7 +167,110 @@ async def load_student_context(
             for m in mastery_rows
         },
         recent_mistake=recent_mistake,
+        assignments=assignments,
+        recent_assignment_answers=assignment_answers,
     )
+
+
+async def _load_assignment_context(
+    session: AsyncSession, *, user_id: int, course_id: int | None
+) -> tuple[list[AssignmentProgress], list[AssignmentAnswerInfo]]:
+    """Tải tiến độ bài được giao và chi tiết đáp án đã lưu chính xác."""
+    enrolled_courses = select(Enrollment.course_id).where(
+        Enrollment.user_id == user_id,
+        Enrollment.role_in_course == "STUDENT",
+    )
+    query = select(Assignment).where(Assignment.course_id.in_(enrolled_courses))
+    if course_id is not None:
+        query = query.where(Assignment.course_id == course_id)
+    assignments = list(
+        (await session.execute(query.order_by(Assignment.created_at.desc()).limit(20)))
+        .scalars()
+        .all()
+    )
+    if not assignments:
+        return [], []
+
+    assignment_ids = [a.id for a in assignments]
+    submissions = (
+        await session.execute(
+            select(AssignmentSubmission).where(
+                AssignmentSubmission.user_id == user_id,
+                AssignmentSubmission.assignment_id.in_(assignment_ids),
+            )
+        )
+    ).scalars().all()
+    submission_by_assignment = {s.assignment_id: s for s in submissions}
+
+    count_rows = (
+        await session.execute(
+            select(AssignmentQuestion.assignment_id, func.count())
+            .where(AssignmentQuestion.assignment_id.in_(assignment_ids))
+            .group_by(AssignmentQuestion.assignment_id)
+        )
+    ).all()
+    question_count = {assignment_id: count for assignment_id, count in count_rows}
+    now = datetime.now(timezone.utc)
+    progress = []
+    for assignment in assignments:
+        submission = submission_by_assignment.get(assignment.id)
+        due_at = assignment.due_at
+        if due_at is not None and due_at.tzinfo is None:
+            due_at = due_at.replace(tzinfo=timezone.utc)
+        progress.append(
+            AssignmentProgress(
+                assignment_id=assignment.id,
+                title=assignment.title,
+                due_at=due_at,
+                question_count=question_count.get(assignment.id, 0),
+                submitted=submission is not None,
+                score=submission.score if submission else None,
+                total=submission.total if submission else None,
+                submitted_at=submission.submitted_at if submission else None,
+                overdue=submission is None and due_at is not None and due_at < now,
+            )
+        )
+
+    # Dữ liệu trước migration không có các dòng này. Khi đó trả danh sách
+    # rỗng thay vì suy đoán từ QuizAttempt dùng chung với quiz tự luyện.
+    answer_rows = (
+        await session.execute(
+            select(AssignmentSubmissionAnswer, Assignment.title)
+            .join(Assignment, Assignment.id == AssignmentSubmissionAnswer.assignment_id)
+            .join(
+                AssignmentSubmission,
+                (AssignmentSubmission.assignment_id == AssignmentSubmissionAnswer.assignment_id)
+                & (AssignmentSubmission.user_id == AssignmentSubmissionAnswer.user_id),
+            )
+            .where(
+                AssignmentSubmissionAnswer.user_id == user_id,
+                AssignmentSubmissionAnswer.assignment_id.in_(assignment_ids),
+            )
+            .order_by(AssignmentSubmission.submitted_at.desc())
+            .limit(12)
+        )
+    ).all()
+    answer_details: list[AssignmentAnswerInfo] = []
+    for answer, assignment_title in answer_rows:
+        options = json.loads(answer.options)
+        selected = (
+            options[answer.selected_index]
+            if answer.selected_index is not None and 0 <= answer.selected_index < len(options)
+            else None
+        )
+        correct = options[answer.correct_index] if 0 <= answer.correct_index < len(options) else ""
+        answer_details.append(
+            AssignmentAnswerInfo(
+                assignment_title=assignment_title,
+                concept_name=answer.concept_name,
+                question=answer.question,
+                your_answer=selected,
+                correct_answer=correct,
+                is_correct=answer.is_correct,
+                explanation=answer.explanation,
+            )
+        )
+    return progress, answer_details
 
 
 async def _load_recent_mistake(

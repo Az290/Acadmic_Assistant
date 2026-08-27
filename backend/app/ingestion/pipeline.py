@@ -47,7 +47,7 @@ async def ingest_document(
     file_path: str,
     file_bytes: bytes,
     title: str,
-    course_id: int,
+    course_id: int | None,
     storage_uri: str,
     uploaded_by: int,
     license_status: str = "OPEN",
@@ -119,6 +119,7 @@ async def ingest_document(
         course_id=course_id,
         title=title,
         storage_uri=storage_uri,
+        original_file=file_bytes,
         content_hash=content_hash,
         license_status=license_status,
         # Tác vụ #13 (HITL): tài liệu KHÔNG còn tự động khả dụng ngay -

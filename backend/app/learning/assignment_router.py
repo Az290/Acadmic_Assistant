@@ -33,6 +33,7 @@ from app.db.models import (
     Assignment,
     AssignmentQuestion,
     AssignmentSubmission,
+    AssignmentSubmissionAnswer,
     Concept,
     Course,
     Enrollment,
@@ -428,18 +429,19 @@ async def submit_assignment(
 
     rows = (
         await session.execute(
-            select(AssignmentQuestion, QuizQuestion)
+            select(AssignmentQuestion, QuizQuestion, Concept.name)
             .join(QuizQuestion, QuizQuestion.id == AssignmentQuestion.quiz_question_id)
+            .join(Concept, Concept.id == QuizQuestion.concept_id)
             .where(AssignmentQuestion.assignment_id == assignment_id)
         )
     ).all()
-    questions_by_id = {q.id: q for _, q in rows}
+    questions_by_id = {q.id: (q, concept_name) for _, q, concept_name in rows}
 
     answers_by_id = {a.quiz_question_id: a.selected_index for a in body.answers}
 
     results: list[AnswerResult] = []
     score = 0
-    for question_id, question in questions_by_id.items():
+    for question_id, (question, concept_name) in questions_by_id.items():
         selected = answers_by_id.get(question_id)
         # Câu không trả lời tính là SAI (selected=None) - không bỏ qua,
         # để tổng số câu luôn khớp số câu của đề.
@@ -460,6 +462,21 @@ async def submit_assignment(
                 session, user_id=user.id, concept_id=question.concept_id
             )
             apply_answer(mastery, is_correct=is_correct)
+
+        session.add(
+            AssignmentSubmissionAnswer(
+                assignment_id=assignment_id,
+                user_id=user.id,
+                quiz_question_id=question_id,
+                concept_name=concept_name,
+                question=question.question,
+                options=question.options,
+                selected_index=selected,
+                correct_index=question.correct_index,
+                is_correct=is_correct,
+                explanation=question.explanation,
+            )
+        )
 
         results.append(
             AnswerResult(

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 class DocumentPublic(BaseModel):
     id: int
-    course_id: int
+    course_id: int | None
     title: str
     status: str
     license_status: str
@@ -33,6 +33,10 @@ class PendingDocumentPublic(DocumentPublic):
 
 class RejectDocumentRequest(BaseModel):
     reason: str | None = None
+
+
+class ApproveDocumentRequest(BaseModel):
+    course_ids: list[int]
 
 
 class DocumentSummary(BaseModel):

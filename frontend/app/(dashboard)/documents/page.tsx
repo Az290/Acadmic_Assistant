@@ -2,8 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { api, ApiError, CoursePublic, DocumentPublic } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 
 export default function DocumentsPage() {
+  const { user } = useAuth();
+  const isInstructor = user?.role === "INSTRUCTOR" || user?.role === "ADMIN";
   const [courses, setCourses] = useState<CoursePublic[]>([]);
   const [courseId, setCourseId] = useState<number | "">("");
   const [file, setFile] = useState<File | null>(null);
@@ -17,15 +20,16 @@ export default function DocumentsPage() {
 
 
   useEffect(() => {
+    if (!isInstructor) return;
     api
       .get<CoursePublic[]>("/v1/courses/me")
       .then(setCourses)
       .catch(() => setCourses([]));
-  }, []);
+  }, [isInstructor]);
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
-    if (!file || courseId === "") return;
+    if (!file || (isInstructor && courseId === "")) return;
 
     setError(null);
     setUploading(true);
@@ -33,7 +37,9 @@ export default function DocumentsPage() {
       const formData = new FormData();
       formData.append("file", file);
       const doc = await api.postForm<DocumentPublic>(
-        `/v1/documents/upload?course_id=${courseId}&visibility=${visibility}`,
+        isInstructor
+          ? `/v1/documents/upload?course_id=${courseId}&visibility=${visibility}`
+          : "/v1/documents/upload",
         formData
       );
       setUploaded((prev) => [doc, ...prev]);
@@ -59,8 +65,8 @@ export default function DocumentsPage() {
 
       <div className="documents-layout">
       <form onSubmit={handleUpload} className="card document-upload-card space-y-4">
-        <div className="section-heading-row"><span className="section-heading-icon">↑</span><div><h2>Tải tài liệu mới</h2><p>PDF tối đa 50MB, hệ thống sẽ kiểm tra trước khi xử lý.</p></div></div>
-        <div>
+        <div className="section-heading-row"><span className="section-heading-icon">↑</span><div><h2>{isInstructor ? "Tải tài liệu mới" : "Đóng góp tài liệu"}</h2><p>PDF tối đa 50MB, hệ thống sẽ kiểm tra trước khi xử lý.</p></div></div>
+        {isInstructor && <div>
           <label className="mb-1 block text-[11.5px] font-semibold" style={{ color: "var(--ink-soft)" }}>
             Lớp học
           </label>
@@ -83,7 +89,7 @@ export default function DocumentsPage() {
               Bạn chưa thuộc lớp nào — vào trang &quot;Lớp học&quot; để tạo hoặc tham gia một lớp trước.
             </p>
           )}
-        </div>
+        </div>}
 
         <div className="file-drop-zone">
           <span className="file-drop-zone__icon">⇧</span>
@@ -102,7 +108,7 @@ export default function DocumentsPage() {
           />
         </div>
 
-        <div>
+        {isInstructor && <div>
           <label className="mb-1 block text-[11.5px] font-semibold" style={{ color: "var(--ink-soft)" }}>
             Quyền truy cập
           </label>
@@ -120,7 +126,13 @@ export default function DocumentsPage() {
               Sinh viên sẽ không tra cứu được nội dung này, kể cả khi hỏi trợ lý AI.
             </p>
           )}
-        </div>
+        </div>}
+
+        {!isInstructor && (
+          <p className="rounded-[9px] px-3 py-2 text-[12px]" style={{ background: "var(--accent-bg)", color: "var(--accent-ink)" }}>
+            Tài liệu sẽ được gửi tới giảng viên duyệt. Giảng viên sẽ chọn lớp phù hợp; sau khi duyệt, sinh viên trong các lớp đó có thể đọc và tra cứu tài liệu.
+          </p>
+        )}
 
         {error && (
           <p className="rounded-[9px] px-3 py-2 text-[12.5px]" style={{ background: "var(--red-bg)", color: "var(--red-ink)" }}>
@@ -130,11 +142,11 @@ export default function DocumentsPage() {
 
         <button
           type="submit"
-          disabled={uploading || !file || courseId === ""}
+          disabled={uploading || !file || (isInstructor && courseId === "")}
           className="rounded-[7px] px-5 py-2 text-[12.3px] font-semibold text-white disabled:opacity-50"
           style={{ background: "var(--accent)" }}
         >
-          {uploading ? "Đang xử lý…" : "Tải lên"}
+          {uploading ? "Đang xử lý…" : isInstructor ? "Tải lên" : "Gửi đóng góp"}
         </button>
       </form>
 
@@ -167,8 +179,9 @@ export default function DocumentsPage() {
       )}
 
       <p className="document-note mt-5 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
-        Tài liệu tải lên cần giảng viên duyệt trước. Sau khi được duyệt, tài liệu xuất hiện trong
-        trang lớp học tương ứng — vào &ldquo;Lớp học&rdquo; › &ldquo;Vào lớp&rdquo; để đọc bản PDF gốc.
+        {isInstructor
+          ? "Tài liệu tải lên cần được duyệt trước khi xuất hiện trong lớp học."
+          : "Tài liệu đóng góp sẽ do giảng viên chọn lớp phù hợp và duyệt trước khi sinh viên có thể sử dụng."}
       </p>
 
 

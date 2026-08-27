@@ -4,17 +4,20 @@ kích hoạt toàn bộ Ingestion Pipeline: Parse -> Chunk -> Embed -> Lưu Data
 """
 
 import asyncio
+import hashlib
+import html
 import logging
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.db.models import AppUser, Course, Document, Enrollment
+from app.db.models import AppUser, Course, Document, DocumentCourse, Enrollment
 from app.db.session import get_db
 from app.documents.schemas import DocumentContent, DocumentContentChunk, DocumentPublic, DocumentSummary
 from app.documents.validation import (
@@ -30,33 +33,47 @@ router = APIRouter(prefix="/v1/documents", tags=["documents"])
 
 logger = logging.getLogger(__name__)
 
-# Nơi lưu file gốc TẠM THỜI trên đĩa cục bộ của server.
-#
-# Đây KHÔNG phải giải pháp lâu dài: khi deploy lên hạ tầng có container
-# tự khởi động lại (vd Fly.io), đĩa cục bộ sẽ bị xoá mỗi lần restart -
-# lúc đó cần chuyển sang Object Storage thật (vd Cloudflare R2) để lưu
-# file bền vững, mà không cần sửa lại logic ingestion (chỉ đổi nơi lưu file).
+# Cache cục bộ phục vụ ingestion. Bản bền vững được lưu ở
+# Document.original_file trong PostgreSQL; thư mục này có thể mất sau restart
+# mà không làm mất khả năng đọc tài liệu mới.
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "uploaded_files"
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+
+def _find_cached_file_by_hash(content_hash: str) -> bytes | None:
+    """Tìm lại file khi project/container đổi đường dẫn nhưng cache còn tồn tại.
+
+    Không khớp theo tên do file upload được đổi thành UUID. Hash đã lưu trong
+    Document là định danh nội dung chính xác, tránh gắn nhầm PDF cho tài liệu.
+    """
+    for candidate in UPLOAD_DIR.glob("*.pdf"):
+        try:
+            file_bytes = candidate.read_bytes()
+        except OSError:
+            continue
+        if hashlib.sha256(file_bytes).hexdigest() == content_hash:
+            return file_bytes
+    return None
 
 
 @router.post("/upload", response_model=DocumentPublic, status_code=status.HTTP_201_CREATED)
 @limiter.limit(DEFAULT_RATE_LIMIT)
 async def upload_document(
     request: Request,
-    course_id: int,
     file: UploadFile,
+    course_id: int | None = None,
     visibility: str = "COURSE",
     session: AsyncSession = Depends(get_db),
     user: AppUser = Depends(get_current_user),
 ):
     """
-    Đưa 1 file PDF vào 1 lớp (course) cụ thể.
+    Giảng viên tải PDF trực tiếp vào lớp; sinh viên gửi PDF vào hàng
+    chờ chung để giảng viên chọn lớp phù hợp khi duyệt.
 
     AI CÓ QUYỀN GỌI:
     - Giảng viên phụ trách lớp (hoặc ADMIN): upload tài liệu chính thức.
-    - Sinh viên ĐANG HỌC lớp đó: ĐÓNG GÓP tài liệu (bài giảng chép tay,
-      tài liệu tham khảo tự tìm...).
+    - Sinh viên đang học ít nhất một lớp: ĐÓNG GÓP tài liệu (bài giảng
+      chép tay, tài liệu tham khảo tự tìm...) mà không tự chọn lớp.
 
     An toàn của việc mở cho sinh viên nằm ở chỗ: MỌI tài liệu - bất kể
     ai upload - đều vào trạng thái PENDING_REVIEW và KHÔNG được Hybrid
@@ -71,25 +88,42 @@ async def upload_document(
     chunk - không giới hạn tần suất để lộ khả năng double-click/script
     lỗi gọi liên tục làm tốn ngân sách API mà không có ai chặn lại.
     """
-    course_result = await session.execute(select(Course).where(Course.id == course_id))
-    course = course_result.scalar_one_or_none()
-    if course is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lớp này.")
-
-    is_owner = course.owner_id == user.id or user.role == "ADMIN"
-    if not is_owner:
-        # Không phải chủ lớp -> phải là người ĐANG HỌC lớp này mới được
-        # đóng góp tài liệu. Người ngoài hoàn toàn không liên quan tới
-        # lớp thì không có lý do gì được đẩy file vào.
-        enrolled = await session.execute(
-            select(Enrollment).where(
-                Enrollment.user_id == user.id, Enrollment.course_id == course_id
+    is_instructor = user.role in ("INSTRUCTOR", "ADMIN")
+    is_owner = False
+    if is_instructor:
+        if course_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Giảng viên cần chọn lớp cho tài liệu.",
             )
+        course = (
+            await session.execute(select(Course).where(Course.id == course_id))
+        ).scalar_one_or_none()
+        if course is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy lớp này.")
+        is_owner = course.owner_id == user.id or user.role == "ADMIN"
+        if not is_owner:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không phải giảng viên phụ trách lớp này.",
+            )
+    else:
+        # Sinh viên chỉ đóng góp vào hàng chờ chung. Backend bỏ qua mọi
+        # course_id/visibility giả mạo mà client có thể tự gắn vào URL.
+        course_id = None
+        visibility = "COURSE"
+        enrolled = await session.execute(
+            select(Enrollment.user_id)
+            .where(
+                Enrollment.user_id == user.id,
+                Enrollment.role_in_course == "STUDENT",
+            )
+            .limit(1)
         )
         if enrolled.scalar_one_or_none() is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bạn không thuộc lớp học này.",
+                detail="Bạn cần tham gia ít nhất một lớp trước khi đóng góp tài liệu.",
             )
 
     # Quyền truy cập nội dung sau khi tài liệu được duyệt:
@@ -170,6 +204,10 @@ async def upload_document(
             detail="Không thể xử lý file này - có thể file bị hỏng hoặc không đúng định dạng PDF chuẩn.",
         )
 
+    if course_id is not None:
+        session.add(DocumentCourse(document_id=document.id, course_id=course_id))
+        await session.commit()
+
     return document
 
 
@@ -223,9 +261,10 @@ async def list_documents(
                 app_user.full_name AS uploaded_by_name,
                 COUNT(chunk.id) AS chunk_count
             FROM document
+            JOIN document_course dc ON dc.document_id = document.id
             JOIN app_user ON app_user.id = document.uploaded_by
             JOIN chunk ON chunk.document_id = document.id AND {chunk_access_sql()}
-            WHERE document.course_id = :course_id
+            WHERE dc.course_id = :course_id
               AND document.status = 'APPROVED'
             GROUP BY document.id, document.title, document.created_at,
                      document.image_count, app_user.full_name
@@ -340,22 +379,31 @@ async def get_document_file(
     Trả 404 chung cho MỌI trường hợp không được phép/không tồn tại -
     không tiết lộ tài liệu có tồn tại hay không cho người không có quyền.
     """
-    result = await session.execute(
-        select(Document, Course).join(Course, Course.id == Document.course_id).where(
-            Document.id == document_id
-        )
-    )
-    row = result.first()
-    if row is None:
+    document = (
+        await session.execute(select(Document).where(Document.id == document_id))
+    ).scalar_one_or_none()
+    if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu này.")
 
-    document, course = row
-
-    is_owner = course.owner_id == user.id or user.role == "ADMIN"
+    mapped_course_ids = list(
+        (
+            await session.execute(
+                select(DocumentCourse.course_id).where(DocumentCourse.document_id == document.id)
+            )
+        ).scalars()
+    )
+    owned_count = (
+        await session.execute(
+            select(Course.id).where(Course.id.in_(mapped_course_ids), Course.owner_id == user.id)
+        )
+    ).scalars().first() if mapped_course_ids else None
+    is_unassigned_reviewer = not mapped_course_ids and user.role in ("INSTRUCTOR", "ADMIN")
+    is_owner = user.role == "ADMIN" or owned_count is not None or is_unassigned_reviewer
     if not is_owner:
         enrolled = await session.execute(
             select(Enrollment).where(
-                Enrollment.user_id == user.id, Enrollment.course_id == course.id
+                Enrollment.user_id == user.id,
+                Enrollment.course_id.in_(mapped_course_ids),
             )
         )
         if enrolled.scalar_one_or_none() is None or document.status != "APPROVED":
@@ -363,21 +411,112 @@ async def get_document_file(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu này."
             )
 
-    # storage_uri hiện là đường dẫn file trên đĩa cục bộ (xem UPLOAD_DIR
-    # ở đầu file) - khi chuyển sang Object Storage thật thì ĐÂY là chỗ
-    # đổi sang redirect tới signed URL, phần kiểm tra quyền ở trên giữ nguyên.
-    file_path = Path(document.storage_uri)
-    if not file_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File gốc không còn trên máy chủ (có thể đã bị xoá khi khởi động lại).",
+    # Tài liệu upload sau migration luôn có bản gốc bền vững trong DB.
+    # Dùng Response trực tiếp để iframe và "Mở tab mới" đều đọc inline.
+    if document.original_file:
+        return Response(
+            content=document.original_file,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename*=UTF-8''{quote(document.title)}",
+                "Cache-Control": "private, max-age=3600",
+            },
         )
 
-    # inline: mở thẳng trong tab/iframe trình duyệt thay vì tải về máy -
-    # đúng mục đích "đọc để học", không phải "tải tài liệu về".
-    return FileResponse(
-        path=file_path,
-        media_type="application/pdf",
-        filename=document.title,
-        content_disposition_type="inline",
+    # Tương thích dữ liệu cũ: thử cache cục bộ trước.
+    file_path = Path(document.storage_uri)
+    if file_path.is_file():
+        return FileResponse(
+            path=file_path,
+            media_type="application/pdf",
+            filename=document.title,
+            content_disposition_type="inline",
+        )
+
+    # Project có thể đã được chuyển sang thư mục khác trong khi file UUID
+    # vẫn còn ở UPLOAD_DIR mới. Tìm bằng hash, rồi tự chữa bản ghi bằng cách
+    # lưu bản gốc vào DB để các lần đọc sau không cần quét filesystem nữa.
+    recovered_file = await asyncio.to_thread(
+        _find_cached_file_by_hash, document.content_hash
+    )
+    if recovered_file is not None:
+        document.original_file = recovered_file
+        await session.commit()
+        return Response(
+            content=recovered_file,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename*=UTF-8''{quote(document.title)}",
+                "Cache-Control": "private, max-age=3600",
+                "X-Document-Recovered": "content-hash",
+            },
+        )
+
+    # File cũ đã mất khỏi filesystem: không thể phục hồi hình/bố cục PDF,
+    # nhưng các chunk văn bản vẫn còn trong DB. Trả một trang đọc phục hồi
+    # ngay trong iframe thay vì phơi JSON lỗi cho người dùng.
+    if is_owner:
+        chunk_query = text(
+            """
+            SELECT ord, page_number, content
+            FROM chunk
+            WHERE document_id = :document_id
+            ORDER BY ord
+            """
+        )
+    else:
+        chunk_query = text(
+            f"""
+            SELECT ord, page_number, content
+            FROM chunk
+            WHERE document_id = :document_id
+              AND {chunk_access_sql()}
+            ORDER BY ord
+            """
+        )
+    chunks = (
+        await session.execute(
+            chunk_query,
+            {
+                "document_id": document.id,
+                "user_id": user.id,
+                "is_admin": user.role == "ADMIN",
+            },
+        )
+    ).all()
+    if not chunks:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không còn bản PDF gốc hoặc nội dung có thể phục hồi của tài liệu này.",
+        )
+
+    sections = []
+    last_page = object()
+    for chunk in chunks:
+        if chunk.page_number != last_page:
+            page_label = f"Trang {chunk.page_number}" if chunk.page_number is not None else "Nội dung"
+            sections.append(f"<h2>{html.escape(page_label)}</h2>")
+            last_page = chunk.page_number
+        sections.append(f"<p>{html.escape(chunk.content)}</p>")
+
+    recovered_html = f"""<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>{html.escape(document.title)}</title>
+<style>
+body{{margin:0;background:#eef4fb;color:#172033;font:16px/1.7 Arial,sans-serif}}
+main{{max-width:880px;margin:0 auto;background:#fff;min-height:100vh;padding:32px 44px;box-sizing:border-box}}
+.notice{{padding:14px 16px;border:1px solid #b9d4f0;border-radius:10px;background:#edf6ff;color:#244c78}}
+h1{{font-size:22px;margin:22px 0}}h2{{font-size:14px;color:#55708f;border-bottom:1px solid #dce6f1;padding-top:18px}}
+p{{white-space:pre-wrap;margin:12px 0}}
+</style></head><body><main>
+<div class="notice"><strong>Bản đọc được phục hồi</strong><br>File PDF gốc cũ không còn trên máy chủ. Nội dung chữ bên dưới được phục hồi từ dữ liệu đã xử lý; hình ảnh và bố cục gốc có thể không còn.</div>
+<h1>{html.escape(document.title)}</h1>{''.join(sections)}
+</main></body></html>"""
+    return HTMLResponse(
+        content=recovered_html,
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+            "X-Document-Fallback": "extracted-text",
+        },
     )

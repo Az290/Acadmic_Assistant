@@ -17,7 +17,7 @@ giảng viên là chủ sở hữu lớp.
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_role
@@ -28,6 +28,7 @@ from app.db.models import (
     Conversation,
     Course,
     Document,
+    DocumentCourse,
     Enrollment,
     Message,
     MessageFeedback,
@@ -35,7 +36,12 @@ from app.db.models import (
     StudentMastery,
 )
 from app.db.session import get_db
-from app.documents.schemas import DocumentPublic, PendingDocumentPublic, RejectDocumentRequest
+from app.documents.schemas import (
+    ApproveDocumentRequest,
+    DocumentPublic,
+    PendingDocumentPublic,
+    RejectDocumentRequest,
+)
 from app.instructor.pricing import estimate_cost_usd
 from app.instructor.schemas import (
     CategoryCount,
@@ -219,13 +225,16 @@ async def _require_document_owner(session: AsyncSession, *, user: AppUser, docum
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu này.")
 
+    if document.course_id is None:
+        # Đóng góp chưa phân lớp nằm trong hàng chờ chung của giảng viên.
+        return document
     await _require_course_owner(session, user=user, course_id=document.course_id)
     return document
 
 
 @router.get("/documents/pending", response_model=list[PendingDocumentPublic])
 async def list_pending_documents(
-    course_id: int,
+    course_id: int | None = None,
     session: AsyncSession = Depends(get_db),
     user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
 ):
@@ -233,13 +242,21 @@ async def list_pending_documents(
     Hàng chờ duyệt - tài liệu đã ingest xong nhưng chưa công khai cho
     sinh viên, kèm thông tin AI đã đóng góp (giảng viên hay sinh viên).
     """
-    await _require_course_owner(session, user=user, course_id=course_id)
+    if course_id is not None:
+        await _require_course_owner(session, user=user, course_id=course_id)
+
+    owned_course_ids = select(Course.id).where(Course.owner_id == user.id)
+    visibility_filter = (
+        True
+        if user.role == "ADMIN"
+        else (Document.course_id.is_(None)) | (Document.course_id.in_(owned_course_ids))
+    )
 
     rows = (
         await session.execute(
             select(Document, AppUser)
             .join(AppUser, AppUser.id == Document.uploaded_by)
-            .where(Document.course_id == course_id, Document.status == "PENDING_REVIEW")
+            .where(visibility_filter, Document.status == "PENDING_REVIEW")
             .order_by(Document.created_at)
         )
     ).all()
@@ -265,6 +282,7 @@ async def list_pending_documents(
 @router.post("/documents/{document_id}/approve", response_model=DocumentPublic)
 async def approve_document(
     document_id: int,
+    body: ApproveDocumentRequest,
     session: AsyncSession = Depends(get_db),
     user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
 ):
@@ -281,6 +299,50 @@ async def approve_document(
             detail=f"Tài liệu đang ở trạng thái '{document.status}', không thể duyệt.",
         )
 
+    course_ids = list(dict.fromkeys(body.course_ids))
+    if not course_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Hãy chọn ít nhất một lớp cho tài liệu.",
+        )
+    allowed_courses = list(
+        (
+            await session.execute(
+                select(Course.id).where(
+                    Course.id.in_(course_ids),
+                    (Course.owner_id == user.id) | (user.role == "ADMIN"),
+                )
+            )
+        ).scalars()
+    )
+    if set(allowed_courses) != set(course_ids):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn chỉ được phân tài liệu vào các lớp mình phụ trách.",
+        )
+
+    existing_course_ids = set(
+        (
+            await session.execute(
+                select(DocumentCourse.course_id).where(DocumentCourse.document_id == document.id)
+            )
+        ).scalars()
+    )
+    for target_course_id in course_ids:
+        if target_course_id not in existing_course_ids:
+            session.add(DocumentCourse(document_id=document.id, course_id=target_course_id))
+    document.course_id = course_ids[0]
+    uploader_role = (
+        await session.execute(select(AppUser.role).where(AppUser.id == document.uploaded_by))
+    ).scalar_one_or_none()
+    chunk_values: dict[str, object] = {"course_id": course_ids[0]}
+    if uploader_role == "STUDENT":
+        # Đóng góp của sinh viên luôn là học liệu cho sinh viên. Không
+        # cho phép request giả biến nó thành kho đề thi/đáp án nội bộ.
+        chunk_values["visibility"] = "COURSE"
+    await session.execute(
+        update(Chunk).where(Chunk.document_id == document.id).values(**chunk_values)
+    )
     document.status = "APPROVED"
     await session.commit()
     await session.refresh(document)

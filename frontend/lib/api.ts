@@ -202,7 +202,7 @@ export interface StudentRosterItem {
 
 export interface DocumentPublic {
   id: number;
-  course_id: number;
+  course_id: number | null;
   title: string;
   status: string;
   license_status: string;
@@ -218,6 +218,8 @@ export interface DocumentPublic {
   // Lý do giảng viên ghi khi từ chối tài liệu (text tự do, tách khỏi
   // curator_notes vì khác nguồn/khác cấu trúc).
   rejection_reason: string | null;
+  uploader_name?: string;
+  uploader_role?: string;
 }
 
 /**

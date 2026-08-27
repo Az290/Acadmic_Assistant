@@ -29,6 +29,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -215,9 +216,12 @@ class Document(Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    course_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course.id"), nullable=False)
+    course_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("course.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)  # đường dẫn tới file gốc
+    # Bản PDF gốc bền vững trong database. storage_uri vẫn được giữ làm
+    # cache cục bộ để ingestion/đọc nhanh, nhưng không còn là bản duy nhất.
+    original_file: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)  # chống trùng lặp
     license_status: Mapped[str] = mapped_column(String(20), nullable=False, default="RESTRICTED")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
@@ -273,6 +277,19 @@ class Document(Base):
     chunks: Mapped[list["Chunk"]] = relationship(back_populates="document", cascade="all, delete-orphan")
 
 
+class DocumentCourse(Base):
+    """Các lớp mà giảng viên đã phân phối một tài liệu sau khi duyệt."""
+
+    __tablename__ = "document_course"
+
+    document_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("document.id"), primary_key=True
+    )
+    course_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("course.id"), primary_key=True
+    )
+
+
 class Chunk(Base):
     """
     Một đoạn văn bản đã cắt nhỏ từ document, kèm vector embedding của nó.
@@ -307,7 +324,7 @@ class Chunk(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("document.id"), nullable=False)
-    course_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course.id"), nullable=False)
+    course_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("course.id"), nullable=True)
     ord: Mapped[int] = mapped_column(Integer, nullable=False)  # thứ tự chunk trong tài liệu
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -676,6 +693,35 @@ class AssignmentSubmission(Base):
     score: Mapped[int] = mapped_column(Integer, nullable=False)  # số câu đúng
     total: Mapped[int] = mapped_column(Integer, nullable=False)  # tổng số câu
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssignmentSubmissionAnswer(Base):
+    """Ảnh chụp từng đáp án tại thời điểm nộp bài.
+
+    QuizAttempt dùng chung cho cả tự luyện nên không đủ để xác định chắc
+    chắn một câu trả lời thuộc bài được giao nào. Bảng này giữ đúng quan
+    hệ bài nộp -> câu hỏi, đồng thời snapshot nội dung để việc sửa ngân
+    hàng câu hỏi sau này không làm sai lịch sử học tập của sinh viên.
+    """
+
+    __tablename__ = "assignment_submission_answer"
+
+    assignment_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("assignment.id"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_user.id"), primary_key=True
+    )
+    quiz_question_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("quiz_question.id"), primary_key=True
+    )
+    concept_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[str] = mapped_column(Text, nullable=False)
+    selected_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    correct_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class QuizAttempt(Base):

@@ -50,9 +50,9 @@ function CuratorStepRow({ stepKey, status, detail }: { stepKey: string; status: 
 export default function ReviewDocumentsPage() {
   const { user } = useAuth();
   const [courses, setCourses] = useState<CoursePublic[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<DocumentPublic[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [courseSelection, setCourseSelection] = useState<Record<number, number[]>>({});
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [rejectingId, setRejectingId] = useState<number | null>(null);
@@ -70,32 +70,39 @@ export default function ReviewDocumentsPage() {
     api
       .get<CoursePublic[]>("/v1/courses/me")
       .then((list) => {
-        const owned = list.filter((c) => c.owner_id === user?.id);
+        const owned = user?.role === "ADMIN" ? list : list.filter((c) => c.owner_id === user?.id);
         setCourses(owned);
-        if (owned.length > 0) setSelectedCourseId(owned[0].id);
       })
       .catch(() => setCourses([]));
-  }, [user?.id]);
-
-  async function loadPending(courseId: number) {
-    setLoading(true);
-    setError(null);
-    try {
-      const list = await api.get<DocumentPublic[]>(
-        `/v1/instructor/documents/pending?course_id=${courseId}`
-      );
-      setDocuments(list);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.detail : "Không tải được hàng chờ duyệt.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
-    if (selectedCourseId === null) return;
-    loadPending(selectedCourseId);
-  }, [selectedCourseId]);
+    if (!user?.id) return;
+    api
+      .get<DocumentPublic[]>("/v1/instructor/documents/pending")
+      .then((list) => {
+        setDocuments(list);
+        setCourseSelection(
+          Object.fromEntries(list.map((document) => [document.id, document.course_id ? [document.course_id] : []]))
+        );
+      })
+      .catch((err) => {
+        setError(err instanceof ApiError ? err.detail : "Không tải được hàng chờ duyệt.");
+      })
+      .finally(() => setLoading(false));
+  }, [user?.id]);
+
+  function toggleCourse(documentId: number, courseId: number) {
+    setCourseSelection((previous) => {
+      const selected = previous[documentId] ?? [];
+      return {
+        ...previous,
+        [documentId]: selected.includes(courseId)
+          ? selected.filter((id) => id !== courseId)
+          : [...selected, courseId],
+      };
+    });
+  }
 
   /**
    * Mở xem trước nội dung ĐÃ TRÍCH XUẤT của tài liệu - giúp giảng viên
@@ -116,10 +123,15 @@ export default function ReviewDocumentsPage() {
   }
 
   async function handleApprove(documentId: number) {
+    const courseIds = courseSelection[documentId] ?? [];
+    if (courseIds.length === 0) {
+      setError("Hãy chọn ít nhất một lớp phù hợp trước khi duyệt tài liệu.");
+      return;
+    }
     setBusyId(documentId);
     setError(null);
     try {
-      await api.post(`/v1/instructor/documents/${documentId}/approve`);
+      await api.post(`/v1/instructor/documents/${documentId}/approve`, { course_ids: courseIds });
       setDocuments((prev) => prev.filter((d) => d.id !== documentId));
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Không duyệt được tài liệu.");
@@ -148,8 +160,8 @@ export default function ReviewDocumentsPage() {
   return (
     <div className="max-w-4xl">
       <p className="mb-4 text-[13px]" style={{ color: "var(--ink-soft)" }}>
-        Tài liệu tải lên chỉ được sinh viên tra cứu <strong>sau khi bạn duyệt</strong>. Cảnh báo tự
-        động (nếu có) chỉ mang tính tham khảo — bạn là người quyết định cuối cùng.
+        Kiểm tra tài liệu đóng góp, chọn <strong>một hoặc nhiều lớp phù hợp</strong> rồi duyệt.
+        Tài liệu chỉ được sinh viên đọc và tra cứu sau bước này.
       </p>
 
       {courses.length === 0 && (
@@ -162,26 +174,6 @@ export default function ReviewDocumentsPage() {
 
       {courses.length > 0 && (
         <>
-          <div className="mb-4 flex flex-wrap gap-1.5">
-            {courses.map((c) => {
-              const active = c.id === selectedCourseId;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedCourseId(c.id)}
-                  className="rounded-full border px-3 py-1.5 text-xs font-semibold"
-                  style={
-                    active
-                      ? { background: "var(--ink)", color: "#fff", borderColor: "var(--ink)" }
-                      : { background: "#fff", borderColor: "var(--border-strong)", color: "var(--ink)" }
-                  }
-                >
-                  {c.code}
-                </button>
-              );
-            })}
-          </div>
-
           {error && (
             <p
               className="mb-3 rounded-[9px] px-3 py-2 text-[13px]"
@@ -214,6 +206,7 @@ export default function ReviewDocumentsPage() {
                     <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
                       {d.image_count > 0 ? `${d.image_count} ảnh chưa xử lý · ` : ""}
                       Bản quyền: {d.license_status}
+                      {d.uploader_name ? ` · Đóng góp bởi ${d.uploader_name}` : ""}
                     </div>
                   </div>
                   <span
@@ -272,6 +265,34 @@ export default function ReviewDocumentsPage() {
                   </div>
                 )}
 
+                <div className="mt-3 rounded-[9px] border px-3 py-2.5" style={{ borderColor: "var(--border)", background: "var(--bg-soft, #FAFAF8)" }}>
+                  <div className="mb-2 text-[11.5px] font-semibold">Đưa tài liệu vào lớp</div>
+                  <div className="flex flex-wrap gap-2">
+                    {courses.map((course) => {
+                      const selected = (courseSelection[d.id] ?? []).includes(course.id);
+                      return (
+                        <button
+                          key={course.id}
+                          type="button"
+                          onClick={() => toggleCourse(d.id, course.id)}
+                          aria-pressed={selected}
+                          className="rounded-full border px-3 py-1.5 text-[11.5px] font-semibold"
+                          style={selected
+                            ? { background: "var(--accent)", borderColor: "var(--accent)", color: "#fff" }
+                            : { background: "#fff", borderColor: "var(--border-strong)", color: "var(--ink)" }}
+                        >
+                          {selected ? "✓ " : ""}{course.code} · {course.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {(courseSelection[d.id] ?? []).length === 0 && (
+                    <p className="mt-2 text-[11px]" style={{ color: "var(--amber-ink)" }}>
+                      Chọn ít nhất một lớp để có thể duyệt.
+                    </p>
+                  )}
+                </div>
+
                 {rejectingId === d.id ? (
                   <div className="mt-3 flex gap-2 border-t pt-3" style={{ borderColor: "var(--border)" }}>
                     <input
@@ -284,7 +305,7 @@ export default function ReviewDocumentsPage() {
                     />
                     <button
                       onClick={() => handleReject(d.id)}
-                      disabled={busyId === d.id}
+                      disabled={busyId === d.id || (courseSelection[d.id] ?? []).length === 0}
                       className="rounded-[7px] px-3 py-1.5 text-[12.3px] font-semibold text-white disabled:opacity-50"
                       style={{ background: "var(--red)" }}
                     >

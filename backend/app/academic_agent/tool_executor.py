@@ -689,6 +689,12 @@ async def _tool_approve_document(session: AsyncSession, args: dict, user: AppUse
     if document is None:
         return ToolExecutionResult(success=False, error_message="Không tìm thấy tài liệu này.")
 
+    if document.course_id is None:
+        return ToolExecutionResult(
+            success=False,
+            error_message="Tài liệu đóng góp chưa được phân lớp. Hãy duyệt trên trang Duyệt tài liệu và chọn lớp phù hợp.",
+        )
+
     course = await _get_course_or_none(session, document.course_id)
     if course is None or not _is_course_owner(course, user):
         return ToolExecutionResult(success=False, error_message="Bạn không phải giáo viên phụ trách lớp có tài liệu này.")
@@ -717,9 +723,10 @@ async def _tool_reject_document(session: AsyncSession, args: dict, user: AppUser
     if document is None:
         return ToolExecutionResult(success=False, error_message="Không tìm thấy tài liệu này.")
 
-    course = await _get_course_or_none(session, document.course_id)
-    if course is None or not _is_course_owner(course, user):
-        return ToolExecutionResult(success=False, error_message="Bạn không phải giáo viên phụ trách lớp có tài liệu này.")
+    if document.course_id is not None:
+        course = await _get_course_or_none(session, document.course_id)
+        if course is None or not _is_course_owner(course, user):
+            return ToolExecutionResult(success=False, error_message="Bạn không phải giáo viên phụ trách lớp có tài liệu này.")
 
     if document.status != "PENDING_REVIEW":
         return ToolExecutionResult(

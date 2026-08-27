@@ -39,6 +39,7 @@ async def chat(
     result = await handle_chat(
         session,
         user_id=user.id,
+        user_role=user.role,
         is_admin=user.role == "ADMIN",
         message=body.message,
         conversation_id=body.conversation_id,
@@ -79,6 +80,7 @@ async def chat_stream(
             session,
             AsyncSessionLocal,
             user_id=user.id,
+            user_role=user.role,
             is_admin=user.role == "ADMIN",
             message=body.message,
             conversation_id=body.conversation_id,

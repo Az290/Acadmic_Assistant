@@ -313,12 +313,31 @@ async def hybrid_search(
     result = await session.execute(
         text(
             """
-            SELECT id, document_id, course_id, content, content_type, page_number, context_prefix
+            SELECT chunk.id, chunk.document_id,
+                   COALESCE(
+                       (
+                           SELECT dc.course_id
+                           FROM document_course dc
+                           LEFT JOIN course c ON c.id = dc.course_id
+                           WHERE dc.document_id = chunk.document_id
+                             AND (
+                                 :is_admin
+                                 OR c.owner_id = :user_id
+                                 OR dc.course_id IN (
+                                     SELECT course_id FROM enrollment WHERE user_id = :user_id
+                                 )
+                             )
+                           ORDER BY CASE WHEN dc.course_id = chunk.course_id THEN 0 ELSE 1 END
+                           LIMIT 1
+                       ),
+                       chunk.course_id
+                   ) AS course_id,
+                   chunk.content, chunk.content_type, chunk.page_number, chunk.context_prefix
             FROM chunk
             WHERE id = ANY(:chunk_ids)
             """
         ),
-        {"chunk_ids": top_chunk_ids},
+        {"chunk_ids": top_chunk_ids, "user_id": user_id, "is_admin": is_admin},
     )
     rows_by_id = {row.id: row for row in result}
     scores_by_id = dict(fused)

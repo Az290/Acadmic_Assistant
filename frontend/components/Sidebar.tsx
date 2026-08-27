@@ -222,7 +222,9 @@ export default function Sidebar() {
                     <span className="inline-flex w-4 items-center justify-center" style={{ opacity: active ? 1 : 0.65 }}>
                       {item.icon}
                     </span>
-                    {item.label}
+                    {item.href === "/documents" && user.role === "STUDENT"
+                      ? "Đóng góp tài liệu"
+                      : item.label}
                   </Link>
                 );
               })}

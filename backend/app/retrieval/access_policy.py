@@ -27,11 +27,16 @@ rác trong từng endpoint.
 # visibility (COURSE / INSTRUCTOR_ONLY) được xử lý riêng bên dưới vì
 # điều kiện phụ thuộc vào vai trò người đọc.
 _BASE_CONDITIONS = """
-    (
-        {is_admin}
-        OR chunk.course_id IN (
-            SELECT course_id FROM enrollment WHERE user_id = {user_id}
-        )
+    EXISTS (
+        SELECT 1
+        FROM document_course dc
+        WHERE dc.document_id = chunk.document_id
+          AND (
+              {is_admin}
+              OR dc.course_id IN (
+                  SELECT course_id FROM enrollment WHERE user_id = {user_id}
+              )
+          )
     )
     AND chunk.is_solution = FALSE
     AND chunk.document_id IN (SELECT id FROM document WHERE status = 'APPROVED')
@@ -52,9 +57,17 @@ _VISIBILITY_CONDITION = """
             chunk.visibility = 'INSTRUCTOR_ONLY'
             AND (
                 {is_admin}
-                OR chunk.course_id IN (
-                    SELECT course_id FROM enrollment
-                    WHERE user_id = {user_id} AND role_in_course = 'INSTRUCTOR'
+                OR EXISTS (
+                    SELECT 1 FROM document_course dc
+                    JOIN course c ON c.id = dc.course_id
+                    WHERE dc.document_id = chunk.document_id
+                      AND (
+                          c.owner_id = {user_id}
+                          OR dc.course_id IN (
+                              SELECT course_id FROM enrollment
+                              WHERE user_id = {user_id} AND role_in_course = 'INSTRUCTOR'
+                          )
+                      )
                 )
             )
         )
