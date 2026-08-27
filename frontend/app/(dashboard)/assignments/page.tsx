@@ -474,10 +474,15 @@ export default function AssignmentsPage() {
                   min={1}
                   max={10}
                   value={numPerConcept}
-                  onChange={(e) =>
-                    setNumPerConcept(Math.min(10, Math.max(1, Number(e.target.value) || 1)))
-                  }
-                  className="w-16 rounded-[7px] border px-2 py-1.5 text-[12.5px] focus:outline-none"
+                  onFocus={(e) => e.currentTarget.select()}
+                  onChange={(e) => {
+                    const nextValue = e.currentTarget.valueAsNumber;
+                    if (!Number.isNaN(nextValue)) {
+                      setNumPerConcept(Math.min(10, Math.max(1, nextValue)));
+                    }
+                  }}
+                  aria-label="Số câu mỗi khái niệm, từ 1 đến 10"
+                  className="w-20 rounded-[7px] border px-2.5 py-2 text-center text-[15px] font-semibold focus:outline-none"
                   style={{ borderColor: "var(--border-strong)" }}
                 />
               </div>
@@ -625,7 +630,11 @@ export default function AssignmentsPage() {
                         setFeedbackText("");
                       }}
                       className="rounded-[7px] border px-2.5 py-1 text-[11px] font-semibold"
-                      style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+                      style={{
+                        background: "#fff",
+                        borderColor: "var(--accent)",
+                        color: "var(--accent-ink)",
+                      }}
                     >
                       Yêu cầu AI sửa
                     </button>
@@ -757,7 +766,11 @@ export default function AssignmentsPage() {
                 setShowManualForm(true);
               }}
               className="mb-3 rounded-[7px] border border-dashed px-3 py-1.5 text-[11.5px] font-semibold"
-              style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+              style={{
+                background: "#fff",
+                borderColor: "var(--accent)",
+                color: "var(--accent-ink)",
+              }}
             >
               + Tự soạn thêm câu hỏi
             </button>

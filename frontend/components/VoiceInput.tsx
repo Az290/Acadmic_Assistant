@@ -28,6 +28,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const mountedRef = useRef(true);
+  const stoppingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scheduleReset = useCallback((delay: number) => {
@@ -48,6 +49,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
       const recorder = mediaRecorderRef.current;
       mediaRecorderRef.current = null;
       audioChunksRef.current = [];
+      stoppingRef.current = false;
       if (recorder) {
         // Đóng panel làm VoiceInput unmount. Hủy callbacks TRƯỚC khi
         // dừng recorder để onstop không gửi một request transcription
@@ -68,20 +70,30 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
   }, []);
 
   const stopRecording = useCallback(async () => {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+    if (
+      stoppingRef.current ||
+      !mediaRecorderRef.current ||
+      mediaRecorderRef.current.state === "inactive"
+    ) {
       return;
     }
 
     const recorder = mediaRecorderRef.current;
+    stoppingRef.current = true;
+    // Khóa nút ngay khi người dùng bấm dừng. Sự kiện onstop chạy bất đồng bộ;
+    // nếu vẫn để "recording", một cú bấm thứ hai có thể stop cùng recorder lần nữa.
+    if (mountedRef.current) setState("transcribing");
     // Không stop MediaStream ngay ở đây. Chrome cần stream còn sống
     // đến khi phát xong dataavailable/onstop để flush phần audio cuối.
     try {
-      recorder.requestData();
+      // stop() tự phát dataavailable cuối cùng trước onstop. Gọi requestData()
+      // sát ngay trước stop() gây race/InvalidStateError trên một số trình duyệt.
       recorder.stop();
     } catch (err) {
       console.error("Unable to stop MediaRecorder safely:", err);
       recorder.stream.getTracks().forEach((track) => track.stop());
       mediaRecorderRef.current = null;
+      stoppingRef.current = false;
       if (mountedRef.current) {
         setErrorMessage("Không thể kết thúc ghi âm, vui lòng thử lại.");
         setState("error");
@@ -98,9 +110,10 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
 
       try {
         const formData = new FormData();
-        formData.append("file", audioBlob, "recording.webm");
+        const extension = audioBlob.type.includes("mp4") ? "mp4" : "webm";
+        formData.append("file", audioBlob, `recording.${extension}`);
 
-        const response = await api.post<{ text: string; language: string; duration: number }>(
+        const response = await api.postForm<{ text: string; language: string; duration: number }>(
           "/v1/voice/transcribe",
           formData
         );
@@ -167,6 +180,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
       const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      stoppingRef.current = false;
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -183,10 +197,18 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
         stream.getTracks().forEach((track) => track.stop());
         mediaRecorderRef.current = null;
         audioChunksRef.current = [];
+        stoppingRef.current = false;
 
-        // Send to backend for transcription
-        if (mountedRef.current && audioBlob.size > 0) {
+        if (!mountedRef.current) return;
+
+        // Send to backend for transcription. Một bản ghi quá ngắn có thể
+        // không tạo được chunk nào; không để giao diện kẹt ở "đang xử lý".
+        if (audioBlob.size > 0) {
           void sendAudioToBackend(audioBlob);
+        } else {
+          setErrorMessage("Không thu được âm thanh, vui lòng nói lâu hơn rồi thử lại.");
+          setState("error");
+          scheduleReset(3000);
         }
       };
 
@@ -194,6 +216,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
         console.error("MediaRecorder error:", event);
         stream.getTracks().forEach((track) => track.stop());
         mediaRecorderRef.current = null;
+        stoppingRef.current = false;
         if (!mountedRef.current) return;
         setErrorMessage("Lỗi khi ghi âm, vui lòng thử lại.");
         setState("error");

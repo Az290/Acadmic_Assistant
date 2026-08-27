@@ -164,44 +164,44 @@ export default function InstructorDashboard() {
             <div className="mb-4">
               <div className="mb-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
                 <div className="card">
-                  <div className="text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
+                  <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
                     Sinh viên
                   </div>
-                  <div className="mt-1.5 font-mono text-[22px] font-extrabold">{classAnalytics.total_students}</div>
-                  <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                  <div className="mt-1.5 font-mono text-[30px] font-extrabold leading-none">{classAnalytics.total_students}</div>
+                  <div className="mt-2 text-[13px]" style={{ color: "var(--ink-soft)" }}>
                     {classAnalytics.students_with_data} đã có dữ liệu ·{" "}
                     {classAnalytics.students_without_data} chưa làm quiz
                   </div>
                 </div>
 
                 <div className="card">
-                  <div className="text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
+                  <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
                     Mastery trung bình
                   </div>
                   <div
-                    className="mt-1.5 font-mono text-[22px] font-extrabold"
+                    className="mt-1.5 font-mono text-[30px] font-extrabold leading-none"
                     style={{ color: classAnalytics.avg_mastery === null ? "var(--ink-faint)" : "var(--teal)" }}
                   >
                     {classAnalytics.avg_mastery === null
                       ? "—"
                       : `${(classAnalytics.avg_mastery * 100).toFixed(0)}%`}
                   </div>
-                  <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                  <div className="mt-2 text-[13px]" style={{ color: "var(--ink-soft)" }}>
                     Chỉ tính sinh viên đã làm quiz
                   </div>
                 </div>
 
                 <div className="card">
-                  <div className="text-[10.5px] font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
+                  <div className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
                     Cần hỗ trợ
                   </div>
                   <div
-                    className="mt-1.5 font-mono text-[22px] font-extrabold"
+                    className="mt-1.5 font-mono text-[30px] font-extrabold leading-none"
                     style={{ color: classAnalytics.needing_support_count > 0 ? "var(--red)" : "var(--teal)" }}
                   >
                     {classAnalytics.needing_support_count}
                   </div>
-                  <div className="mt-0.5 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>
+                  <div className="mt-2 text-[13px]" style={{ color: "var(--ink-soft)" }}>
                     Mastery dưới 40%
                   </div>
                 </div>
@@ -212,15 +212,15 @@ export default function InstructorDashboard() {
                   theo thứ hạng cột, để đọc được ngay lớp đang lệch về đâu. */}
               {classAnalytics.students_with_data > 0 && (
                 <div className="card mb-3">
-                  <h3 className="mb-3 text-[12.5px] font-bold">Phân bố mức độ nắm vững</h3>
-                  <div className="flex h-[120px] items-end gap-2">
+                  <h3 className="mb-3 text-[15px] font-bold">Phân bố mức độ nắm vững</h3>
+                  <div className="flex h-[140px] items-end gap-2">
                     {classAnalytics.distribution.map((b, i) => {
                       const maxCount = Math.max(...classAnalytics.distribution.map((x) => x.student_count), 1);
                       const heightPct = (b.student_count / maxCount) * 100;
                       const colors = ["var(--red)", "var(--red)", "var(--amber)", "var(--teal)", "var(--accent)"];
                       return (
                         <div key={b.label} className="flex flex-1 flex-col items-center justify-end">
-                          <div className="mb-1 text-[11px] font-bold">{b.student_count}</div>
+                          <div className="mb-1 text-[15px] font-bold">{b.student_count}</div>
                           <div
                             className="w-full rounded-t-[4px]"
                             style={{
@@ -228,7 +228,7 @@ export default function InstructorDashboard() {
                               background: b.student_count > 0 ? colors[i] : "#E8EAF0",
                             }}
                           />
-                          <div className="mt-1.5 text-[10.5px]" style={{ color: "var(--ink-soft)" }}>
+                          <div className="mt-1.5 text-[12px] font-medium" style={{ color: "var(--ink-soft)" }}>
                             {b.label}
                           </div>
                         </div>
@@ -236,7 +236,7 @@ export default function InstructorDashboard() {
                     })}
                   </div>
                   {classAnalytics.students_without_data > 0 && (
-                    <p className="mt-3 text-[11.5px]" style={{ color: "var(--ink-faint)" }}>
+                    <p className="mt-3 text-[13px]" style={{ color: "var(--ink-faint)" }}>
                       {classAnalytics.students_without_data} sinh viên chưa làm quiz nào nên không có trong biểu đồ
                       — chưa có dữ liệu khác hẳn với học kém.
                     </p>

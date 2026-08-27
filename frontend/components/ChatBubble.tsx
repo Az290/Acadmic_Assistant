@@ -31,7 +31,7 @@ import VoiceInput from "@/components/VoiceInput";
  * hẳn nhau (RAG_QUESTION trả lời thẳng vs SOCRATIC_REQUEST gợi mở).
  */
 
-type PanelSize = "closed" | "compact" | "half" | "full";
+type PanelSize = "closed" | "compact" | "full";
 type TabMode = "RAG_QUESTION" | "SOCRATIC_REQUEST";
 
 interface DisplayMessage {
@@ -89,13 +89,11 @@ const TAB_LABEL: Record<TabMode, string> = {
   SOCRATIC_REQUEST: "Gia sư",
 };
 
-// Đúng 3 cỡ theo prototype (.ai-panel / .ai-panel.half / .ai-panel.full)
-// - "compact" là cỡ MẶC ĐỊNH của prototype (360x520), "half" chiếm
-// nửa màn hình, "full" gần toàn màn hình (trừ bề rộng sidebar 240px).
+// Người dùng chỉ cần hai trạng thái rõ ràng: cửa sổ chat mặc định và mở rộng.
+// max-width/max-height giữ panel an toàn trên màn hình nhỏ.
 const PANEL_SIZE_CLASS: Record<Exclude<PanelSize, "closed">, string> = {
-  compact: "h-[520px] w-[360px]",
-  half: "h-[75vh] w-[55vw]",
-  full: "h-screen w-[calc(100vw-240px)]",
+  compact: "h-[min(650px,calc(100vh-40px))] w-[min(450px,calc(100vw-40px))]",
+  full: "h-[calc(100vh-40px)] w-[min(720px,calc(100vw-40px))]",
 };
 
 function emptyTabState(): TabState {
@@ -654,25 +652,27 @@ export default function ChatBubble() {
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
       {isOpen && (
         <div
-          className={`animate-fade flex flex-col overflow-hidden rounded-[12px] border ${PANEL_SIZE_CLASS[size]}`}
+          className={`animate-fade flex flex-col overflow-hidden rounded-2xl border ${PANEL_SIZE_CLASS[size]}`}
           style={{
             background: "#ffffff",
             borderColor: "var(--border-strong)",
             // Bóng đổ nhẹ và khuếch tán rộng - đủ để panel tách khỏi nền
             // mà không có viền tối đậm kiểu hộp thoại cảnh báo.
-            boxShadow: "0 8px 32px rgba(15, 23, 42, 0.14)",
+            boxShadow: "0 18px 48px rgba(15, 38, 70, 0.2)",
           }}
         >
-          {/* Header: Nova + nút đổi cỡ + nút đóng */}
+          {/* Header chỉ có một điều khiển kích thước và một nút đóng. */}
           <div
-            className="flex items-center justify-between px-4 py-3"
-            style={{ background: "var(--sidebar)" }}
+            className="flex min-h-[68px] items-center justify-between px-4 py-3"
+            style={{ background: "linear-gradient(135deg, #2469c7 0%, #164eaa 100%)" }}
           >
             <div className="flex items-center gap-2.5">
-              <NovaAvatar size={26} />
+              <span className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-white/12">
+                <NovaAvatar size={38} />
+              </span>
               <div className="leading-tight">
-                <div className="text-[13px] font-semibold text-white">Nova</div>
-                <div className="text-[10.5px]" style={{ color: "var(--sidebar-ink)" }}>
+                <div className="text-[15px] font-bold text-white">Nova</div>
+                <div className="mt-0.5 text-[11.5px] text-blue-100">
                   Trợ lý học thuật
                 </div>
               </div>
@@ -698,31 +698,34 @@ export default function ChatBubble() {
                 Tóm tắt
               </button>
             )}
-            <div className="flex items-center gap-0.5">
-              {(["compact", "half", "full"] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSize(s)}
-                  className="rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium"
-                  style={{
-                    color: size === s ? "#ffffff" : "var(--sidebar-ink)",
-                    background: size === s ? "var(--sidebar-active)" : "transparent",
-                    transition: "background-color var(--motion-fast) var(--ease)",
-                  }}
-                  title={s === "compact" ? "Thu nhỏ" : s === "half" ? "Vừa" : "Phóng to"}
-                >
-                  {s === "compact" ? "S" : s === "half" ? "M" : "L"}
-                </button>
-              ))}
+            <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setSize("closed")}
-                className="ml-1 rounded-[4px] px-1.5 py-0.5 text-[13px] leading-none"
-                style={{ color: "var(--sidebar-ink)", transition: "color var(--motion-fast) var(--ease)" }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#fff")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--sidebar-ink)")}
-                aria-label="Đóng"
+                type="button"
+                onClick={() => setSize(size === "full" ? "compact" : "full")}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20"
+                title={size === "full" ? "Thu nhỏ cửa sổ" : "Mở rộng cửa sổ"}
+                aria-label={size === "full" ? "Thu nhỏ cửa sổ chat" : "Mở rộng cửa sổ chat"}
               >
-                ✕
+                {size === "full" ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M8 3v5H3" /><path d="M16 21v-5h5" /><path d="m3 8 5-5" /><path d="m21 16-5 5" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="m21 3-7 7" /><path d="m3 21 7-7" />
+                  </svg>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSize("closed")}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20"
+                title="Đóng cửa sổ chat"
+                aria-label="Đóng cửa sổ chat"
+              >
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                </svg>
               </button>
             </div>
           </div>
@@ -1364,48 +1367,37 @@ export default function ChatBubble() {
         </div>
       )}
 
-      {/* Bong bóng tròn - luôn hiện, badge số đỏ khi có tin nhắn chưa xem */}
-      <button
-        onClick={isOpen ? () => setSize("closed") : openPanel}
-        className="relative flex h-[52px] w-[52px] items-center justify-center rounded-full"
-        style={{
-          background: "var(--accent)",
-          boxShadow: "0 4px 16px rgba(30, 58, 95, 0.32)",
-          transition: "background-color var(--motion-fast) var(--ease)",
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "#16304f")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "var(--accent)")}
-        aria-label={isOpen ? "Đóng Nova" : "Mở Nova - trợ lý học thuật"}
-      >
-        {/* Biểu tượng Nova thay cho bong bóng chat mặc định - người dùng
-            nhận ra "đây là Nova" chứ không phải "đây là ô chat chung
-            chung". Không phóng to khi rê chuột: hiệu ứng nảy gây cảm
-            giác đồ chơi, không hợp môi trường học thuật. */}
-        {isOpen ? (
-          <span className="text-[18px] leading-none text-white">✕</span>
-        ) : (
-          <svg
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#fff"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12 2.5 Q13 9.5 21.5 12 Q13 14.5 12 21.5 Q11 14.5 2.5 12 Q11 9.5 12 2.5 Z" />
-          </svg>
-        )}
-        {!isOpen && unreadCount > 0 && (
-          <span
-            className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white"
-            style={{ background: "var(--red)", border: "2px solid var(--bg)" }}
-          >
-            {unreadCount > 9 ? "9+" : unreadCount}
+      {/* Khi panel mở, launcher được ẩn để không tạo thêm một nút X thứ hai. */}
+      {!isOpen && (
+        <button
+          type="button"
+          onClick={openPanel}
+          className="relative flex h-[58px] items-center gap-2.5 rounded-full border bg-white py-1.5 pl-1.5 pr-4 text-left transition hover:-translate-y-0.5"
+          style={{
+            borderColor: "#c9dcf1",
+            boxShadow: "0 10px 28px rgba(30, 73, 125, 0.2)",
+          }}
+          aria-label="Chat với Nova - trợ lý học thuật"
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#1764bd] ring-1 ring-blue-200">
+            <NovaAvatar size={39} />
           </span>
-        )}
-      </button>
+          <span className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-[13.5px] font-bold" style={{ color: "var(--accent-ink)" }}>
+              Chat với Nova
+            </span>
+            <span className="h-2 w-2 rounded-full bg-[#16a394]" aria-hidden="true" />
+          </span>
+          {unreadCount > 0 && (
+            <span
+              className="absolute -right-1 -top-1 flex h-[20px] min-w-[20px] items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white"
+              style={{ background: "var(--red)", border: "2px solid var(--bg)" }}
+            >
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+      )}
     </div>
   );
 }
