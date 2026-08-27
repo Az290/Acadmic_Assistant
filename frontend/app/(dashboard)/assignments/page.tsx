@@ -10,6 +10,7 @@ import {
   ConceptPublic,
   CoursePublic,
   CreateConceptRequest,
+  CreateQuizQuestionRequest,
   GeneratedQuizQuestion,
   SubmitAssignmentResponse,
 } from "@/lib/api";
@@ -51,6 +52,22 @@ export default function AssignmentsPage() {
     explanation: string;
   } | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  // Góp ý cho AI sinh lại 1 câu (vd "đáp án đúng đang sai") - lưu theo
+  // từng question id vì giảng viên có thể mở ô góp ý ở nhiều câu.
+  const [feedbackFor, setFeedbackFor] = useState<number | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [regenerating, setRegenerating] = useState(false);
+  // Form tự soạn thêm 1 câu hỏi - AI không phải lúc nào cũng ra đủ ý,
+  // giảng viên phải có đường tự thêm câu của mình.
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualForm, setManualForm] = useState({
+    concept_id: 0,
+    question: "",
+    options: ["", "", "", ""],
+    correct_index: 0,
+    explanation: "",
+  });
+  const [addingManual, setAddingManual] = useState(false);
 
   // Tạo khái niệm mới (giảng viên) - form thu gọn/mở tuỳ concepts.length,
   // xem effect load bên dưới.
@@ -186,6 +203,59 @@ export default function AssignmentsPage() {
     // Chỉ loại khỏi danh sách SẮP giao, KHÔNG xoá khỏi DB - an toàn hơn,
     // và đơn giản hơn (không cần endpoint xoá riêng).
     setDraftQuestions((prev) => (prev ? prev.filter((q) => q.id !== id) : prev));
+  }
+
+  /**
+   * Gửi góp ý -> AI sinh lại ĐÚNG câu đó (giữ nguyên id nên vị trí
+   * trong danh sách không đổi, giảng viên không bị mất mạch duyệt).
+   */
+  async function handleRegenerate(id: number) {
+    if (!feedbackText.trim()) return;
+    setRegenerating(true);
+    setError(null);
+    try {
+      const updated = await api.post<GeneratedQuizQuestion>(
+        `/v1/quiz-questions/${id}/regenerate`,
+        { feedback: feedbackText.trim() }
+      );
+      setDraftQuestions((prev) => (prev ? prev.map((q) => (q.id === id ? updated : q)) : prev));
+      setFeedbackFor(null);
+      setFeedbackText("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "AI chưa sinh lại được câu hỏi này.");
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  async function handleAddManual() {
+    const opts = manualForm.options.map((o) => o.trim());
+    if (!manualForm.question.trim() || opts.some((o) => !o) || manualForm.concept_id === 0) return;
+    setAddingManual(true);
+    setError(null);
+    try {
+      const body: CreateQuizQuestionRequest = {
+        concept_id: manualForm.concept_id,
+        question: manualForm.question.trim(),
+        options: opts,
+        correct_index: manualForm.correct_index,
+        explanation: manualForm.explanation.trim(),
+      };
+      const created = await api.post<GeneratedQuizQuestion>("/v1/quiz-questions", body);
+      setDraftQuestions((prev) => (prev ? [...prev, created] : [created]));
+      setManualForm({
+        concept_id: selectedConcepts[0] ?? 0,
+        question: "",
+        options: ["", "", "", ""],
+        correct_index: 0,
+        explanation: "",
+      });
+      setShowManualForm(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không thêm được câu hỏi.");
+    } finally {
+      setAddingManual(false);
+    }
   }
 
   async function handleAssign() {
@@ -550,6 +620,16 @@ export default function AssignmentsPage() {
                       Sửa
                     </button>
                     <button
+                      onClick={() => {
+                        setFeedbackFor(feedbackFor === q.id ? null : q.id);
+                        setFeedbackText("");
+                      }}
+                      className="rounded-[7px] border px-2.5 py-1 text-[11px] font-semibold"
+                      style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+                    >
+                      Yêu cầu AI sửa
+                    </button>
+                    <button
                       onClick={() => handleRemoveDraft(q.id)}
                       className="rounded-[7px] border px-2.5 py-1 text-[11px] font-semibold"
                       style={{ borderColor: "var(--red)", color: "var(--red)" }}
@@ -557,10 +637,131 @@ export default function AssignmentsPage() {
                       Bỏ câu này
                     </button>
                   </div>
+
+                  {/* Ô góp ý cho AI - nói bằng lời thay vì tự sửa tay,
+                      hữu ích khi câu sai kiến thức/trùng câu khác/quá dễ. */}
+                  {feedbackFor === q.id && (
+                    <div className="mt-2 rounded-[8px] border px-2.5 py-2" style={{ borderColor: "var(--accent)", background: "var(--accent-bg)" }}>
+                      <div className="mb-1 text-[11px] font-semibold" style={{ color: "var(--accent-ink)" }}>
+                        Cho AI biết câu này cần sửa gì:
+                      </div>
+                      <textarea
+                        value={feedbackText}
+                        onChange={(e) => setFeedbackText(e.target.value)}
+                        rows={2}
+                        placeholder="vd: Đáp án đúng đang sai, phải là B / Câu này trùng câu 2 / Hỏi vận dụng thay vì học thuộc"
+                        className="mb-1.5 w-full rounded-[6px] border px-2 py-1.5 text-[11.5px] focus:outline-none"
+                        style={{ borderColor: "var(--border-strong)" }}
+                      />
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => handleRegenerate(q.id)}
+                          disabled={regenerating || !feedbackText.trim()}
+                          className="rounded-[6px] px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                          style={{ background: "var(--accent)" }}
+                        >
+                          {regenerating ? "AI đang sửa…" : "Gửi cho AI sửa lại"}
+                        </button>
+                        <button
+                          onClick={() => setFeedbackFor(null)}
+                          className="rounded-[6px] border px-2.5 py-1 text-[11px] font-semibold"
+                          style={{ borderColor: "var(--border-strong)", color: "var(--ink-soft)" }}
+                        >
+                          Đóng
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           ))}
+
+          {/* Tự soạn thêm câu - AI không phải lúc nào cũng ra đủ ý,
+              giảng viên phải có đường tự thêm câu của mình. */}
+          {showManualForm ? (
+            <div className="mb-3 rounded-[9px] border px-3 py-2.5" style={{ borderColor: "var(--accent)" }}>
+              <div className="mb-1.5 text-[11.5px] font-bold">Tự soạn câu hỏi mới</div>
+              <select
+                value={manualForm.concept_id}
+                onChange={(e) => setManualForm({ ...manualForm, concept_id: Number(e.target.value) })}
+                className="mb-1.5 w-full rounded-[6px] border px-2 py-1.5 text-[11.5px]"
+                style={{ borderColor: "var(--border-strong)" }}
+              >
+                <option value={0}>— Chọn khái niệm —</option>
+                {concepts.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <textarea
+                value={manualForm.question}
+                onChange={(e) => setManualForm({ ...manualForm, question: e.target.value })}
+                rows={2}
+                placeholder="Nội dung câu hỏi"
+                className="mb-1.5 w-full rounded-[6px] border px-2 py-1.5 text-[11.5px] focus:outline-none"
+                style={{ borderColor: "var(--border-strong)" }}
+              />
+              {manualForm.options.map((opt, idx) => (
+                <div key={idx} className="mb-1 flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="manual-correct"
+                    checked={manualForm.correct_index === idx}
+                    onChange={() => setManualForm({ ...manualForm, correct_index: idx })}
+                    title="Đánh dấu đây là đáp án đúng"
+                  />
+                  <input
+                    type="text"
+                    value={opt}
+                    onChange={(e) => {
+                      const next = [...manualForm.options];
+                      next[idx] = e.target.value;
+                      setManualForm({ ...manualForm, options: next });
+                    }}
+                    placeholder={"Phương án " + String.fromCharCode(65 + idx)}
+                    className="flex-1 rounded-[6px] border px-2 py-1 text-[11.5px] focus:outline-none"
+                    style={{ borderColor: "var(--border-strong)" }}
+                  />
+                </div>
+              ))}
+              <input
+                type="text"
+                value={manualForm.explanation}
+                onChange={(e) => setManualForm({ ...manualForm, explanation: e.target.value })}
+                placeholder="Giải thích (tuỳ chọn)"
+                className="mb-1.5 mt-1 w-full rounded-[6px] border px-2 py-1.5 text-[11.5px] focus:outline-none"
+                style={{ borderColor: "var(--border-strong)" }}
+              />
+              <div className="flex gap-1.5">
+                <button
+                  onClick={handleAddManual}
+                  disabled={addingManual}
+                  className="rounded-[6px] px-3 py-1 text-[11.5px] font-semibold text-white disabled:opacity-50"
+                  style={{ background: "var(--accent)" }}
+                >
+                  {addingManual ? "Đang thêm…" : "Thêm vào đề"}
+                </button>
+                <button
+                  onClick={() => setShowManualForm(false)}
+                  className="rounded-[6px] border px-3 py-1 text-[11.5px] font-semibold"
+                  style={{ borderColor: "var(--border-strong)", color: "var(--ink-soft)" }}
+                >
+                  Huỷ
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setManualForm((f) => ({ ...f, concept_id: selectedConcepts[0] ?? 0 }));
+                setShowManualForm(true);
+              }}
+              className="mb-3 rounded-[7px] border border-dashed px-3 py-1.5 text-[11.5px] font-semibold"
+              style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+            >
+              + Tự soạn thêm câu hỏi
+            </button>
+          )}
 
           {draftQuestions.length > 0 && (
             <>

@@ -132,7 +132,7 @@ const NAV_ITEMS: NavItem[] = [
   // giảng viên tải lên. Đặt ở nhóm "Học tập" (giống "Bài tập" ở trên,
   // cũng không giới hạn role) thay vì "Giảng dạy" - tránh sinh viên
   // thấy mục của mình lạc trong 1 nhóm mang tên dành cho giảng viên.
-  { href: "/documents", label: "Tài liệu", icon: <IconDocuments />, group: "Học tập" },
+  { href: "/documents", label: "Thêm tài liệu", icon: <IconDocuments />, group: "Học tập" },
 
   // Giảng dạy - việc giảng viên làm với lớp mình phụ trách
   { href: "/instructor", label: "Thống kê lớp", icon: <IconChart />, roles: ["INSTRUCTOR", "ADMIN"], group: "Giảng dạy" },

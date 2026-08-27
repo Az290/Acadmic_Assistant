@@ -36,7 +36,9 @@ class GenerateQuestionsRequest(BaseModel):
     # Số câu hỏi MUỐN SINH cho MỖI khái niệm - không dùng "total_questions"
     # chia đều vì số câu không chia hết cho số khái niệm sẽ gây mơ hồ (concept
     # nào được ít hơn?). Rõ ràng, dễ hiểu với giảng viên: "mỗi khái niệm N câu".
-    num_questions_per_concept: int = Field(default=1, ge=1, le=10)
+    # Trần 30: đủ cho 1 đề kiểm tra dài, vẫn chặn được yêu cầu vô lý
+    # (sinh 500 câu = 1 lượt LLM khổng lồ + chờ rất lâu + tốn chi phí).
+    num_questions_per_concept: int = Field(default=1, ge=1, le=30)
 
 
 class GeneratedQuizQuestionPublic(BaseModel):
@@ -139,3 +141,22 @@ class AssignmentResults(BaseModel):
     total_questions: int
     students: list[StudentResultSummary]
     concept_difficulty: list[ConceptDifficulty]
+
+
+class CreateQuizQuestionRequest(BaseModel):
+    """Giảng viên TỰ SOẠN 1 câu hỏi (không qua AI) để thêm vào đề đang duyệt."""
+
+    concept_id: int
+    question: str = Field(min_length=1)
+    options: list[str] = Field(min_length=4, max_length=4)
+    correct_index: int = Field(ge=0, le=3)
+    explanation: str = Field(default="")
+
+
+class RegenerateQuizQuestionRequest(BaseModel):
+    """
+    Góp ý để AI sinh lại 1 câu hỏi - vd "đáp án đúng đang sai, phải là B",
+    "câu này trùng câu 2", "hỏi về cách dùng thực tế thay vì cú pháp".
+    """
+
+    feedback: str = Field(min_length=1, max_length=500)

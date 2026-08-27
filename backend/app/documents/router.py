@@ -9,11 +9,12 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.db.models import AppUser, Course, Enrollment
+from app.db.models import AppUser, Course, Document, Enrollment
 from app.db.session import get_db
 from app.documents.schemas import DocumentContent, DocumentContentChunk, DocumentPublic, DocumentSummary
 from app.documents.validation import (
@@ -314,4 +315,69 @@ async def get_document_content(
             )
             for row in rows
         ],
+    )
+
+
+@router.get("/{document_id}/file")
+async def get_document_file(
+    document_id: int,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """
+    Trả về FILE PDF GỐC để người học đọc trực tiếp trong trình duyệt.
+
+    TẠI SAO CẦN: trước đây sinh viên chỉ xem được nội dung đã CHUNK
+    (cắt nhỏ theo đoạn, mất bố cục, mất hình/bảng, xuống dòng lộn xộn)
+    - đó là định dạng phục vụ MÁY tra cứu, người đọc gần như không hiểu
+    gì. Muốn thực sự HỌC thì phải đọc bản gốc.
+
+    Quyền: giống hệt list_documents() - chủ lớp/ADMIN, hoặc sinh viên
+    đang enroll lớp chứa tài liệu. Thêm ràng buộc tài liệu phải
+    APPROVED (tài liệu chờ duyệt chỉ giảng viên xem qua trang Duyệt
+    tài liệu, không phát tán cho sinh viên qua đường này).
+
+    Trả 404 chung cho MỌI trường hợp không được phép/không tồn tại -
+    không tiết lộ tài liệu có tồn tại hay không cho người không có quyền.
+    """
+    result = await session.execute(
+        select(Document, Course).join(Course, Course.id == Document.course_id).where(
+            Document.id == document_id
+        )
+    )
+    row = result.first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu này.")
+
+    document, course = row
+
+    is_owner = course.owner_id == user.id or user.role == "ADMIN"
+    if not is_owner:
+        enrolled = await session.execute(
+            select(Enrollment).where(
+                Enrollment.user_id == user.id, Enrollment.course_id == course.id
+            )
+        )
+        if enrolled.scalar_one_or_none() is None or document.status != "APPROVED":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu này."
+            )
+
+    # storage_uri hiện là đường dẫn file trên đĩa cục bộ (xem UPLOAD_DIR
+    # ở đầu file) - khi chuyển sang Object Storage thật thì ĐÂY là chỗ
+    # đổi sang redirect tới signed URL, phần kiểm tra quyền ở trên giữ nguyên.
+    file_path = Path(document.storage_uri)
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File gốc không còn trên máy chủ (có thể đã bị xoá khi khởi động lại).",
+        )
+
+    # inline: mở thẳng trong tab/iframe trình duyệt thay vì tải về máy -
+    # đúng mục đích "đọc để học", không phải "tải tài liệu về".
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        filename=document.title,
+        content_disposition_type="inline",
     )

@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { api, ApiError, CoursePublic, StudentRosterItem } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
 export default function CoursesPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const [courses, setCourses] = useState<CoursePublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -216,6 +218,14 @@ export default function CoursesPage() {
                   <div className="course-card__meta">Không gian môn học · Nova sẵn sàng</div>
                 </div>
               </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => router.push(`/courses/${c.id}`)}
+                  className="rounded-[7px] px-3.5 py-1.5 text-[12.3px] font-semibold text-white"
+                  style={{ background: "var(--accent)" }}
+                >
+                  Vào lớp
+                </button>
               {canManage && c.owner_id === user?.id && (
                 <div className="flex gap-2">
                   <button
@@ -238,6 +248,7 @@ export default function CoursesPage() {
                   </button>
                 </div>
               )}
+              </div>
             </div>
 
             {enrollingCourseId === c.id && (

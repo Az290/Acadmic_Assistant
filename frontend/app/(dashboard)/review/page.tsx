@@ -60,6 +60,11 @@ export default function ReviewDocumentsPage() {
   // Tài liệu đang xem trước (null = không mở modal nào)
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [previewLoadingId, setPreviewLoadingId] = useState<number | null>(null);
+  // Tài liệu đang mở bản PDF GỐC để đọc trước khi duyệt - khác "Xem
+  // trước" (chỉ hiện text đã cắt đoạn, mất bố cục/hình/bảng nên khó
+  // thẩm định nội dung thật). Duyệt tài liệu là quyết định có trách
+  // nhiệm, giảng viên cần thấy đúng thứ sinh viên sẽ đọc.
+  const [readingPdf, setReadingPdf] = useState<{ id: number; title: string } | null>(null);
 
   useEffect(() => {
     api
@@ -319,8 +324,17 @@ export default function ReviewDocumentsPage() {
                       disabled={previewLoadingId === d.id}
                       className="rounded-[7px] border px-4 py-1.5 text-[12.3px] font-semibold disabled:opacity-50"
                       style={{ borderColor: "var(--border-strong)", color: "var(--ink)" }}
+                      title="Xem TEXT đã trích xuất - đúng thứ AI đọc được"
                     >
-                      {previewLoadingId === d.id ? "Đang tải…" : "Xem trước"}
+                      {previewLoadingId === d.id ? "Đang tải…" : "Xem text trích xuất"}
+                    </button>
+                    <button
+                      onClick={() => setReadingPdf({ id: d.id, title: d.title })}
+                      className="rounded-[7px] px-4 py-1.5 text-[12.3px] font-semibold text-white"
+                      style={{ background: "var(--accent)" }}
+                      title="Đọc bản PDF gốc đầy đủ trước khi quyết định duyệt"
+                    >
+                      Đọc bản gốc
                     </button>
                   </div>
                 )}
@@ -328,6 +342,52 @@ export default function ReviewDocumentsPage() {
             ))}
           </div>
         </>
+      )}
+
+      {/* Khung đọc PDF GỐC - để giảng viên thẩm định nội dung thật
+          (bố cục, hình, bảng) trước khi duyệt, thay vì chỉ nhìn text
+          đã cắt đoạn. */}
+      {readingPdf && (
+        <div
+          className="fixed inset-0 z-[100] flex flex-col p-4"
+          style={{ background: "rgba(10, 12, 30, 0.6)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setReadingPdf(null);
+          }}
+        >
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white">
+            <div
+              className="flex items-center justify-between gap-3 border-b px-4 py-2.5"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div className="min-w-0 text-[13px] font-semibold">{readingPdf.title}</div>
+              <div className="flex shrink-0 items-center gap-2">
+                <a
+                  href={`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8001"}/v1/documents/${readingPdf.id}/file`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-[7px] border px-3 py-1 text-[11.5px] font-semibold"
+                  style={{ borderColor: "var(--border-strong)", color: "var(--ink)" }}
+                >
+                  Mở tab mới
+                </a>
+                <button
+                  onClick={() => setReadingPdf(null)}
+                  className="text-[16px] leading-none"
+                  style={{ color: "var(--ink-faint)" }}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <iframe
+              src={`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8001"}/v1/documents/${readingPdf.id}/file`}
+              title={readingPdf.title}
+              className="flex-1 border-0"
+            />
+          </div>
+        </div>
       )}
 
       {/* Modal xem trước - hiện TEXT ĐÃ TRÍCH XUẤT (thứ AI thực sự đọc

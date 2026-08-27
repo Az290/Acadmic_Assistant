@@ -674,6 +674,20 @@ export interface GenerateQuestionsRequest {
   num_questions_per_concept: number;
 }
 
+/** Giảng viên TỰ SOẠN 1 câu hỏi (không qua AI) để thêm vào đề đang duyệt. */
+export interface CreateQuizQuestionRequest {
+  concept_id: number;
+  question: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
+}
+
+/** Góp ý để AI sinh lại 1 câu hỏi, vd "đáp án đúng đang sai", "câu này trùng câu 2". */
+export interface RegenerateQuizQuestionRequest {
+  feedback: string;
+}
+
 export interface UpdateQuizQuestionRequest {
   question: string;
   options: string[];

@@ -48,15 +48,22 @@ from app.learning.assignment_schemas import (
     AssignmentResults,
     ConceptDifficulty,
     CreateAssignmentRequest,
+    CreateQuizQuestionRequest,
     GeneratedQuizQuestionPublic,
     GenerateQuestionsRequest,
+    RegenerateQuizQuestionRequest,
     StudentResultSummary,
     SubmitAssignmentRequest,
     SubmitAssignmentResponse,
     UpdateQuizQuestionRequest,
 )
 from app.learning.mastery import apply_answer, get_or_create_mastery
-from app.learning.quiz_generator import QuizGenerationError, generate_quiz_question
+from app.learning.quiz_generator import (
+    QuizGenerationError,
+    generate_quiz_question,
+    generate_quiz_questions_batch,
+    regenerate_quiz_question,
+)
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 
 router = APIRouter(prefix="/v1/assignments", tags=["assignments"])
@@ -128,16 +135,22 @@ async def generate_questions(
 
     generated_questions: list[GeneratedQuizQuestionPublic] = []
     for concept in concepts:
-        for _ in range(body.num_questions_per_concept):
-            try:
-                generated = await generate_quiz_question(
-                    session, concept_name=concept.name, user_id=user.id
-                )
-            except QuizGenerationError as e:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-                )
+        # MỘT lượt gọi LLM cho TẤT CẢ câu của 1 khái niệm - không lặp
+        # gọi từng câu. Gọi lặp cho ra các câu gần trùng nhau vì mỗi
+        # lượt độc lập, model không biết nó vừa sinh gì (xem docstring
+        # generate_quiz_questions_batch để biết chi tiết vấn đề thật
+        # đã gặp).
+        try:
+            generated_list = await generate_quiz_questions_batch(
+                session,
+                concept_name=concept.name,
+                user_id=user.id,
+                count=body.num_questions_per_concept,
+            )
+        except QuizGenerationError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
+        for generated in generated_list:
             question = QuizQuestion(
                 concept_id=concept.id,
                 question=generated["question"],
@@ -626,6 +639,116 @@ async def update_quiz_question(
     return GeneratedQuizQuestionPublic(
         id=question.id,
         concept_id=question.concept_id,
+        concept_name=concept.name,
+        question=question.question,
+        options=json.loads(question.options),
+        correct_index=question.correct_index,
+        explanation=question.explanation,
+    )
+
+
+@quiz_questions_router.post("", response_model=GeneratedQuizQuestionPublic, status_code=status.HTTP_201_CREATED)
+async def create_quiz_question(
+    body: CreateQuizQuestionRequest,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Giảng viên TỰ SOẠN thêm 1 câu hỏi vào đề đang duyệt (không qua AI).
+
+    Cần thiết vì AI không phải lúc nào cũng ra đủ/đúng ý: giảng viên
+    phải có đường tự thêm câu của mình, nếu không thì bị KHOÁ hoàn toàn
+    vào những gì AI sinh ra (chỉ được sửa/bỏ, không được thêm).
+
+    RBAC tra ngược từ concept_id -> course -> owner, KHÔNG nhận
+    course_id từ body (tránh giả mạo để tạo câu vào lớp người khác).
+    """
+    concept = (
+        await session.execute(select(Concept).where(Concept.id == body.concept_id))
+    ).scalar_one_or_none()
+    if concept is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khái niệm này.")
+
+    await _require_course_owner(session, user=user, course_id=concept.course_id)
+
+    question = QuizQuestion(
+        concept_id=concept.id,
+        question=body.question,
+        options=json.dumps(body.options, ensure_ascii=False),
+        correct_index=body.correct_index,
+        explanation=body.explanation,
+    )
+    session.add(question)
+    await session.commit()
+    await session.refresh(question)
+
+    return GeneratedQuizQuestionPublic(
+        id=question.id,
+        concept_id=concept.id,
+        concept_name=concept.name,
+        question=question.question,
+        options=json.loads(question.options),
+        correct_index=question.correct_index,
+        explanation=question.explanation,
+    )
+
+
+@quiz_questions_router.post("/{question_id}/regenerate", response_model=GeneratedQuizQuestionPublic)
+@limiter.limit(DEFAULT_RATE_LIMIT)
+async def regenerate_question_with_feedback(
+    request: Request,
+    question_id: int,
+    body: RegenerateQuizQuestionRequest,
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(require_role("INSTRUCTOR", "ADMIN")),
+):
+    """
+    Giảng viên góp ý -> AI sinh LẠI đúng câu hỏi đó (vd "đáp án đúng
+    đang sai", "câu này trùng câu 2", "hỏi vận dụng thay vì học thuộc").
+
+    Sửa TẠI CHỖ (cùng question_id) thay vì tạo câu mới: câu này có thể
+    đã nằm trong danh sách giảng viên đang duyệt ở frontend, đổi id sẽ
+    làm lệch thứ tự/lựa chọn đang hiển thị.
+    """
+    question = (
+        await session.execute(select(QuizQuestion).where(QuizQuestion.id == question_id))
+    ).scalar_one_or_none()
+    if question is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy câu hỏi này.")
+
+    concept = (
+        await session.execute(select(Concept).where(Concept.id == question.concept_id))
+    ).scalar_one()
+
+    await _require_course_owner(session, user=user, course_id=concept.course_id)
+
+    try:
+        regenerated = await regenerate_quiz_question(
+            session,
+            concept_name=concept.name,
+            user_id=user.id,
+            current={
+                "question": question.question,
+                "options": json.loads(question.options),
+                "correct_index": question.correct_index,
+                "explanation": question.explanation,
+            },
+            feedback=body.feedback,
+        )
+    except QuizGenerationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+    question.question = regenerated["question"]
+    question.options = json.dumps(regenerated["options"], ensure_ascii=False)
+    question.correct_index = regenerated["correct_index"]
+    question.explanation = regenerated["explanation"]
+
+    await session.commit()
+    await session.refresh(question)
+
+    return GeneratedQuizQuestionPublic(
+        id=question.id,
+        concept_id=concept.id,
         concept_name=concept.name,
         question=question.question,
         options=json.loads(question.options),
