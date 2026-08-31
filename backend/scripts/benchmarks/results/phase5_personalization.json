@@ -1,0 +1,46 @@
+{
+  "summary": {
+    "cases": 7,
+    "preference_contract_rate": 1.0,
+    "policy_boundary_rate": 1.0,
+    "memory_bound_pass": true,
+    "median_builder_latency_ms": 0.0059
+  },
+  "cases": [
+    {
+      "id": "default",
+      "passed": true,
+      "policy_preserved": true
+    },
+    {
+      "id": "vi",
+      "passed": true,
+      "policy_preserved": true
+    },
+    {
+      "id": "beginner",
+      "passed": true,
+      "policy_preserved": true
+    },
+    {
+      "id": "advanced",
+      "passed": true,
+      "policy_preserved": true
+    },
+    {
+      "id": "short",
+      "passed": true,
+      "policy_preserved": true
+    },
+    {
+      "id": "code",
+      "passed": true,
+      "policy_preserved": true
+    },
+    {
+      "id": "combined",
+      "passed": true,
+      "policy_preserved": true
+    }
+  ]
+}

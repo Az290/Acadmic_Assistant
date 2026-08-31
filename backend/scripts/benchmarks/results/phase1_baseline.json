@@ -1,0 +1,18 @@
+{
+  "label": "baseline",
+  "created_at": "2026-08-30T12:34:55.197302+00:00",
+  "summary": {
+    "frontend_contract_passed": false,
+    "classifier_cases": 0,
+    "classifier_errors": 0,
+    "category_accuracy": null,
+    "retrieval_decision_accuracy": null,
+    "median_latency_ms": null
+  },
+  "frontend_contract": {
+    "passed": false,
+    "expected": "Hoi dap=auto route; Gia su=SOCRATIC_REQUEST",
+    "observed": "Hoi dap dang bi ep RAG_QUESTION"
+  },
+  "cases": []
+}

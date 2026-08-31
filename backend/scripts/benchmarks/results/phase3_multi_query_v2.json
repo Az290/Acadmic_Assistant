@@ -1,0 +1,346 @@
+{
+  "label": "multi_query_v2",
+  "strategy": "bounded",
+  "created_at": "2026-08-30T13:00:42.466048+00:00",
+  "summary": {
+    "cases": 12,
+    "mean_recall_at_8": 0.8,
+    "mean_mrr": 0.464,
+    "complete_recall_rate": 0.8,
+    "false_hit_rate": 0.0,
+    "median_latency_ms": 480.5,
+    "p95_latency_ms": 724.0
+  },
+  "cases": [
+    {
+      "id": "concat-vi",
+      "query": "Trong Python, string concatenation là gì và dùng toán tử nào?",
+      "expected_chunk_ids": [
+        41
+      ],
+      "actual_chunk_ids": [
+        41,
+        38,
+        111,
+        86,
+        764,
+        309,
+        763,
+        765
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.5084981481795046,
+      "queries": [
+        "Trong Python, string concatenation là gì và dùng toán tử nào?"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 3914,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 3914.4
+    },
+    {
+      "id": "concat-short",
+      "query": "string concatenation operator Python",
+      "expected_chunk_ids": [
+        41
+      ],
+      "actual_chunk_ids": [
+        111,
+        86,
+        67,
+        41,
+        38,
+        330,
+        317,
+        332
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.25,
+      "false_hit": false,
+      "best_similarity": 0.5263042513577849,
+      "queries": [
+        "string concatenation operator Python"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 467,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 467.0
+    },
+    {
+      "id": "tuple-list",
+      "query": "Sự khác nhau giữa tuple và list trong Python là gì, đặc biệt về tính mutable?",
+      "expected_chunk_ids": [
+        151
+      ],
+      "actual_chunk_ids": [
+        151,
+        764,
+        149,
+        350,
+        765,
+        379,
+        145,
+        148
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.520406835364927,
+      "queries": [
+        "Sự khác nhau giữa tuple và list trong Python là gì, đặc biệt về tính mutable?"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 404,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 404.7
+    },
+    {
+      "id": "tuple-list-no-accent",
+      "query": "tuple va list khac nhau the nao ve mutable immutable",
+      "expected_chunk_ids": [
+        151
+      ],
+      "actual_chunk_ids": [
+        764,
+        151,
+        148,
+        149,
+        143,
+        765,
+        150,
+        145
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.5,
+      "false_hit": false,
+      "best_similarity": 0.47735864539513595,
+      "queries": [
+        "tuple va list khac nhau the nao ve mutable immutable"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 479,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 479.9
+    },
+    {
+      "id": "stdlib",
+      "query": "Python Standard Library là gì? Cho ví dụ một module built-in.",
+      "expected_chunk_ids": [
+        302
+      ],
+      "actual_chunk_ids": [
+        302,
+        274,
+        102,
+        301,
+        100,
+        104,
+        101,
+        103
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.60833380536259,
+      "queries": [
+        "Python Standard Library là gì? Cho ví dụ một module built-in."
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 724,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 724.0
+    },
+    {
+      "id": "recursion",
+      "query": "Sách Introduction to Python Programming có chương nào nói về đệ quy và gồm nội dung gì?",
+      "expected_chunk_ids": [
+        8
+      ],
+      "actual_chunk_ids": [
+        765,
+        763,
+        6,
+        12,
+        764,
+        1,
+        8,
+        7
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.14285714285714285,
+      "false_hit": false,
+      "best_similarity": 0.6328376264732963,
+      "queries": [
+        "Sách Introduction to Python Programming có chương nào nói về đệ quy và gồm nội dung gì?"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 481,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 481.2
+    },
+    {
+      "id": "recursion-no-accent",
+      "query": "ham de quy hoat dong nhu the nao",
+      "expected_chunk_ids": [
+        8
+      ],
+      "actual_chunk_ids": [],
+      "recall_at_8": 0.0,
+      "mrr": 0.0,
+      "false_hit": false,
+      "best_similarity": 0.0,
+      "queries": [
+        "ham de quy hoat dong nhu the nao"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 283,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 283.7
+    },
+    {
+      "id": "functions-chapter",
+      "query": "Chương Functions trong sách gồm những phần nào?",
+      "expected_chunk_ids": [
+        7
+      ],
+      "actual_chunk_ids": [
+        763,
+        233,
+        232,
+        7,
+        765,
+        6,
+        12,
+        8
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.25,
+      "false_hit": false,
+      "best_similarity": 0.46429180970932893,
+      "queries": [
+        "Chương Functions trong sách gồm những phần nào?"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 496,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 496.1
+    },
+    {
+      "id": "keyword-args",
+      "query": "Keyword arguments trong Python là gì?",
+      "expected_chunk_ids": [
+        268
+      ],
+      "actual_chunk_ids": [
+        266,
+        268,
+        267,
+        255,
+        269,
+        256,
+        332,
+        271
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.5,
+      "false_hit": false,
+      "best_similarity": 0.4668229027105022,
+      "queries": [
+        "Keyword arguments trong Python là gì?"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 540,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 540.4
+    },
+    {
+      "id": "input-output",
+      "query": "Cho ví dụ cụ thể về input output trong Python",
+      "expected_chunk_ids": [
+        28,
+        30
+      ],
+      "actual_chunk_ids": [
+        763,
+        765,
+        1,
+        764,
+        26,
+        27,
+        18,
+        19
+      ],
+      "recall_at_8": 0.0,
+      "mrr": 0.0,
+      "false_hit": false,
+      "best_similarity": 0.4906763080159311,
+      "queries": [
+        "Cho ví dụ cụ thể về input output trong Python"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 503,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 503.4
+    },
+    {
+      "id": "offtopic-pho",
+      "query": "Công thức nấu phở bò",
+      "expected_chunk_ids": [],
+      "actual_chunk_ids": [],
+      "recall_at_8": null,
+      "mrr": null,
+      "false_hit": false,
+      "best_similarity": 0.28511394847424587,
+      "queries": [
+        "Công thức nấu phở bò"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 335,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 335.4
+    },
+    {
+      "id": "offtopic-gold",
+      "query": "Giá vàng hôm nay bao nhiêu",
+      "expected_chunk_ids": [],
+      "actual_chunk_ids": [],
+      "recall_at_8": null,
+      "mrr": null,
+      "false_hit": false,
+      "best_similarity": 0.18840841225519744,
+      "queries": [
+        "Giá vàng hôm nay bao nhiêu"
+      ],
+      "query_generation_ms": 0,
+      "search_ms": 338,
+      "fallback_used": true,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 338.7
+    }
+  ]
+}

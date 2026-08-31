@@ -1,0 +1,12 @@
+{
+  "cases": [
+    {"id": "general-math", "message": "1+1 bằng mấy?", "expected_category": "GENERAL_KNOWLEDGE", "expected_retrieval": false},
+    {"id": "general-geography", "message": "Thủ đô nước Pháp là gì?", "expected_category": "GENERAL_KNOWLEDGE", "expected_retrieval": false},
+    {"id": "academic-python", "message": "Python là gì vậy bro?", "expected_category": "RAG_QUESTION", "expected_retrieval": true},
+    {"id": "academic-ml", "message": "Machine learning là gì?", "expected_category": "RAG_QUESTION", "expected_retrieval": true},
+    {"id": "socratic", "message": "Đừng cho đáp án, hãy gợi ý để tôi tự hiểu vòng lặp for", "expected_category": "SOCRATIC_REQUEST", "expected_retrieval": true},
+    {"id": "chitchat", "message": "Xin chào", "expected_category": "CHITCHAT", "expected_retrieval": false},
+    {"id": "system", "message": "Làm sao để vào lớp?", "expected_category": "SYSTEM_QUESTION", "expected_retrieval": false},
+    {"id": "action", "message": "Cho tôi xem các bài tập chưa nộp", "expected_category": "ACTION_REQUEST", "expected_retrieval": false}
+  ]
+}

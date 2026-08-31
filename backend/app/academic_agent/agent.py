@@ -35,6 +35,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.academic_agent.citation_verifier import verify_citations
+from app.academic_agent.evidence_planner import PlannerResult, plan_evidence
 from app.academic_agent.prompts import (
     DEADLINE_ALERT_HEADING,
     build_deadline_alert_block,
@@ -46,6 +47,13 @@ from app.academic_agent.prompts import (
     get_temperature_for_category,
 )
 from app.academic_agent.role_policy import RoleContext, resolve_role_context
+from app.academic_agent.instructor_context import build_instructor_context_block, load_instructor_context
+from app.academic_agent.response_composer import (
+    build_plan_instruction,
+    compose_grounded_response,
+    normalize_socratic_answer,
+    planned_citation_ids,
+)
 from app.academic_agent.schemas import ActionResultPublic, PendingActionPublic
 from app.academic_agent.system_kb_service import SystemKBQuerier
 from app.academic_agent.tool_executor import ToolExecutionResult, execute_tool
@@ -56,6 +64,17 @@ from app.guardrail.guardrail import check_input, check_output
 from app.ingestion.embedder import embed_texts
 from app.learning.concept_matcher import find_best_concept
 from app.learning.student_context import StudentContext, load_student_context
+from app.personalization.context_builder import (
+    build_personalization_context,
+    build_personalization_instruction,
+)
+from app.operations.rollout import is_user_in_rollout
+from app.personalization.service import get_preference
+from app.personalization.memory_service import (
+    build_memory_instruction,
+    load_conversation_memory,
+    refresh_conversation_memory,
+)
 from app.retrieval.hybrid_search import SearchResult, hybrid_search
 from app.router_agent.classifier import RouteResult, classify
 
@@ -681,6 +700,43 @@ def _build_context_text(search_results: list[SearchResult]) -> str:
     return "\n\n".join(blocks)
 
 
+def _apply_planner_result(
+    result: PlannerResult,
+    search_results: list[SearchResult],
+) -> tuple[list[SearchResult], str]:
+    """Chi dua evidence planner da chot cho composer; fallback giu legacy context."""
+    if result.fallback_used:
+        return search_results, ""
+
+    selected_ids = {
+        chunk_id
+        for claim in result.plan.claims
+        for chunk_id in claim.evidence_chunk_ids
+    }
+    selected = [item for item in search_results if item.chunk_id in selected_ids]
+    # Planner co the chot insufficient ma khong co claim. Khong dua cac chunk bi
+    # loai vao composer; day la khac biet cot loi so voi legacy direct RAG.
+    if result.plan.answer_mode == "insufficient":
+        selected = []
+    elif not selected and search_results:
+        # Schema dung nhung plan grounded rong: fallback an toan, khong lam giam
+        # chat luong chi vi planner bo sot claim.
+        return search_results, ""
+
+    claims = "\n".join(
+        f"- {claim.claim_id}: {claim.point} (chunks: {claim.evidence_chunk_ids})"
+        for claim in result.plan.claims
+    ) or "- Khong co claim du evidence de tra loi truc tiep."
+    instruction = (
+        "\n\nKE HOACH EVIDENCE DA DUOC KIEM TRA:\n"
+        f"Answer mode: {result.plan.answer_mode}\n"
+        f"Teaching strategy: {result.plan.teaching_strategy}\n"
+        f"Claims duoc phep:\n{claims}\n"
+        "Khong them factual claim moi ngoai danh sach tren."
+    )
+    return selected, instruction
+
+
 def _build_citations(search_results: list[SearchResult]) -> list[dict]:
     """
     Dùng RIÊNG cho handle_chat_stream() - trả về TOÀN BỘ chunk đã đưa
@@ -815,6 +871,19 @@ def _build_verified_citations(raw_citations: list[dict], search_results: list[Se
     return result
 
 
+def _build_planned_citations(evidence_plan, search_results: list[SearchResult]) -> list[dict]:
+    lookup = {item.chunk_id: item for item in search_results}
+    return [
+        {
+            "chunk_id": chunk_id,
+            "document_id": lookup[chunk_id].document_id,
+            "page_number": lookup[chunk_id].page_number,
+        }
+        for chunk_id in planned_citation_ids(evidence_plan, search_results)
+        if chunk_id in lookup
+    ]
+
+
 async def handle_chat(
     session: AsyncSession,
     *,
@@ -824,6 +893,7 @@ async def handle_chat(
     message: str,
     conversation_id: int | None = None,
     course_id: int | None = None,
+    is_group: bool = False,
 ) -> ChatResult:
     """
     Hàm chính - nhận 1 câu hỏi, chạy trọn 7 bước, trả về ChatResult.
@@ -869,6 +939,17 @@ async def handle_chat(
             global_role=user_role or ("ADMIN" if is_admin else "STUDENT"),
             course_id=None,
         )
+    instructor_context_block = build_instructor_context_block(await load_instructor_context(
+        session, course_id=active_course_id, effective_role=role_context.effective_role
+    ))
+    preference = await get_preference(session, user_id)
+    agentic_rollout_enabled = is_user_in_rollout(user_id, get_settings().nova_rollout_percent)
+    personalization_instruction = build_personalization_instruction(
+        build_personalization_context(preference, is_group=is_group)
+    )
+    memory_instruction = "" if is_group else build_memory_instruction(
+        await load_conversation_memory(session, conversation_id, user_id)
+    )
 
     # --- Bước 1+2 CHẠY SONG SONG: Guardrail input và Router classify ---
     # PHÁT HIỆN QUA ĐO THẬT (không phải đoán): 2 bước này tuần tự tốn
@@ -901,11 +982,15 @@ async def handle_chat(
         asyncio.to_thread(check_input, message),
         asyncio.to_thread(classify, message, history),
         _embed_early(),
-        load_student_context(
-            session,
-            user_id=user_id,
-            course_id=active_course_id,
-            user_role=role_context.effective_role,
+        (
+            asyncio.sleep(0, result=StudentContext())
+            if is_group
+            else load_student_context(
+                session,
+                user_id=user_id,
+                course_id=active_course_id,
+                user_role=role_context.effective_role,
+            )
         ),
     )
 
@@ -939,7 +1024,7 @@ async def handle_chat(
     # Nếu có câu trả lời từ KB -> dùng ngay, không cần tra tài liệu.
     if route.category == "SYSTEM_QUESTION":
         kb_querier = SystemKBQuerier(session)
-        kb_result = await kb_querier.query(message, user_id)
+        kb_result = await kb_querier.query(message, user_id, role_context.effective_role)
 
         if kb_result.answer:
             # Có câu trả lời từ System Knowledge Base -> dùng luôn
@@ -1065,6 +1150,30 @@ async def handle_chat(
             course_id=active_course_id,
         )
 
+    planner_instruction = ""
+    evidence_plan = None
+    if route.needs_retrieval:
+        planner_result = await asyncio.to_thread(
+            plan_evidence,
+            question=message,
+            search_query=search_query,
+            candidates=search_results,
+            history=history,
+            effective_role=role_context.effective_role,
+            socratic=route.category == "SOCRATIC_REQUEST",
+            enabled=agentic_rollout_enabled,
+        )
+        search_results, _legacy_planner_instruction = _apply_planner_result(
+            planner_result, search_results
+        )
+        if not planner_result.fallback_used:
+            evidence_plan = planner_result.plan
+            planner_instruction = build_plan_instruction(
+                evidence_plan, is_first_message=not history
+            )
+        else:
+            planner_instruction = _legacy_planner_instruction
+
     # Gắn Conversation vào đúng lớp học nếu client chưa chỉ định - phải
     # làm SAU Hybrid Search vì course_id được suy ra từ chính các chunk
     # tra cứu được (xem _infer_course_id). Chỉ gán 1 lần cho mỗi phiên:
@@ -1085,7 +1194,12 @@ async def handle_chat(
         already_alerted=deadline_already_alerted,
     )
 
-    context_text = _build_context_text(search_results)
+    context_text = (
+        _build_context_text(search_results)
+        + planner_instruction
+        + personalization_instruction
+        + memory_instruction
+    )
     # history rỗng = lượt hỏi đầu tiên của phiên -> cho phép Nova chào
     # một câu ngắn. Các lượt sau vào thẳng nội dung (xem prompts.py).
     system_prompt = build_system_prompt(
@@ -1095,6 +1209,7 @@ async def handle_chat(
         recent_mistake=recent_mistake_block,
         learning_progress=learning_progress_block,
         deadline_alert=deadline_alert_block,
+        instructor_context=instructor_context_block,
         effective_role=role_context.effective_role,
         active_course_id=active_course_id,
     )
@@ -1116,12 +1231,29 @@ async def handle_chat(
         response = _client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
-    raw_response = await asyncio.to_thread(_call_llm)
-
     if route.needs_retrieval:
-        answer, raw_citations = _parse_llm_response(raw_response)
+        composer_result = await asyncio.to_thread(
+            compose_grounded_response,
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            plan=evidence_plan,
+            candidates=search_results,
+            is_first_message=not history,
+            enabled=agentic_rollout_enabled,
+        )
+        if composer_result.fallback_used:
+            raw_response = await asyncio.to_thread(_call_llm)
+            answer, raw_citations = _parse_llm_response(raw_response)
+        else:
+            answer = composer_result.answer
+            raw_citations = composer_result.citations
     else:
+        raw_response = await asyncio.to_thread(_call_llm)
         answer, raw_citations = raw_response, []
+
+    if route.category == "SOCRATIC_REQUEST":
+        answer = normalize_socratic_answer(answer)
 
     # --- Bước 6: Guardrail output ---
     output_check = await asyncio.to_thread(check_output, answer)
@@ -1152,7 +1284,9 @@ async def handle_chat(
     # dụng ở handle_chat_stream() vì JSON output không stream đẹp từng
     # chữ như text thường (đánh đổi đã thảo luận và chốt cùng người
     # dùng - xem app/academic_agent/citation_verifier.py).
-    citations = _build_verified_citations(raw_citations, search_results)
+    citations = _build_planned_citations(evidence_plan, search_results)
+    if not citations:
+        citations = _build_verified_citations(raw_citations, search_results)
 
     session.add(Message(conversation_id=conversation.id, role="user", content=message))
     session.add(
@@ -1166,6 +1300,8 @@ async def handle_chat(
             retrieval_similarity=_extract_retrieval_similarity(search_results, retrieval_stats),
         )
     )
+    await session.flush()
+    await refresh_conversation_memory(session, conversation.id, user_id)
     await session.commit()
 
     return ChatResult(
@@ -1271,6 +1407,17 @@ async def handle_chat_stream(
             global_role=user_role or ("ADMIN" if is_admin else "STUDENT"),
             course_id=None,
         )
+    instructor_context_block = build_instructor_context_block(await load_instructor_context(
+        session, course_id=active_course_id, effective_role=role_context.effective_role
+    ))
+    preference = await get_preference(session, user_id)
+    agentic_rollout_enabled = is_user_in_rollout(user_id, get_settings().nova_rollout_percent)
+    personalization_instruction = build_personalization_instruction(
+        build_personalization_context(preference, is_group=False)
+    )
+    memory_instruction = build_memory_instruction(
+        await load_conversation_memory(session, conversation_id, user_id)
+    )
 
     # Tải hồ sơ học tập (khái niệm của lớp + mức độ nắm vững) SONG SONG
     # với Guardrail và Router - 3 việc này KHÔNG phụ thuộc kết quả của
@@ -1349,7 +1496,7 @@ async def handle_chat_stream(
     # Kiểm tra System Knowledge Base TRƯỚC khi xử lý retrieval.
     if route.category == "SYSTEM_QUESTION":
         kb_querier = SystemKBQuerier(session)
-        kb_result = await kb_querier.query(message, user_id)
+        kb_result = await kb_querier.query(message, user_id, role_context.effective_role)
 
         if kb_result.answer:
             # Có câu trả lời từ KB -> stream từng từ
@@ -1530,6 +1677,30 @@ async def handle_chat_stream(
         )
     retrieval_ms = int((time.monotonic() - retrieval_start) * 1000)
 
+    planner_instruction = ""
+    evidence_plan = None
+    if route.needs_retrieval:
+        planner_result = await asyncio.to_thread(
+            plan_evidence,
+            question=message,
+            search_query=search_query,
+            candidates=search_results,
+            history=history,
+            effective_role=role_context.effective_role,
+            socratic=route.category == "SOCRATIC_REQUEST",
+            enabled=agentic_rollout_enabled,
+        )
+        search_results, _legacy_planner_instruction = _apply_planner_result(
+            planner_result, search_results
+        )
+        if not planner_result.fallback_used:
+            evidence_plan = planner_result.plan
+            planner_instruction = build_plan_instruction(
+                evidence_plan, is_first_message=not history
+            )
+        else:
+            planner_instruction = _legacy_planner_instruction
+
     # Báo đã tìm xong tài liệu, sắp soạn câu trả lời. Kèm SỐ ĐOẠN tìm
     # được để người dùng thấy hệ thống có căn cứ thật (hoặc biết ngay là
     # không tìm thấy gì, thay vì bất ngờ khi đọc câu trả lời "tôi không
@@ -1597,7 +1768,12 @@ async def handle_chat_stream(
         already_alerted=deadline_already_alerted,
     )
 
-    context_text = _build_context_text(search_results)
+    context_text = (
+        _build_context_text(search_results)
+        + planner_instruction
+        + personalization_instruction
+        + memory_instruction
+    )
     # with_citation_contract=False: luồng streaming đẩy thẳng text ra
     # màn hình, không parse JSON - xem docstring build_system_prompt.
     system_prompt = build_system_prompt(
@@ -1609,6 +1785,7 @@ async def handle_chat_stream(
         recent_mistake=recent_mistake_block,
         learning_progress=learning_progress_block,
         deadline_alert=deadline_alert_block,
+        instructor_context=instructor_context_block,
         effective_role=role_context.effective_role,
         active_course_id=active_course_id,
     )
@@ -1714,6 +1891,8 @@ async def handle_chat_stream(
         retrieval_similarity=_extract_retrieval_similarity(search_results, retrieval_stats),
     )
     session.add(assistant_message)
+    await session.flush()
+    await refresh_conversation_memory(session, conversation.id, user_id)
     await session.commit()
 
     # message_id + retrieval_similarity gửi kèm để giao diện biết đánh

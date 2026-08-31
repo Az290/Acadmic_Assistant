@@ -1,0 +1,1 @@
+"""Discord mention-only adapter."""

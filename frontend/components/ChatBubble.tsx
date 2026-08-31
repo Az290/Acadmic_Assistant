@@ -8,6 +8,7 @@ import {
   ChunkDetail,
   CitationPublic,
   ConceptPublic,
+  ConversationSessionPublic,
   ConversationSummary,
   CoursePublic,
   getConversationSummary,
@@ -20,13 +21,33 @@ import NovaAvatar from "@/components/NovaAvatar";
 import VoiceInput from "@/components/VoiceInput";
 import { useAuth } from "@/lib/AuthContext";
 
+function speakNovaResponse(text: string) {
+  if (!("speechSynthesis" in window)) return;
+  const spokenText = text
+    .replace(/```[\s\S]*?```/g, " đoạn mã ")
+    .replace(/[*_#>`~]/g, "")
+    .replace(/\[([^\]]+)]\([^\)]+\)/g, "$1")
+    .trim();
+  if (!spokenText) return;
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(spokenText);
+  utterance.lang = "vi-VN";
+  utterance.rate = 1;
+  const vietnameseVoice = window.speechSynthesis
+    .getVoices()
+    .find((voice) => voice.lang.toLowerCase().startsWith("vi"));
+  if (vietnameseVoice) utterance.voice = vietnameseVoice;
+  window.speechSynthesis.speak(utterance);
+}
+
 /**
  * ChatBubble - panel chat nổi kiểu Messenger, hiện ở MỌI trang (được
  * đặt trong DashboardLayout, ngoài <main>) thay vì là 1 trang /chat
  * riêng biệt - đúng theo yêu cầu prototype: người dùng không cần rời
  * trang đang xem để hỏi, và có thể thu nhỏ lại khi không cần.
  *
- * 2 chế độ trong panel ("Hỏi đáp" / "Gia sư") ứng với force_category
+ * Chế độ "Hỏi đáp" để Router tự phân loại; "Gia sư" ép SOCRATIC_REQUEST.
  * gửi kèm mỗi request - mỗi tab giữ conversation_id RIÊNG (2 phiên
  * hội thoại độc lập), tránh trộn lẫn lịch sử giữa 2 kiểu trả lời khác
  * hẳn nhau (RAG_QUESTION trả lời thẳng vs SOCRATIC_REQUEST gợi mở).
@@ -115,15 +136,31 @@ function conversationStorageKey(tabMode: TabMode): string {
  * như chưa có gì lưu, không phải bug nghiêm trọng cần báo người dùng.
  */
 function readStoredConversationId(tabMode: TabMode): number | undefined {
-  try {
-    const raw = localStorage.getItem(conversationStorageKey(tabMode));
-    if (!raw) return undefined;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
+  void tabMode;
+  // Không tự khôi phục phiên cũ khi đăng nhập/mở lại ứng dụng. Người dùng chỉ
+  // quay lại phiên cũ bằng thao tác chọn rõ ràng trong danh sách lịch sử.
+  return undefined;
 }
+
+interface NovaPreference {
+  preferred_language: "auto" | "vi" | "en";
+  explanation_depth: "auto" | "beginner" | "intermediate" | "advanced";
+  response_length: "auto" | "short" | "medium" | "detailed";
+  example_style: "auto" | "code" | "analogy" | "step_by_step";
+}
+
+interface NovaMemory {
+  conversation_id: number;
+  summary: string;
+  updated_at: string | null;
+}
+
+const DEFAULT_NOVA_PREFERENCE: NovaPreference = {
+  preferred_language: "auto",
+  explanation_depth: "auto",
+  response_length: "auto",
+  example_style: "auto",
+};
 
 function writeStoredConversationId(tabMode: TabMode, conversationId: number | undefined): void {
   try {
@@ -161,8 +198,8 @@ export default function ChatBubble() {
   // đồng bộ, không cần useEffect) - messages thì phải đợi useEffect gọi
   // API để "hydrate" (xem effect bên dưới) vì đó là thao tác async.
   const [tabs, setTabs] = useState<Record<TabMode, TabState>>({
-    RAG_QUESTION: { messages: [], conversationId: readStoredConversationId("RAG_QUESTION") },
-    SOCRATIC_REQUEST: { messages: [], conversationId: readStoredConversationId("SOCRATIC_REQUEST") },
+    RAG_QUESTION: emptyTabState(),
+    SOCRATIC_REQUEST: emptyTabState(),
   });
   // Tab nào đang hiện dòng "Tiếp tục cuộc trò chuyện trước" - chỉ bật
   // sau khi hydrate THÀNH CÔNG (có lịch sử thật từ server), tắt ngay
@@ -208,14 +245,76 @@ export default function ChatBubble() {
   // Đổi label nút "Sao chép" tạm thời để báo kết quả - null nghĩa là
   // trạng thái bình thường (chưa bấm hoặc đã hết thời gian hiện thông báo).
   const [copyStatus, setCopyStatus] = useState<"success" | "error" | null>(null);
+  const [showSessions, setShowSessions] = useState(false);
+  const [sessions, setSessions] = useState<ConversationSessionPublic[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [showPreferences, setShowPreferences] = useState(false);
+  const [preferences, setPreferences] = useState<NovaPreference>(DEFAULT_NOVA_PREFERENCE);
+  const [preferencesLoading, setPreferencesLoading] = useState(false);
+  const [preferencesSaving, setPreferencesSaving] = useState(false);
+  const [memories, setMemories] = useState<NovaMemory[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isOpen = size !== "closed";
   const current = tabs[tab];
+  const sendRef = useRef(handleSend);
   const selectedCourse = courses.find((course) => course.id === courseId);
   const isInstructorContext =
     user?.role === "ADMIN" ||
     (user?.role === "INSTRUCTOR" && (courseId === undefined || selectedCourse?.owner_id === user.id));
+
+  async function openPreferences() {
+    setShowPreferences(true);
+    setPreferencesLoading(true);
+    try {
+      const [loadedPreferences, loadedMemories] = await Promise.all([
+        api.get<NovaPreference>("/v1/nova/preferences/me"),
+        api.get<NovaMemory[]>("/v1/nova/memory/me"),
+      ]);
+      setPreferences(loadedPreferences);
+      setMemories(loadedMemories);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Không thể tải tùy chọn của Nova.");
+    } finally {
+      setPreferencesLoading(false);
+    }
+  }
+
+  async function savePreferences() {
+    setPreferencesSaving(true);
+    try {
+      setPreferences(await api.patch<NovaPreference>("/v1/nova/preferences/me", preferences));
+      setShowPreferences(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Không thể lưu tùy chọn của Nova.");
+    } finally {
+      setPreferencesSaving(false);
+    }
+  }
+
+  async function resetPreferences() {
+    setPreferencesSaving(true);
+    try {
+      await api.delete<void>("/v1/nova/preferences/me");
+      setPreferences(DEFAULT_NOVA_PREFERENCE);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Không thể xóa tùy chọn của Nova.");
+    } finally {
+      setPreferencesSaving(false);
+    }
+  }
+
+  async function clearConversationMemory() {
+    setPreferencesSaving(true);
+    try {
+      await api.delete<{ deleted: number }>("/v1/nova/memory/me");
+      setMemories([]);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Không thể xóa bộ nhớ hội thoại.");
+    } finally {
+      setPreferencesSaving(false);
+    }
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -321,6 +420,44 @@ export default function ChatBubble() {
     setSummaryData(null);
     setSuggestedQuestions([]);
     clearSuggestedQuestions();
+    setShowSessions(false);
+  }
+
+  async function openSessionList() {
+    setShowSessions(true);
+    setSessionsLoading(true);
+    setError(null);
+    try {
+      setSessions(await api.get<ConversationSessionPublic[]>("/v1/chat/conversations"));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không thể tải danh sách phiên trò chuyện.");
+    } finally {
+      setSessionsLoading(false);
+    }
+  }
+
+  async function openConversationSession(sessionItem: ConversationSessionPublic) {
+    setSessionsLoading(true);
+    setError(null);
+    try {
+      const history = await api.get<MessagePublic[]>(`/v1/chat/${sessionItem.conversation_id}/messages`);
+      setTabs((prev) => ({
+        ...prev,
+        [tab]: {
+          conversationId: sessionItem.conversation_id,
+          messages: history.map(toDisplayMessage),
+        },
+      }));
+      writeStoredConversationId(tab, sessionItem.conversation_id);
+      setCourseId(sessionItem.course_id ?? undefined);
+      setHydratedTabs((prev) => ({ ...prev, [tab]: true }));
+      setShowSessions(false);
+      setSuggestedQuestions([]);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Không thể mở phiên trò chuyện này.");
+    } finally {
+      setSessionsLoading(false);
+    }
   }
 
   // Copy summary vào clipboard
@@ -345,9 +482,19 @@ export default function ChatBubble() {
   // handleSend() trong cùng lượt sự kiện sẽ đọc phải `input` CŨ (closure
   // chưa thấy state vừa cập nhật), nên phải truyền thẳng text cần gửi
   // thay vì trông chờ state kịp đổi.
-  async function handleSend(overrideText?: string) {
+  async function handleSend(overrideText?: string, voiceMode = false) {
     const text = (overrideText ?? input).trim();
-    if (!text || sending) return;
+    if (!text) return;
+    if (sending) {
+      if (voiceMode) {
+        window.dispatchEvent(
+          new CustomEvent("nova-voice-error", {
+            detail: { message: "Nova đang xử lý một yêu cầu khác. Bạn hãy gọi lại sau khi Nova trả lời xong." },
+          })
+        );
+      }
+      return;
+    }
 
     const activeTab = tab; // chốt lại tab tại thời điểm gửi - tránh lỗi nếu người dùng đổi tab giữa lúc đang stream
     setTabs((prev) => ({
@@ -361,6 +508,7 @@ export default function ChatBubble() {
     setSending(true);
     setError(null);
     clearSuggestedQuestions();
+    let voiceAnswer = "";
 
     try {
       await streamChat(
@@ -368,12 +516,29 @@ export default function ChatBubble() {
           message: text,
           conversation_id: tabs[activeTab].conversationId,
           course_id: courseId,
-          force_category: isInstructorContext ? undefined : activeTab,
+          // "Hỏi đáp" có thể là kiến thức lớp, kiến thức phổ thông, chitchat,
+          // câu hỏi hệ thống hoặc yêu cầu thao tác. Không ép RAG_QUESTION ở đây,
+          // nếu không Router sẽ không bao giờ nhìn thấy các loại câu hỏi đó.
+          // Chỉ "Gia sư" là một ý định tường minh cần ép SOCRATIC_REQUEST.
+          force_category:
+            !isInstructorContext && activeTab === "SOCRATIC_REQUEST"
+              ? "SOCRATIC_REQUEST"
+              : undefined,
           // Chỉ gửi khi ở chế độ Gia sư - chế độ Hỏi đáp không dùng
           // khái niệm để điều chỉnh cách trả lời.
           concept_id: activeTab === "SOCRATIC_REQUEST" ? conceptId : undefined,
         },
         (event) => {
+          if (voiceMode) {
+            if (event.type === "chunk") voiceAnswer += event.text;
+            if (event.type === "action_pending") {
+              voiceAnswer = `${event.arguments_summary}. Hãy nói có để xác nhận hoặc không để huỷ.`;
+            }
+            if (event.type === "action_result") voiceAnswer = event.summary;
+            if (event.type === "blocked") {
+              voiceAnswer = "Câu hỏi của bạn không hợp lệ, vui lòng đặt câu hỏi khác.";
+            }
+          }
           setTabs((prev) => {
             const state = prev[activeTab];
             const messages = [...state.messages];
@@ -479,9 +644,19 @@ export default function ChatBubble() {
           }
         }
       );
+      if (voiceMode) {
+        window.dispatchEvent(
+          new CustomEvent("nova-voice-response", {
+            detail: { text: voiceAnswer || "Nova đã xử lý xong nhưng chưa nhận được nội dung trả lời." },
+          })
+        );
+      }
     } catch (err) {
       const message = err instanceof ApiError ? err.detail : "Không thể gửi câu hỏi, vui lòng thử lại.";
       setError(message);
+      if (voiceMode) {
+        window.dispatchEvent(new CustomEvent("nova-voice-error", { detail: { message } }));
+      }
       updateCurrentTab((state) => ({
         ...state,
         messages: state.messages.slice(0, -1), // bỏ bong bóng "đang trả lời" rỗng nếu lỗi xảy ra trước khi có chunk nào
@@ -592,6 +767,38 @@ export default function ChatBubble() {
     return () => window.removeEventListener("open-chat-tab", handleOpenChatTab);
   }, []);
 
+  // Chế độ giao tiếp giọng nói gửi câu hỏi qua event và không mở panel.
+  // Tái sử dụng nguyên luồng chat/guardrail/context hiện có thay vì tạo
+  // một API bí mật riêng cho voice.
+  useEffect(() => {
+    function handleVoiceQuery(event: Event) {
+      const detail = (event as CustomEvent<{ text: string }>).detail;
+      if (!detail?.text.trim()) return;
+      void sendRef.current(detail.text, true);
+    }
+    window.addEventListener("nova-voice-query", handleVoiceQuery);
+    return () => window.removeEventListener("nova-voice-query", handleVoiceQuery);
+  }, []);
+
+  // Chỉ đọc thành tiếng câu trả lời phát sinh từ nút microphone trong khung chat.
+  useEffect(() => {
+    function handleVoiceResponse(event: Event) {
+      const detail = (event as CustomEvent<{ text: string }>).detail;
+      if (detail?.text) speakNovaResponse(detail.text);
+    }
+    function handleVoiceError(event: Event) {
+      const detail = (event as CustomEvent<{ message: string }>).detail;
+      if (detail?.message) speakNovaResponse(detail.message);
+    }
+    window.addEventListener("nova-voice-response", handleVoiceResponse);
+    window.addEventListener("nova-voice-error", handleVoiceError);
+    return () => {
+      window.removeEventListener("nova-voice-response", handleVoiceResponse);
+      window.removeEventListener("nova-voice-error", handleVoiceError);
+      window.speechSynthesis?.cancel();
+    };
+  }, []);
+
   // Mở panel VÀ GỬI LUÔN 1 câu hỏi có sẵn - phát ra từ nút "Hỏi Nova
   // giải thích" ở trang quiz (kèm nguyên văn câu hỏi + đáp án sinh viên
   // chọn + đáp án đúng, để Nova giải thích ĐÚNG câu đó thay vì phải
@@ -600,7 +807,6 @@ export default function ChatBubble() {
   // Dùng ref cho handleSend: hàm này được tạo lại mỗi lần render, nếu
   // đưa vào deps thì listener bị gỡ/gắn liên tục; nếu để deps rỗng mà
   // gọi thẳng thì lại bắt phải closure cũ (state tabs/courseId lỗi thời).
-  const sendRef = useRef(handleSend);
   // Cập nhật ref trong effect, KHÔNG gán thẳng trong thân render: React
   // 19 coi việc ghi ref lúc render là tác dụng phụ không hợp lệ (render
   // phải thuần khiết để có thể bị huỷ/chạy lại an toàn).
@@ -663,7 +869,7 @@ export default function ChatBubble() {
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
       {isOpen && (
         <div
-          className={`animate-fade flex flex-col overflow-hidden rounded-2xl border ${PANEL_SIZE_CLASS[size]}`}
+          className={`animate-fade relative flex flex-col overflow-hidden rounded-2xl border ${PANEL_SIZE_CLASS[size]}`}
           style={{
             background: "#ffffff",
             borderColor: "var(--border-strong)",
@@ -712,6 +918,40 @@ export default function ChatBubble() {
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
+                onClick={handleStartNewConversation}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20"
+                title="Phiên trò chuyện mới"
+                aria-label="Bắt đầu phiên trò chuyện mới"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => (showSessions ? setShowSessions(false) : void openSessionList())}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20"
+                title="Danh sách phiên trò chuyện"
+                aria-label="Mở danh sách phiên trò chuyện"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" /><path d="M12 7v5l3 2" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => void openPreferences()}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20"
+                title="Cá nhân hóa Nova"
+                aria-label="Mở tùy chọn cá nhân hóa Nova"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
+                </svg>
+              </button>
+              <button
+                type="button"
                 onClick={() => setSize(size === "full" ? "compact" : "full")}
                 className="flex h-9 w-9 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20"
                 title={size === "full" ? "Thu nhỏ cửa sổ" : "Mở rộng cửa sổ"}
@@ -743,6 +983,44 @@ export default function ChatBubble() {
 
           {/* Sinh viên chọn Hỏi đáp/Gia sư; giảng viên dùng một chế độ
               trợ lý để Router có thể nhận diện cả yêu cầu gọi tool. */}
+          {showSessions && (
+            <div className="absolute inset-x-0 bottom-0 top-[68px] z-20 flex flex-col bg-white">
+              <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: "var(--border)" }}>
+                <div>
+                  <div className="text-[14px] font-bold" style={{ color: "var(--ink)" }}>Các phiên trò chuyện</div>
+                  <div className="text-[11px]" style={{ color: "var(--ink-faint)" }}>Chỉ hiển thị lịch sử của tài khoản hiện tại</div>
+                </div>
+                <button type="button" onClick={() => setShowSessions(false)} className="rounded-lg px-3 py-1.5 text-[12px] font-semibold" style={{ color: "var(--accent)" }}>
+                  Đóng
+                </button>
+              </div>
+              <div className="flex-1 space-y-2 overflow-y-auto p-3">
+                <button type="button" onClick={handleStartNewConversation} className="btn btn-primary w-full">
+                  + Phiên trò chuyện mới
+                </button>
+                {sessionsLoading ? (
+                  <p className="py-6 text-center text-[12px]" style={{ color: "var(--ink-faint)" }}>Đang tải lịch sử…</p>
+                ) : sessions.length === 0 ? (
+                  <p className="py-6 text-center text-[12px]" style={{ color: "var(--ink-faint)" }}>Chưa có phiên trò chuyện nào.</p>
+                ) : sessions.map((sessionItem) => (
+                  <button
+                    key={sessionItem.conversation_id}
+                    type="button"
+                    onClick={() => void openConversationSession(sessionItem)}
+                    className="w-full rounded-xl border p-3 text-left transition-colors hover:bg-slate-50"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    <div className="truncate text-[12.5px] font-semibold" style={{ color: "var(--ink)" }}>{sessionItem.title}</div>
+                    <div className="mt-1 flex justify-between text-[10.5px]" style={{ color: "var(--ink-faint)" }}>
+                      <span>{sessionItem.message_count} tin nhắn</span>
+                      <span>{new Date(sessionItem.updated_at).toLocaleString("vi-VN")}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex border-b" style={{ borderColor: "var(--border)" }}>
             {(isInstructorContext ? (["RAG_QUESTION"] as const) : (["RAG_QUESTION", "SOCRATIC_REQUEST"] as const)).map((t) => (
               <button
@@ -1190,7 +1468,7 @@ export default function ChatBubble() {
               onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border-strong)")}
             />
             <VoiceInput
-              onTranscriptionComplete={(text) => setInput(text)}
+              onTranscriptionComplete={(text) => void handleSend(text, true)}
               disabled={sending}
             />
             <button
@@ -1241,6 +1519,51 @@ export default function ChatBubble() {
             >
               {viewingChunk.content}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showPreferences && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(10, 12, 30, 0.45)" }} onClick={(e) => e.target === e.currentTarget && setShowPreferences(false)}>
+          <div className="w-[440px] max-w-[92vw] rounded-xl border bg-white p-5" style={{ borderColor: "var(--border)" }}>
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <div className="text-[15px] font-bold">Cá nhân hóa Nova</div>
+                <div className="mt-1 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>Tùy chọn chỉ đổi cách diễn đạt, không đổi dữ liệu hay quyền truy cập.</div>
+              </div>
+              <button onClick={() => setShowPreferences(false)} aria-label="Đóng">✕</button>
+            </div>
+            {preferencesLoading ? (
+              <div className="py-8 text-center text-[12px]" style={{ color: "var(--ink-soft)" }}>Đang tải tùy chọn…</div>
+            ) : (
+              <div className="grid gap-3">
+                {([
+                  ["preferred_language", "Ngôn ngữ", [["auto", "Tự động"], ["vi", "Tiếng Việt"], ["en", "English"]]],
+                  ["explanation_depth", "Mức giải thích", [["auto", "Tự động"], ["beginner", "Cơ bản"], ["intermediate", "Trung bình"], ["advanced", "Nâng cao"]]],
+                  ["response_length", "Độ dài", [["auto", "Tự động"], ["short", "Ngắn"], ["medium", "Vừa"], ["detailed", "Chi tiết"]]],
+                  ["example_style", "Kiểu ví dụ", [["auto", "Tự động"], ["code", "Đoạn mã"], ["analogy", "So sánh dễ hiểu"], ["step_by_step", "Từng bước"]]],
+                ] as const).map(([field, label, options]) => (
+                  <label key={field} className="grid gap-1 text-[12px] font-medium">
+                    {label}
+                    <select className="rounded-lg border px-3 py-2 text-[12.5px] font-normal" value={preferences[field]} onChange={(e) => setPreferences((current) => ({ ...current, [field]: e.target.value as NovaPreference[typeof field] }))}>
+                      {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+                    </select>
+                  </label>
+                ))}
+                <div className="rounded-lg border p-3 text-[11.5px]" style={{ borderColor: "var(--border)", background: "var(--panel-soft)" }}>
+                  <div className="font-semibold">Bộ nhớ hội thoại cũ: {memories.length}</div>
+                  <div className="mt-1" style={{ color: "var(--ink-soft)" }}>Nova chỉ dùng phần hội thoại đã rời cửa sổ chat gần nhất. Bạn có thể xóa toàn bộ bất kỳ lúc nào.</div>
+                  {memories.slice(0, 3).map((memory) => (
+                    <div key={memory.conversation_id} className="mt-2 truncate" title={memory.summary}>Phiên #{memory.conversation_id}: {memory.summary}</div>
+                  ))}
+                  <button className="mt-2 text-[11.5px] font-semibold text-red-600 disabled:opacity-50" onClick={() => void clearConversationMemory()} disabled={preferencesSaving || memories.length === 0}>Xóa toàn bộ bộ nhớ hội thoại</button>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button className="btn flex-1" onClick={() => void resetPreferences()} disabled={preferencesSaving}>Đặt lại</button>
+                  <button className="btn btn-primary flex-1" onClick={() => void savePreferences()} disabled={preferencesSaving}>{preferencesSaving ? "Đang lưu…" : "Lưu tùy chọn"}</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

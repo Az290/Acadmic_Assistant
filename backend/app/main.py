@@ -19,6 +19,7 @@ from app.academic_agent.router import router as chat_router
 from app.auth.router import router as auth_router
 from app.config import get_settings
 from app.courses.router import router as courses_router
+from app.connectors.router import router as connectors_router
 from app.db.session import get_db
 from app.documents.router import router as documents_router
 from app.eval_dashboard.router import router as eval_dashboard_router
@@ -29,6 +30,8 @@ from app.voice.router import router as voice_router
 from app.learning.router import router as learning_router
 from app.logging_config import configure_logging
 from app.profile.router import router as profile_router
+from app.personalization.router import memory_router, router as personalization_router
+from app.operations.router import router as operations_router
 from app.rate_limit import DEFAULT_RATE_LIMIT, limiter
 from app.request_id_middleware import RequestIdMiddleware
 from app.retrieval.router import chunks_router, router as retrieval_router
@@ -109,6 +112,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(courses_router)
+app.include_router(connectors_router)
 app.include_router(documents_router)
 app.include_router(retrieval_router)
 app.include_router(chunks_router)
@@ -122,6 +126,9 @@ app.include_router(quiz_questions_router)
 app.include_router(instructor_router)
 app.include_router(eval_dashboard_router)
 app.include_router(profile_router)
+app.include_router(personalization_router)
+app.include_router(memory_router)
+app.include_router(operations_router)
 app.include_router(voice_router)
 
 

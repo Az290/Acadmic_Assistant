@@ -30,6 +30,20 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
   const mountedRef = useRef(true);
   const stoppingRef = useRef(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const vadFrameRef = useRef<number | null>(null);
+  const speechDetectedRef = useRef(false);
+  const lastSpeechAtRef = useRef(0);
+
+  const stopVoiceDetection = useCallback(() => {
+    if (vadFrameRef.current !== null) cancelAnimationFrame(vadFrameRef.current);
+    vadFrameRef.current = null;
+    const context = audioContextRef.current;
+    audioContextRef.current = null;
+    if (context && context.state !== "closed") void context.close();
+    speechDetectedRef.current = false;
+    lastSpeechAtRef.current = 0;
+  }, []);
 
   const scheduleReset = useCallback((delay: number) => {
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
@@ -45,6 +59,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
     return () => {
       mountedRef.current = false;
       if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      stopVoiceDetection();
 
       const recorder = mediaRecorderRef.current;
       mediaRecorderRef.current = null;
@@ -67,7 +82,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
         recorder.stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [stopVoiceDetection]);
 
   const stopRecording = useCallback(async () => {
     if (
@@ -114,7 +129,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
         formData.append("file", audioBlob, `recording.${extension}`);
 
         const response = await api.postForm<{ text: string; language: string; duration: number }>(
-          "/v1/voice/transcribe",
+          "/v1/voice/transcribe?language=vi",
           formData
         );
 
@@ -189,6 +204,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
       };
 
       mediaRecorder.onstop = () => {
+        stopVoiceDetection();
         const audioBlob = new Blob(audioChunksRef.current, {
           type: mimeType || "audio/webm",
         });
@@ -214,6 +230,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
 
       mediaRecorder.onerror = (event) => {
         console.error("MediaRecorder error:", event);
+        stopVoiceDetection();
         stream.getTracks().forEach((track) => track.stop());
         mediaRecorderRef.current = null;
         stoppingRef.current = false;
@@ -226,6 +243,39 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
       // Start recording
       mediaRecorder.start(1000); // Collect data every second
       setState("recording");
+
+      // Tự gửi khi người dùng đã nói và im lặng đủ lâu. Phân tích âm lượng diễn
+      // ra hoàn toàn trong trình duyệt; audio chỉ được upload sau khi recorder dừng.
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      const samples = new Uint8Array(analyser.fftSize);
+      speechDetectedRef.current = false;
+      lastSpeechAtRef.current = 0;
+
+      const detectSilence = () => {
+        if (mediaRecorder.state === "inactive" || stoppingRef.current) return;
+        analyser.getByteTimeDomainData(samples);
+        let sumSquares = 0;
+        for (const sample of samples) {
+          const normalized = (sample - 128) / 128;
+          sumSquares += normalized * normalized;
+        }
+        const rms = Math.sqrt(sumSquares / samples.length);
+        const now = performance.now();
+        if (rms >= 0.022) {
+          speechDetectedRef.current = true;
+          lastSpeechAtRef.current = now;
+        } else if (speechDetectedRef.current && now - lastSpeechAtRef.current >= 1300) {
+          void stopRecording();
+          return;
+        }
+        vadFrameRef.current = requestAnimationFrame(detectSilence);
+      };
+      vadFrameRef.current = requestAnimationFrame(detectSilence);
     } catch (err) {
       if (!mountedRef.current) return;
       console.error("Microphone access error:", err);
@@ -245,7 +295,7 @@ export default function VoiceInput({ onTranscriptionComplete, disabled = false, 
       setState("error");
       scheduleReset(3000);
     }
-  }, [scheduleReset, sendAudioToBackend]);
+  }, [scheduleReset, sendAudioToBackend, stopRecording, stopVoiceDetection]);
 
   const handleClick = useCallback(() => {
     if (disabled) return;

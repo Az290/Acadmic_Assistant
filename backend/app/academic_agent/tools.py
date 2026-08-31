@@ -147,6 +147,22 @@ _DRAFT_ASSIGNMENT_REMINDER = {
     },
 }
 
+_GET_TEACHING_RECOMMENDATIONS = {
+    "type": "function",
+    "function": {
+        "name": "get_teaching_recommendations",
+        "description": (
+            "Tạo gợi ý lộ trình giảng dạy từ mastery và khoảng trống khái niệm tổng hợp của lớp. "
+            "Trả riêng dữ kiện và đề xuất; không đọc chat riêng hay tự gắn nhãn sinh viên."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"course_id": {"type": "integer", "description": "ID lớp do giảng viên phụ trách."}},
+            "required": ["course_id"],
+        },
+    },
+}
+
 _GET_COSTS = {
     "type": "function",
     "function": {
@@ -413,6 +429,7 @@ TOOLS_INSTRUCTOR: list[dict] = [
     _GET_ASSIGNMENT_RESULTS,
     _GET_STUDENT_ASSIGNMENT_DETAILS,
     _DRAFT_ASSIGNMENT_REMINDER,
+    _GET_TEACHING_RECOMMENDATIONS,
     _GET_COSTS,
     _GET_PIPELINE_TIMING,
     _CREATE_CONCEPT,
@@ -473,6 +490,7 @@ TOOL_LABELS_VI: dict[str, str] = {
     "get_assignment_results": "Xem kết quả bài tập",
     "get_student_assignment_details": "Xem chi tiết bài làm của một sinh viên",
     "draft_assignment_reminder": "Soạn bản nháp nhắc bài tập",
+    "get_teaching_recommendations": "Gợi ý lộ trình giảng dạy",
     "get_costs": "Xem chi phí sử dụng AI",
     "get_pipeline_timing": "Xem thời gian xử lý hệ thống",
     "get_my_mastery": "Xem tiến độ nắm vững của bạn",

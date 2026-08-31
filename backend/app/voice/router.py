@@ -118,6 +118,12 @@ async def transcribe_audio(
             "model": "whisper-1",
             "file": file_content,
             "response_format": "verbose_json",
+            "temperature": 0,
+            "prompt": (
+                "Nova, Academic Assistant, machine learning, deep learning, artificial intelligence, "
+                "Python, data science, neural network, supervised learning, unsupervised learning, "
+                "reinforcement learning, thuật toán, học máy, trí tuệ nhân tạo, khoa học dữ liệu"
+            ),
         }
 
         if language:

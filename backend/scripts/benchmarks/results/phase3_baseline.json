@@ -1,0 +1,253 @@
+{
+  "label": "baseline",
+  "created_at": "2026-08-30T12:51:48.547398+00:00",
+  "summary": {
+    "cases": 12,
+    "mean_recall_at_8": 0.5,
+    "mean_mrr": 0.414,
+    "complete_recall_rate": 0.3,
+    "false_hit_rate": 0.0,
+    "median_latency_ms": 593.4,
+    "p95_latency_ms": 2530.2
+  },
+  "cases": [
+    {
+      "id": "concat-vi",
+      "query": "Trong Python, string concatenation là gì và dùng toán tử nào?",
+      "expected_chunk_ids": [
+        41,
+        42
+      ],
+      "actual_chunk_ids": [
+        41,
+        38,
+        111,
+        86,
+        764,
+        309,
+        763,
+        765
+      ],
+      "recall_at_8": 0.5,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.5084981481795046,
+      "latency_ms": 6883.9
+    },
+    {
+      "id": "concat-short",
+      "query": "string concatenation operator Python",
+      "expected_chunk_ids": [
+        41,
+        42
+      ],
+      "actual_chunk_ids": [
+        111,
+        86,
+        67,
+        41,
+        38,
+        330,
+        317,
+        332
+      ],
+      "recall_at_8": 0.5,
+      "mrr": 0.25,
+      "false_hit": false,
+      "best_similarity": 0.5263042513577849,
+      "latency_ms": 2530.2
+    },
+    {
+      "id": "tuple-list",
+      "query": "Sự khác nhau giữa tuple và list trong Python là gì, đặc biệt về tính mutable?",
+      "expected_chunk_ids": [
+        151,
+        152
+      ],
+      "actual_chunk_ids": [
+        151,
+        764,
+        149,
+        350,
+        765,
+        379,
+        145,
+        148
+      ],
+      "recall_at_8": 0.5,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.520406835364927,
+      "latency_ms": 579.5
+    },
+    {
+      "id": "tuple-list-no-accent",
+      "query": "tuple va list khac nhau the nao ve mutable immutable",
+      "expected_chunk_ids": [
+        151,
+        152
+      ],
+      "actual_chunk_ids": [
+        764,
+        151,
+        148,
+        149,
+        143,
+        765,
+        150,
+        145
+      ],
+      "recall_at_8": 0.5,
+      "mrr": 0.5,
+      "false_hit": false,
+      "best_similarity": 0.47735864539513595,
+      "latency_ms": 636.4
+    },
+    {
+      "id": "stdlib",
+      "query": "Python Standard Library là gì? Cho ví dụ một module built-in.",
+      "expected_chunk_ids": [
+        301,
+        302
+      ],
+      "actual_chunk_ids": [
+        302,
+        274,
+        102,
+        301,
+        100,
+        104,
+        101,
+        103
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.60833380536259,
+      "latency_ms": 711.5
+    },
+    {
+      "id": "recursion",
+      "query": "Sách Introduction to Python Programming có chương nào nói về đệ quy và gồm nội dung gì?",
+      "expected_chunk_ids": [
+        8
+      ],
+      "actual_chunk_ids": [
+        765,
+        763,
+        6,
+        12,
+        764,
+        1,
+        8,
+        7
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.14285714285714285,
+      "false_hit": false,
+      "best_similarity": 0.6328376264732963,
+      "latency_ms": 578.8
+    },
+    {
+      "id": "recursion-no-accent",
+      "query": "ham de quy hoat dong nhu the nao",
+      "expected_chunk_ids": [
+        8
+      ],
+      "actual_chunk_ids": [],
+      "recall_at_8": 0.0,
+      "mrr": 0.0,
+      "false_hit": false,
+      "best_similarity": 0.0,
+      "latency_ms": 436.3
+    },
+    {
+      "id": "functions-chapter",
+      "query": "Chương Functions trong sách gồm những phần nào?",
+      "expected_chunk_ids": [
+        7
+      ],
+      "actual_chunk_ids": [
+        763,
+        233,
+        232,
+        7,
+        765,
+        6,
+        12,
+        8
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.25,
+      "false_hit": false,
+      "best_similarity": 0.46429180970932893,
+      "latency_ms": 607.2
+    },
+    {
+      "id": "keyword-args",
+      "query": "Keyword arguments trong Python là gì?",
+      "expected_chunk_ids": [
+        7
+      ],
+      "actual_chunk_ids": [
+        266,
+        268,
+        267,
+        255,
+        269,
+        256,
+        332,
+        271
+      ],
+      "recall_at_8": 0.0,
+      "mrr": 0.0,
+      "false_hit": false,
+      "best_similarity": 0.4668229027105022,
+      "latency_ms": 751.5
+    },
+    {
+      "id": "input-output",
+      "query": "Cho ví dụ cụ thể về input output trong Python",
+      "expected_chunk_ids": [
+        6
+      ],
+      "actual_chunk_ids": [
+        763,
+        765,
+        1,
+        764,
+        26,
+        27,
+        18,
+        19
+      ],
+      "recall_at_8": 0.0,
+      "mrr": 0.0,
+      "false_hit": false,
+      "best_similarity": 0.4906763080159311,
+      "latency_ms": 516.8
+    },
+    {
+      "id": "offtopic-pho",
+      "query": "Công thức nấu phở bò",
+      "expected_chunk_ids": [],
+      "actual_chunk_ids": [],
+      "recall_at_8": null,
+      "mrr": null,
+      "false_hit": false,
+      "best_similarity": 0.28511394847424587,
+      "latency_ms": 432.2
+    },
+    {
+      "id": "offtopic-gold",
+      "query": "Giá vàng hôm nay bao nhiêu",
+      "expected_chunk_ids": [],
+      "actual_chunk_ids": [],
+      "recall_at_8": null,
+      "mrr": null,
+      "false_hit": false,
+      "best_similarity": 0.18840841225519744,
+      "latency_ms": 363.9
+    }
+  ]
+}

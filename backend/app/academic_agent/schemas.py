@@ -28,11 +28,10 @@ class ChatRequest(BaseModel):
         return stripped
     conversation_id: int | None = None
     course_id: int | None = None
-    # ChatBubble có 2 tab tường minh ("Hỏi đáp"/"Gia sư") - khi người
-    # dùng chọn 1 tab, frontend gửi kèm giá trị này để ÉP category thay
-    # vì để Router Agent tự đoán qua nội dung câu hỏi. Chỉ chấp nhận
-    # 2 giá trị cần retrieval (RAG_QUESTION/SOCRATIC_REQUEST) - CHITCHAT/
-    # OFF_TOPIC không có tab riêng, luôn để Router tự phát hiện.
+    # ChatBubble chỉ ép SOCRATIC_REQUEST khi người dùng chọn tab "Gia sư".
+    # Tab "Hỏi đáp" phải để trống để Router tự nhận ra RAG, kiến thức phổ
+    # thông, chitchat, câu hỏi hệ thống hoặc yêu cầu thao tác. Backend vẫn
+    # chấp nhận RAG_QUESTION để tương thích với client cũ/tích hợp bên ngoài.
     force_category: str | None = Field(default=None, pattern="^(RAG_QUESTION|SOCRATIC_REQUEST)$")
     # Chế độ gia sư: sinh viên chỉ định tường minh mình đang hỏi về
     # khái niệm nào (dùng khi hệ thống tự đoán sai). Bỏ trống -> hệ
@@ -114,3 +113,12 @@ class MessagePublic(BaseModel):
     retrieval_similarity: float | None = None
     pending_action: PendingActionPublic | None = None
     created_at: datetime
+
+
+class ConversationListItem(BaseModel):
+    conversation_id: int
+    title: str
+    course_id: int | None = None
+    message_count: int
+    created_at: datetime
+    updated_at: datetime

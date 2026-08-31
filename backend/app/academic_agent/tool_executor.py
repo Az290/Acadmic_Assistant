@@ -152,6 +152,45 @@ async def _tool_get_class_analytics(session: AsyncSession, args: dict, user: App
     )
 
 
+async def _tool_get_teaching_recommendations(
+    session: AsyncSession, args: dict, user: AppUser
+) -> ToolExecutionResult:
+    from app.academic_agent.instructor_context import load_instructor_context
+
+    course_id = args.get("course_id")
+    course = await _get_course_or_none(session, course_id)
+    if course is None:
+        return ToolExecutionResult(success=False, error_message="Không tìm thấy lớp học này.")
+    if not _is_course_owner(course, user):
+        return ToolExecutionResult(success=False, error_message="Bạn không phải giảng viên phụ trách lớp này.")
+    context = await load_instructor_context(session, course_id=course_id, effective_role="INSTRUCTOR")
+    evidence = {
+        "total_students": context.total_students,
+        "students_with_data": context.students_with_data,
+        "average_mastery": context.average_mastery,
+        "weak_student_count": context.weak_student_count,
+        "strong_student_count": context.strong_student_count,
+        "concept_gaps": [
+            {"name": gap.name, "accuracy": gap.accuracy, "observations": gap.observations}
+            for gap in context.concept_gaps
+        ],
+    }
+    recommendations = []
+    if not context.students_with_data:
+        recommendations.append("Tạo một bài kiểm tra chẩn đoán ngắn trước khi điều chỉnh lộ trình.")
+    if context.concept_gaps:
+        recommendations.append(
+            "Ôn lại theo thứ tự các khái niệm có độ chính xác thấp nhất: "
+            + ", ".join(gap.name for gap in context.concept_gaps[:3]) + "."
+        )
+        recommendations.append("Dùng ví dụ có hướng dẫn, sau đó kiểm tra nhanh trước khi chuyển chủ đề.")
+    if context.weak_student_count:
+        recommendations.append("Tổ chức một lượt hỗ trợ bổ sung; chỉ xem chi tiết cá nhân khi hỏi đích danh.")
+    if context.strong_student_count:
+        recommendations.append("Chuẩn bị bài mở rộng cho nhóm đang làm tốt, không dùng thay cho nội dung cốt lõi.")
+    return ToolExecutionResult(success=True, data={"evidence": evidence, "recommendations": recommendations})
+
+
 async def _tool_get_course_roster(session: AsyncSession, args: dict, user: AppUser) -> ToolExecutionResult:
     course_id = args.get("course_id")
     course = await _get_course_or_none(session, course_id)
@@ -979,6 +1018,7 @@ _DISPATCH_READ = {
     "get_assignment_results": _tool_get_assignment_results,
     "get_student_assignment_details": _tool_get_student_assignment_details,
     "draft_assignment_reminder": _tool_draft_assignment_reminder,
+    "get_teaching_recommendations": _tool_get_teaching_recommendations,
     "get_costs": _tool_get_costs,
     "get_pipeline_timing": _tool_get_pipeline_timing,
     "get_my_mastery": _tool_get_my_mastery,

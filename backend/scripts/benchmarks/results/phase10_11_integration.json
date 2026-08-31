@@ -1,0 +1,19 @@
+{
+  "summary": {
+    "cases": 10,
+    "passed": 10,
+    "pass_rate": 1.0
+  },
+  "cases": {
+    "operations_admin_only": true,
+    "operations_has_rollout_gate": true,
+    "retention_preview_non_destructive": true,
+    "instructor_context_course_scoped": true,
+    "instructor_context_is_aggregate": true,
+    "owner_gets_teaching_recommendations": true,
+    "cross_course_owner_blocked": true,
+    "no_private_chat_in_tool_result": true,
+    "instructor_kb_scoped": true,
+    "student_does_not_get_instructor_kb": true
+  }
+}

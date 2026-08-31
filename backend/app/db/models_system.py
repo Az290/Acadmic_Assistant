@@ -11,7 +11,7 @@ cho phép Admin quản lý nội dung động qua CRUD API.
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -37,12 +37,16 @@ class SystemKnowledge(Base):
     """
 
     __tablename__ = "system_knowledge"
+    __table_args__ = (
+        CheckConstraint("audience_scope IN ('ALL','STUDENT','INSTRUCTOR','ADMIN')", name="ck_system_knowledge_audience"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     keyword: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     question_pattern: Mapped[str] = mapped_column(Text, nullable=False)
     default_answer: Mapped[str] = mapped_column(Text, nullable=False)
     category: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    audience_scope: Mapped[str] = mapped_column(String(20), nullable=False, default="ALL")
     api_endpoint: Mapped[str | None] = mapped_column(String(200), nullable=True)
     response_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)

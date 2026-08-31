@@ -27,6 +27,26 @@ class Settings(BaseSettings):
     # API key OpenAI - dùng cho cả LLM (agent) và embedding (tìm kiếm ngữ nghĩa)
     openai_api_key: str = ""
 
+    # Model rieng cho Evidence Planner de co the A/B test ma khong doi model
+    # sinh cau tra loi. Tat bang NOVA_EVIDENCE_PLANNER_ENABLED=false de rollback.
+    nova_evidence_planner_enabled: bool = True
+    nova_evidence_planner_model: str = "gpt-4o-mini"
+    nova_evidence_planner_timeout_seconds: float = 12.0
+
+    # Bounded Retrieval Phase 3. Tat multi-query de quay ve hybrid_search cu.
+    nova_multi_query_enabled: bool = False
+    nova_query_generator_model: str = "gpt-4o-mini"
+    nova_query_generator_timeout_seconds: float = 10.0
+    nova_max_search_queries: int = 3
+    nova_retrieval_candidate_limit: int = 20
+    nova_reranker_enabled: bool = False
+    nova_reranker_model: str = "gpt-4o-mini"
+    nova_reranker_timeout_seconds: float = 12.0
+
+    # Phase 4: Composer tach rieng khoi retrieval/planner. Tat de rollback ve
+    # lenh chat.completions legacy trong agent.py.
+    nova_response_composer_enabled: bool = True
+
     # Bí mật dùng để ký JWT. PHẢI điền giá trị ngẫu nhiên thật trong
     # .env trước khi chạy - sinh bằng lệnh:
     #   python -c "import secrets; print(secrets.token_hex(32))"
@@ -106,6 +126,35 @@ class Settings(BaseSettings):
 
     # Maximum audio file size in MB
     max_audio_size_mb: int = 25
+
+    # Shared secret cho webhook connector o Phase 6. Production nen dat rieng;
+    # neu chua co, mock foundation tam dung JWT_SECRET de khong pha env hien tai.
+    connector_webhook_secret: str | None = None
+    discord_connector_enabled: bool = False
+    discord_bot_token: str | None = None
+    discord_bot_user_id: str | None = None
+    discord_internal_api_base: str = "http://127.0.0.1:8001"
+    zalo_connector_enabled: bool = False
+    zalo_gmf_enabled: bool = False
+    zalo_oa_access_token: str | None = None
+    zalo_oa_id: str | None = None
+    zalo_internal_api_base: str = "http://127.0.0.1:8001"
+    # Secret cua endpoint trung gian do minh kiem soat (reverse proxy/webhook app),
+    # khong nham thay the co che xac minh cua Zalo neu OA duoc cap contract rieng.
+    zalo_callback_secret: str | None = None
+    connector_event_retention_days: int = 7
+    connector_processing_timeout_seconds: int = 300
+    nova_rollout_percent: int = 100
+    nova_rollback_dead_jobs_threshold: int = 5
+    nova_rollback_p95_latency_ms: int = 20000
+    public_web_url: str = "http://localhost:3000"
+
+    @field_validator("nova_rollout_percent")
+    @classmethod
+    def _validate_rollout_percent(cls, value: int) -> int:
+        if not 0 <= value <= 100:
+            raise ValueError("NOVA_ROLLOUT_PERCENT phai nam trong khoang 0..100")
+        return value
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

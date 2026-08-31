@@ -1,0 +1,16 @@
+{
+  "summary": {
+    "cases": 7,
+    "passed": 7,
+    "pass_rate": 1.0
+  },
+  "cases": {
+    "identity_linked": true,
+    "webhook_accepted": true,
+    "duplicate_idempotent": true,
+    "outbox_platform": true,
+    "private_scope": true,
+    "exact_recipient": true,
+    "answer_formatted": true
+  }
+}

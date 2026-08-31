@@ -7,11 +7,18 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.academic_agent.agent import _build_arguments_summary, handle_chat, handle_chat_stream
-from app.academic_agent.schemas import ChatRequest, ChatResponse, CitationPublic, MessagePublic, PendingActionPublic
+from app.academic_agent.schemas import (
+    ChatRequest,
+    ChatResponse,
+    CitationPublic,
+    ConversationListItem,
+    MessagePublic,
+    PendingActionPublic,
+)
 from app.academic_agent.tools import TOOL_LABELS_VI
 from app.academic_agent.suggested_questions import get_suggested_questions
 from app.academic_agent.summary import summarize_conversation
@@ -91,6 +98,48 @@ async def chat_stream(
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/conversations", response_model=list[ConversationListItem])
+async def list_my_conversations(
+    session: AsyncSession = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+):
+    """Liệt kê tối đa 50 phiên chat của chính tài khoản hiện tại."""
+    first_user_message = (
+        select(Message.content)
+        .where(Message.conversation_id == Conversation.id, Message.role == "user")
+        .order_by(Message.created_at.asc(), Message.id.asc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+    )
+    result = await session.execute(
+        select(
+            Conversation.id,
+            Conversation.course_id,
+            Conversation.created_at,
+            func.max(Message.created_at).label("updated_at"),
+            func.count(Message.id).label("message_count"),
+            first_user_message.label("title"),
+        )
+        .join(Message, Message.conversation_id == Conversation.id)
+        .where(Conversation.user_id == user.id)
+        .group_by(Conversation.id)
+        .order_by(func.max(Message.created_at).desc())
+        .limit(50)
+    )
+    return [
+        ConversationListItem(
+            conversation_id=row.id,
+            title=(row.title or "Cuộc trò chuyện mới")[:80],
+            course_id=row.course_id,
+            message_count=row.message_count,
+            created_at=row.created_at,
+            updated_at=row.updated_at or row.created_at,
+        )
+        for row in result
+    ]
 
 
 @router.get("/{conversation_id}/suggested-questions")

@@ -1,0 +1,18 @@
+{
+  "label": "after",
+  "created_at": "2026-08-30T12:36:11.334899+00:00",
+  "summary": {
+    "frontend_contract_passed": true,
+    "classifier_cases": 0,
+    "classifier_errors": 0,
+    "category_accuracy": null,
+    "retrieval_decision_accuracy": null,
+    "median_latency_ms": null
+  },
+  "frontend_contract": {
+    "passed": true,
+    "expected": "Hoi dap=auto route; Gia su=SOCRATIC_REQUEST",
+    "observed": "correct"
+  },
+  "cases": []
+}

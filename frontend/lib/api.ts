@@ -378,6 +378,15 @@ export interface MessagePublic {
   created_at: string;
 }
 
+export interface ConversationSessionPublic {
+  conversation_id: number;
+  title: string;
+  course_id: number | null;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 /* ---------- Streaming chat (SSE) - dùng cho ChatBubble ---------- */
 
 export interface ConceptPublic {

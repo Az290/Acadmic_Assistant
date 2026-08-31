@@ -20,7 +20,7 @@ cân nhắc lại - không phải đoán trước.
 
 from dataclasses import dataclass
 
-from app.academic_agent.system_knowledge import SYSTEM_KNOWLEDGE
+from app.academic_agent.system_knowledge import get_system_knowledge
 
 CHEAP_MODEL = "gpt-4o-mini"
 
@@ -376,6 +376,7 @@ def build_system_prompt(
     recent_mistake: str = "",
     learning_progress: str = "",
     deadline_alert: str = "",
+    instructor_context: str = "",
     effective_role: str = "STUDENT",
     active_course_id: int | None = None,
 ) -> str:
@@ -419,11 +420,13 @@ NGỮ CẢNH LỚP CHƯA ĐƯỢC XÁC ĐỊNH:
         prefix += learning_progress
     if deadline_alert:
         prefix += deadline_alert
+    if instructor_context and effective_role == "INSTRUCTOR":
+        prefix += instructor_context
     if is_first_message:
         prefix += _FIRST_MESSAGE_GREETING
 
     if "{system_knowledge}" in template:
-        return f"{prefix}\n\n{template.format(system_knowledge=SYSTEM_KNOWLEDGE)}"
+        return f"{prefix}\n\n{template.format(system_knowledge=get_system_knowledge(effective_role))}"
 
     if "{context}" not in template:
         return f"{prefix}\n\n{template}"

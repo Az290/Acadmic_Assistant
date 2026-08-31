@@ -1,0 +1,17 @@
+{
+  "summary": {
+    "cases": 8,
+    "passed": 8,
+    "pass_rate": 1.0
+  },
+  "cases": {
+    "identity_linked": true,
+    "channel_bound": true,
+    "webhook_accepted": true,
+    "outbox_keeps_platform": true,
+    "group_privacy_flag": true,
+    "course_scope_forwarded": true,
+    "reply_references_message": true,
+    "citation_formatted": true
+  }
+}

@@ -25,3 +25,5 @@ openai==2.53.0                # Gọi API OpenAI (embedding ở tác vụ này, 
 
 # --- Bảo mật vận hành ---
 slowapi==0.1.10               # Rate limiting theo IP (chống spam/DoS cơ bản, chống brute-force login)
+discord.py==2.7.1             # Discord Gateway pilot, khong cai voice extras
+httpx==0.28.1                 # Discord REST + integration clients

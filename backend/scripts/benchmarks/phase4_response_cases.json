@@ -1,0 +1,11 @@
+{
+  "login": {"email": "chat_test@test.com", "password": "testpass123"},
+  "cases": [
+    {"id": "grounded-concat", "message": "Trong Python, string concatenation là gì và dùng toán tử nào?", "course_id": 1, "expected_category": "RAG_QUESTION", "citation_required": true, "expected": "Concatenation nối hai hoặc nhiều chuỗi bằng toán tử +."},
+    {"id": "grounded-tuple", "message": "Tuple và list khác nhau thế nào về mutability?", "course_id": 1, "expected_category": "RAG_QUESTION", "citation_required": true, "expected": "Tuple immutable, list mutable."},
+    {"id": "grounded-stdlib", "message": "Python Standard Library là gì?", "course_id": 1, "expected_category": "RAG_QUESTION", "citation_required": true, "expected": "Tập hợp hàm và module built-in hỗ trợ tác vụ phổ biến."},
+    {"id": "socratic", "message": "Đừng cho đáp án ngay, hãy gợi ý để tôi tự hiểu vì sao tuple immutable.", "course_id": 1, "force_category": "SOCRATIC_REQUEST", "expected_category": "SOCRATIC_REQUEST", "citation_required": true, "expected": "Gợi mở dựa trên việc tuple không thể sửa sau khi tạo và kết thúc bằng một câu hỏi."},
+    {"id": "general", "message": "1+1 bằng mấy?", "expected_category": "GENERAL_KNOWLEDGE", "citation_required": false, "expected": "2."},
+    {"id": "insufficient", "message": "Tài liệu lớp nói gì về quantum networking?", "course_id": 1, "expected_category": "RAG_QUESTION", "citation_required": false, "expected": "Thừa nhận tài liệu không đủ thông tin, không tự bịa nội dung."}
+  ]
+}

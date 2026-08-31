@@ -228,7 +228,7 @@ async def _fulltext_search(
             FROM chunk
             WHERE content_tsv @@ websearch_to_tsquery('simple', :query_text) AND {_ACL_FILTER_SQL}
               AND (
-                  :course_id IS NULL
+                  CAST(:course_id AS BIGINT) IS NULL
                   OR EXISTS (
                       SELECT 1 FROM document_course scoped_dc
                       WHERE scoped_dc.document_id = chunk.document_id

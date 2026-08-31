@@ -1,0 +1,74 @@
+{
+  "summary": {
+    "cases": 13,
+    "passed": 13,
+    "pass_rate": 1.0
+  },
+  "cases": [
+    {
+      "name": "student_cannot_bind",
+      "passed": true,
+      "detail": "403"
+    },
+    {
+      "name": "one_time_link_success",
+      "passed": true,
+      "detail": "200"
+    },
+    {
+      "name": "one_time_link_reuse_blocked",
+      "passed": true,
+      "detail": "400"
+    },
+    {
+      "name": "identity_takeover_blocked",
+      "passed": true,
+      "detail": "409"
+    },
+    {
+      "name": "owner_bind_success",
+      "passed": true,
+      "detail": "200"
+    },
+    {
+      "name": "bad_signature_blocked",
+      "passed": true,
+      "detail": "401"
+    },
+    {
+      "name": "old_replay_blocked",
+      "passed": true,
+      "detail": "401"
+    },
+    {
+      "name": "group_without_mention_blocked",
+      "passed": true,
+      "detail": "403"
+    },
+    {
+      "name": "signed_event_accepted",
+      "passed": true,
+      "detail": "200"
+    },
+    {
+      "name": "duplicate_is_idempotent",
+      "passed": true,
+      "detail": "200"
+    },
+    {
+      "name": "exactly_one_event_and_job",
+      "passed": true,
+      "detail": "event=1,outbox=1"
+    },
+    {
+      "name": "revoked_identity_blocked",
+      "passed": true,
+      "detail": "200/403"
+    },
+    {
+      "name": "owner_unbind_success",
+      "passed": true,
+      "detail": "200"
+    }
+  ]
+}

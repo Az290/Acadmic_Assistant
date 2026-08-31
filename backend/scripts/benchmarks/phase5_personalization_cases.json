@@ -1,0 +1,11 @@
+{
+  "cases": [
+    {"id": "default", "preference": {}, "expected_tokens": [], "forbidden_tokens": ["USER-CONTROLLED"]},
+    {"id": "vi", "preference": {"preferred_language": "vi"}, "expected_tokens": ["language=vi"], "forbidden_tokens": []},
+    {"id": "beginner", "preference": {"explanation_depth": "beginner"}, "expected_tokens": ["depth=beginner"], "forbidden_tokens": []},
+    {"id": "advanced", "preference": {"explanation_depth": "advanced"}, "expected_tokens": ["depth=advanced"], "forbidden_tokens": []},
+    {"id": "short", "preference": {"response_length": "short"}, "expected_tokens": ["length=short"], "forbidden_tokens": []},
+    {"id": "code", "preference": {"example_style": "code"}, "expected_tokens": ["example_style=code"], "forbidden_tokens": []},
+    {"id": "combined", "preference": {"preferred_language": "en", "response_length": "detailed", "example_style": "step_by_step"}, "expected_tokens": ["language=en", "length=detailed", "example_style=step_by_step"], "forbidden_tokens": []}
+  ]
+}

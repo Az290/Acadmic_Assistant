@@ -190,7 +190,7 @@ class SystemKBQuerier:
         self.session = session
         self._cache: dict[str, list[SystemKnowledge]] = {}  # Cache by keyword
 
-    async def _load_knowledge_by_keyword(self, keyword: str) -> list[SystemKnowledge]:
+    async def _load_knowledge_by_keyword(self, keyword: str, effective_role: str = "STUDENT") -> list[SystemKnowledge]:
         """Load knowledge entries by keyword (with caching)."""
         if keyword in self._cache:
             return self._cache[keyword]
@@ -199,13 +199,14 @@ class SystemKBQuerier:
             select(SystemKnowledge)
             .where(SystemKnowledge.keyword == keyword)
             .where(SystemKnowledge.is_active == True)
+            .where(SystemKnowledge.audience_scope.in_(("ALL", effective_role)))
             .order_by(SystemKnowledge.priority.asc())
         )
         entries = list(result.scalars().all())
         self._cache[keyword] = entries
         return entries
 
-    async def query(self, question: str, user_id: int) -> KBQueryResult:
+    async def query(self, question: str, user_id: int, effective_role: str = "STUDENT") -> KBQueryResult:
         """
         Query System Knowledge Base với câu hỏi của user.
 
@@ -225,6 +226,7 @@ class SystemKBQuerier:
         result = await self.session.execute(
             select(SystemKnowledge)
             .where(SystemKnowledge.is_active == True)
+            .where(SystemKnowledge.audience_scope.in_(("ALL", effective_role)))
             .order_by(SystemKnowledge.priority.asc())
         )
         all_entries = list(result.scalars().all())
@@ -273,6 +275,7 @@ async def query_system_knowledge(
     session: AsyncSession,
     question: str,
     user_id: int,
+    effective_role: str = "STUDENT",
 ) -> KBQueryResult:
     """
     Convenience function để query System Knowledge Base.
@@ -286,4 +289,4 @@ async def query_system_knowledge(
         KBQueryResult với câu trả lời (None nếu không match)
     """
     querier = SystemKBQuerier(session)
-    return await querier.query(question, user_id)
+    return await querier.query(question, user_id, effective_role)

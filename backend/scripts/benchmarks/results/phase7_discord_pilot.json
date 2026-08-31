@@ -1,0 +1,18 @@
+{
+  "summary": {
+    "cases": 8,
+    "passed": 8,
+    "pass_rate": 1.0,
+    "latency_ms": 0.2
+  },
+  "cases": {
+    "group_direct_mention_accepted": true,
+    "group_without_mention_ignored": true,
+    "dm_accepted": true,
+    "bot_ignored": true,
+    "empty_after_mention_ignored": true,
+    "allowed_mentions_suppressed": true,
+    "all_chunks_within_limit": true,
+    "citation_deep_link": true
+  }
+}

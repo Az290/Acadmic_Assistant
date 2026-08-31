@@ -1,0 +1,18 @@
+{
+  "user_id": 18,
+  "course_id": 1,
+  "cases": [
+    {"id": "concat-vi", "query": "Trong Python, string concatenation là gì và dùng toán tử nào?", "expected_chunk_ids": [41]},
+    {"id": "concat-short", "query": "string concatenation operator Python", "expected_chunk_ids": [41]},
+    {"id": "tuple-list", "query": "Sự khác nhau giữa tuple và list trong Python là gì, đặc biệt về tính mutable?", "expected_chunk_ids": [151]},
+    {"id": "tuple-list-no-accent", "query": "tuple va list khac nhau the nao ve mutable immutable", "expected_chunk_ids": [151]},
+    {"id": "stdlib", "query": "Python Standard Library là gì? Cho ví dụ một module built-in.", "expected_chunk_ids": [302]},
+    {"id": "recursion", "query": "Sách Introduction to Python Programming có chương nào nói về đệ quy và gồm nội dung gì?", "expected_chunk_ids": [8]},
+    {"id": "recursion-no-accent", "query": "ham de quy hoat dong nhu the nao", "expected_chunk_ids": [8]},
+    {"id": "functions-chapter", "query": "Chương Functions trong sách gồm những phần nào?", "expected_chunk_ids": [7]},
+    {"id": "keyword-args", "query": "Keyword arguments trong Python là gì?", "expected_chunk_ids": [268]},
+    {"id": "input-output", "query": "Cho ví dụ cụ thể về input output trong Python", "expected_chunk_ids": [28, 30]},
+    {"id": "offtopic-pho", "query": "Công thức nấu phở bò", "expected_chunk_ids": []},
+    {"id": "offtopic-gold", "query": "Giá vàng hôm nay bao nhiêu", "expected_chunk_ids": []}
+  ]
+}

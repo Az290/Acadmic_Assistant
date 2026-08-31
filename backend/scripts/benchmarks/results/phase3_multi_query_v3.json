@@ -1,0 +1,378 @@
+{
+  "label": "multi_query_v3",
+  "strategy": "bounded",
+  "created_at": "2026-08-30T13:02:09.563261+00:00",
+  "summary": {
+    "cases": 12,
+    "mean_recall_at_8": 0.75,
+    "mean_mrr": 0.579,
+    "complete_recall_rate": 0.7,
+    "false_hit_rate": 0.0,
+    "median_latency_ms": 3573.6,
+    "p95_latency_ms": 11142.7
+  },
+  "cases": [
+    {
+      "id": "concat-vi",
+      "query": "Trong Python, string concatenation là gì và dùng toán tử nào?",
+      "expected_chunk_ids": [
+        41
+      ],
+      "actual_chunk_ids": [
+        41,
+        38,
+        111,
+        86,
+        763,
+        309,
+        87,
+        765
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.5134218456746587,
+      "queries": [
+        "Trong Python, string concatenation là gì và dùng toán tử nào?",
+        "Trong Python, string concatenation là quá trình kết hợp hai hoặc nhiều chuỗi lại với nhau để tạo thành một chuỗi mới. Để thực hiện việc này, người ta sử dụng toán tử '+' để nối các chuỗi.",
+        "Python, string concatenation, toán tử +"
+      ],
+      "query_generation_ms": 2620,
+      "search_ms": 9738,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 12358.9
+    },
+    {
+      "id": "concat-short",
+      "query": "string concatenation operator Python",
+      "expected_chunk_ids": [
+        41
+      ],
+      "actual_chunk_ids": [
+        41,
+        111,
+        86,
+        38,
+        67,
+        309,
+        332,
+        348
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.5544336961242028,
+      "queries": [
+        "string concatenation operator Python",
+        "To find information about the string concatenation operator in Python, including its usage and examples."
+      ],
+      "query_generation_ms": 2275,
+      "search_ms": 958,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 3233.9
+    },
+    {
+      "id": "tuple-list",
+      "query": "Sự khác nhau giữa tuple và list trong Python là gì, đặc biệt về tính mutable?",
+      "expected_chunk_ids": [
+        151
+      ],
+      "actual_chunk_ids": [
+        151,
+        149,
+        764,
+        148,
+        350,
+        145,
+        150,
+        379
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.5698275823126976,
+      "queries": [
+        "Sự khác nhau giữa tuple và list trong Python là gì, đặc biệt về tính mutable?",
+        "Sự khác nhau giữa tuple và list trong Python, đặc biệt là về tính mutable của chúng.",
+        "tuple, list, Python, mutable, immutable"
+      ],
+      "query_generation_ms": 1924,
+      "search_ms": 1444,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 3369.7
+    },
+    {
+      "id": "tuple-list-no-accent",
+      "query": "tuple va list khac nhau the nao ve mutable immutable",
+      "expected_chunk_ids": [
+        151
+      ],
+      "actual_chunk_ids": [
+        151,
+        149,
+        148,
+        764,
+        150,
+        145,
+        143,
+        765
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.5753213074833978,
+      "queries": [
+        "tuple va list khac nhau the nao ve mutable immutable",
+        "Tuple và list khác nhau về tính chất mutable và immutable. Tuple là kiểu dữ liệu bất biến (immutable), nghĩa là một khi đã được tạo ra, các phần tử trong tuple không thể thay đổi, thêm hoặc xóa. Ngược lại, list là kiểu dữ liệu có thể thay đổi (mutable), cho phép người dùng có thể thay đổi, thêm hoặc xóa các phần tử trong danh sách.",
+        "tuple, list, mutable, immutable"
+      ],
+      "query_generation_ms": 5599,
+      "search_ms": 1830,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 7430.7
+    },
+    {
+      "id": "stdlib",
+      "query": "Python Standard Library là gì? Cho ví dụ một module built-in.",
+      "expected_chunk_ids": [
+        302
+      ],
+      "actual_chunk_ids": [
+        302,
+        102,
+        104,
+        100,
+        103,
+        101,
+        274,
+        301
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 1.0,
+      "false_hit": false,
+      "best_similarity": 0.6829457281100662,
+      "queries": [
+        "Python Standard Library là gì? Cho ví dụ một module built-in.",
+        "Python Standard Library là một tập hợp các module và gói được cài đặt sẵn cùng với Python, cung cấp nhiều chức năng hữu ích cho lập trình viên mà không cần phải cài đặt thêm thư viện bên ngoài. Ví dụ về một module built-in trong Python là module 'math', cung cấp các hàm toán học cơ bản.",
+        "Python Standard Library, module built-in, math"
+      ],
+      "query_generation_ms": 4022,
+      "search_ms": 1069,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 5092.8
+    },
+    {
+      "id": "recursion",
+      "query": "Sách Introduction to Python Programming có chương nào nói về đệ quy và gồm nội dung gì?",
+      "expected_chunk_ids": [
+        8
+      ],
+      "actual_chunk_ids": [
+        765,
+        763,
+        1,
+        6,
+        764,
+        12,
+        67,
+        350
+      ],
+      "recall_at_8": 0.0,
+      "mrr": 0.0,
+      "false_hit": false,
+      "best_similarity": 0.6460185785903397,
+      "queries": [
+        "Sách Introduction to Python Programming có chương nào nói về đệ quy và gồm nội dung gì?",
+        "Sách 'Introduction to Python Programming' có chương đề cập đến đệ quy, trong đó trình bày khái niệm về đệ quy, cách thức hoạt động của các hàm đệ quy, và các ví dụ minh họa cụ thể về việc sử dụng đệ quy trong lập trình Python.",
+        "Introduction to Python Programming, đệ quy, hàm đệ quy, ví dụ đệ quy"
+      ],
+      "query_generation_ms": 2615,
+      "search_ms": 1161,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 3777.4
+    },
+    {
+      "id": "recursion-no-accent",
+      "query": "ham de quy hoat dong nhu the nao",
+      "expected_chunk_ids": [
+        8
+      ],
+      "actual_chunk_ids": [
+        765,
+        764,
+        763,
+        214,
+        220,
+        204,
+        233,
+        201
+      ],
+      "recall_at_8": 0.0,
+      "mrr": 0.0,
+      "false_hit": false,
+      "best_similarity": 0.6342094862136897,
+      "queries": [
+        "ham de quy hoat dong nhu the nao",
+        "Hàm đệ quy hoạt động bằng cách gọi chính nó trong quá trình thực hiện, thường để giải quyết các bài toán có cấu trúc lặp lại, với điều kiện dừng để tránh việc gọi vô hạn.",
+        "hàm đệ quy, hoạt động, gọi chính nó, điều kiện dừng"
+      ],
+      "query_generation_ms": 3763,
+      "search_ms": 846,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 4610.9
+    },
+    {
+      "id": "functions-chapter",
+      "query": "Chương Functions trong sách gồm những phần nào?",
+      "expected_chunk_ids": [
+        7
+      ],
+      "actual_chunk_ids": [
+        233,
+        232,
+        763,
+        235,
+        765,
+        234,
+        7,
+        101
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.14285714285714285,
+      "false_hit": false,
+      "best_similarity": 0.5431221907670648,
+      "queries": [
+        "Chương Functions trong sách gồm những phần nào?",
+        "Chương Functions trong sách bao gồm các phần như định nghĩa hàm, các loại hàm, cách sử dụng hàm, và các ví dụ minh họa liên quan đến hàm.",
+        "Functions, định nghĩa hàm, loại hàm, sử dụng hàm, ví dụ hàm"
+      ],
+      "query_generation_ms": 1950,
+      "search_ms": 993,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 2944.8
+    },
+    {
+      "id": "keyword-args",
+      "query": "Keyword arguments trong Python là gì?",
+      "expected_chunk_ids": [
+        268
+      ],
+      "actual_chunk_ids": [
+        266,
+        268,
+        255,
+        267,
+        256,
+        269,
+        271,
+        254
+      ],
+      "recall_at_8": 1.0,
+      "mrr": 0.5,
+      "false_hit": false,
+      "best_similarity": 0.5142080359458058,
+      "queries": [
+        "Keyword arguments trong Python là gì?",
+        "Keyword arguments trong Python là các tham số được truyền vào hàm bằng cách chỉ định tên của tham số, cho phép người dùng gọi hàm mà không cần phải tuân theo thứ tự của các tham số định nghĩa trong hàm.",
+        "Keyword arguments, Python, tham số, hàm"
+      ],
+      "query_generation_ms": 9898,
+      "search_ms": 1244,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 11142.7
+    },
+    {
+      "id": "input-output",
+      "query": "Cho ví dụ cụ thể về input output trong Python",
+      "expected_chunk_ids": [
+        28,
+        30
+      ],
+      "actual_chunk_ids": [
+        763,
+        1,
+        765,
+        27,
+        67,
+        18,
+        30,
+        26
+      ],
+      "recall_at_8": 0.5,
+      "mrr": 0.14285714285714285,
+      "false_hit": false,
+      "best_similarity": 0.5645580059437514,
+      "queries": [
+        "Cho ví dụ cụ thể về input output trong Python",
+        "Cung cấp ví dụ cụ thể về cách thức hoạt động của input và output trong ngôn ngữ lập trình Python.",
+        "Python, input, output, ví dụ"
+      ],
+      "query_generation_ms": 1701,
+      "search_ms": 1066,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 2768.2
+    },
+    {
+      "id": "offtopic-pho",
+      "query": "Công thức nấu phở bò",
+      "expected_chunk_ids": [],
+      "actual_chunk_ids": [],
+      "recall_at_8": null,
+      "mrr": null,
+      "false_hit": false,
+      "best_similarity": 0.28616327957377097,
+      "queries": [
+        "Công thức nấu phở bò",
+        "Công thức chế biến phở bò, bao gồm các nguyên liệu và quy trình nấu ăn.",
+        "công thức phở bò, nấu phở, nguyên liệu phở bò"
+      ],
+      "query_generation_ms": 2697,
+      "search_ms": 632,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 3329.4
+    },
+    {
+      "id": "offtopic-gold",
+      "query": "Giá vàng hôm nay bao nhiêu",
+      "expected_chunk_ids": [],
+      "actual_chunk_ids": [],
+      "recall_at_8": null,
+      "mrr": null,
+      "false_hit": false,
+      "best_similarity": 0.25319044102573207,
+      "queries": [
+        "Giá vàng hôm nay bao nhiêu",
+        "Tìm kiếm thông tin về giá vàng hiện tại.",
+        "giá vàng"
+      ],
+      "query_generation_ms": 1882,
+      "search_ms": 530,
+      "fallback_used": false,
+      "rerank_ms": 0,
+      "rerank_fallback": false,
+      "latency_ms": 2413.4
+    }
+  ]
+}

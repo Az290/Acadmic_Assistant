@@ -1,0 +1,45 @@
+{
+  "label": "live",
+  "live": true,
+  "created_at": "2026-08-30T12:42:07.232411+00:00",
+  "summary": {
+    "cases": 3,
+    "schema_success_rate": 1.0,
+    "mode_accuracy": 1.0,
+    "scope_validation_rate": 1.0,
+    "fallback_rate": 0.0,
+    "median_latency_ms": 2288
+  },
+  "cases": [
+    {
+      "id": "grounded-definition",
+      "answer_mode": "grounded",
+      "mode_match": true,
+      "scope_valid": true,
+      "claims": 2,
+      "fallback_used": false,
+      "error": null,
+      "latency_ms": 2843
+    },
+    {
+      "id": "socratic-with-evidence",
+      "answer_mode": "socratic",
+      "mode_match": true,
+      "scope_valid": true,
+      "claims": 1,
+      "fallback_used": false,
+      "error": null,
+      "latency_ms": 2288
+    },
+    {
+      "id": "insufficient",
+      "answer_mode": "insufficient",
+      "mode_match": true,
+      "scope_valid": true,
+      "claims": 0,
+      "fallback_used": false,
+      "error": null,
+      "latency_ms": 1692
+    }
+  ]
+}

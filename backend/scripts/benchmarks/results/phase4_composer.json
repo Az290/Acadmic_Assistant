@@ -1,0 +1,106 @@
+{
+  "label": "composer",
+  "created_at": "2026-08-30T13:18:45.326205+00:00",
+  "summary": {
+    "cases": 6,
+    "category_accuracy": 1.0,
+    "citation_contract_rate": 0.5,
+    "avg_correctness": 5,
+    "avg_faithfulness": 5,
+    "avg_naturalness": 5,
+    "mode_follow_rate": 0.667,
+    "median_latency_ms": 9576.9
+  },
+  "cases": [
+    {
+      "id": "grounded-concat",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": false,
+      "citations": [],
+      "answer": "Trong Python, string concatenation là thao tác kết hợp hai hoặc nhiều chuỗi theo thứ tự. Toán tử được sử dụng để thực hiện việc này là dấu cộng (+).",
+      "latency_ms": 11301.0,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": true,
+      "reasoning": "Câu trả lời hoàn toàn chính xác và đầy đủ, giải thích rõ ràng về string concatenation trong Python và nêu rõ toán tử sử dụng là dấu cộng (+). Không có thông tin thừa hay sai lệch."
+    },
+    {
+      "id": "grounded-tuple",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": false,
+      "citations": [],
+      "answer": "Tuples là các đối tượng không thể thay đổi (immutable), nghĩa là chúng không thể được sửa đổi sau khi được tạo ra. Ngược lại, lists là các đối tượng có thể thay đổi (mutable), cho phép sửa đổi nội dung sau khi được tạo ra. Sự khác biệt này ảnh hưởng đến cách mà các cấu trúc dữ liệu được sử dụng trong lập trình.",
+      "latency_ms": 12331.1,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": false,
+      "reasoning": "Câu trả lời hoàn toàn chính xác và đầy đủ, giải thích rõ ràng sự khác biệt giữa tuple và list về tính khả biến (mutability). Không có thông tin sai lệch hay mâu thuẫn nào trong câu trả lời."
+    },
+    {
+      "id": "grounded-stdlib",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [
+        {
+          "chunk_id": 302,
+          "document_id": 1,
+          "page_number": 200
+        }
+      ],
+      "answer": "Python Standard Library là một tập hợp các hàm và mô-đun tích hợp sẵn hỗ trợ các tác vụ lập trình phổ biến. Nó bao gồm hơn 200 mô-đun tích hợp sẵn, như math, os và datetime, và theo triết lý 'batteries included', nghĩa là cung cấp một bộ công cụ toàn diện cho lập trình viên. Thư viện này rất quan trọng để giải quyết các vấn đề tính toán hàng ngày, chẳng hạn như trích xuất dữ liệu và tạo báo cáo.",
+      "latency_ms": 11210.6,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": false,
+      "reasoning": "Câu trả lời hoàn toàn chính xác và đầy đủ, giải thích rõ ràng về Python Standard Library và cung cấp thêm thông tin hữu ích mà không mâu thuẫn với yêu cầu."
+    },
+    {
+      "id": "socratic",
+      "category": "SOCRATIC_REQUEST",
+      "category_match": true,
+      "citation_ok": false,
+      "citations": [],
+      "answer": "Hãy nghĩ về việc tại sao bạn cần một cấu trúc dữ liệu không thể thay đổi. Bạn có thể cho mình biết một số lợi ích của việc sử dụng tuple thay vì list trong Python không?",
+      "latency_ms": 7943.2,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": true,
+      "reasoning": "Câu hỏi gợi mở và khuyến khích người học suy nghĩ về lợi ích của tuple, đồng thời không đưa ra đáp án ngay lập tức. Câu hỏi cuối cùng cũng phù hợp với yêu cầu."
+    },
+    {
+      "id": "general",
+      "category": "GENERAL_KNOWLEDGE",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [],
+      "answer": "1 + 1 bằng 2.",
+      "latency_ms": 3743.4,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": true,
+      "reasoning": "Câu trả lời hoàn toàn chính xác và đầy đủ, không có sai sót nào. Nó cũng không thêm bất kỳ thông tin nào không cần thiết và diễn đạt một cách tự nhiên."
+    },
+    {
+      "id": "insufficient",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [],
+      "answer": "Tài liệu hiện có chưa đề cập đủ thông tin để trả lời câu hỏi này.",
+      "latency_ms": 7357.7,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": true,
+      "reasoning": "Câu trả lời thừa nhận rằng tài liệu không đủ thông tin để trả lời câu hỏi về quantum networking, không thêm thông tin sai lệch hay không có trong tài liệu."
+    }
+  ]
+}

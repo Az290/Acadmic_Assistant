@@ -1,0 +1,123 @@
+{
+  "label": "baseline",
+  "created_at": "2026-08-30T13:14:03.692970+00:00",
+  "summary": {
+    "cases": 6,
+    "category_accuracy": 1.0,
+    "citation_contract_rate": 0.833,
+    "avg_correctness": 3,
+    "avg_faithfulness": 3,
+    "avg_naturalness": 3,
+    "mode_follow_rate": 0.833,
+    "median_latency_ms": 9812.8
+  },
+  "cases": [
+    {
+      "id": "grounded-concat",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [
+        {
+          "chunk_id": 41,
+          "document_id": 1,
+          "page_number": 28
+        }
+      ],
+      "answer": "String concatenation trong Python là một phép toán kết hợp hai hoặc nhiều chuỗi theo thứ tự với toán tử cộng (+).",
+      "latency_ms": 15446.8,
+      "correctness": 1,
+      "faithfulness": 1,
+      "naturalness": 1,
+      "follows_mode": true,
+      "reasoning": "Câu trả lời đã giải thích rõ ràng về string concatenation trong Python và nêu rõ toán tử sử dụng là dấu cộng (+). Nội dung không có mâu thuẫn và hoàn toàn chính xác."
+    },
+    {
+      "id": "grounded-tuple",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [
+        {
+          "chunk_id": 151,
+          "document_id": 1,
+          "page_number": 96
+        }
+      ],
+      "answer": "Tuple là immutable, nghĩa là không thể thay đổi sau khi đã được tạo. Trong khi đó, list là mutable, cho phép thay đổi sau khi đã được tạo.",
+      "latency_ms": 10097.8,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": true,
+      "reasoning": "Câu trả lời đã nêu rõ sự khác biệt giữa tuple và list về tính chất mutability, với tuple là immutable và list là mutable. Thông tin được trình bày một cách chính xác và tự nhiên."
+    },
+    {
+      "id": "grounded-stdlib",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [
+        {
+          "chunk_id": 302,
+          "document_id": 1,
+          "page_number": 200
+        },
+        {
+          "chunk_id": 302,
+          "document_id": 1,
+          "page_number": 200
+        }
+      ],
+      "answer": "Python Standard Library là một tập hợp các hàm và mô-đun tích hợp sẵn hỗ trợ các tác vụ lập trình phổ biến. Nó bao gồm hơn 200 mô-đun tích hợp sẵn, như mô-đun math, os và datetime.",
+      "latency_ms": 9527.7,
+      "correctness": 1,
+      "faithfulness": 1,
+      "naturalness": 1,
+      "follows_mode": true,
+      "reasoning": "Câu trả lời đã cung cấp thông tin chính xác về Python Standard Library, bao gồm cả định nghĩa và ví dụ về các mô-đun. Nó không thêm thông tin mâu thuẫn và diễn đạt một cách tự nhiên."
+    },
+    {
+      "id": "socratic",
+      "category": "SOCRATIC_REQUEST",
+      "category_match": true,
+      "citation_ok": false,
+      "citations": [],
+      "answer": "Hãy nghĩ về lý do tại sao bạn cần một cấu trúc dữ liệu không thay đổi trong lập trình. Bạn có thể cho mình biết một số tình huống mà bạn muốn giữ nguyên giá trị của một tập hợp dữ liệu không thay đổi không?",
+      "latency_ms": 12850.0,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": true,
+      "reasoning": "Câu hỏi gợi mở về việc sử dụng cấu trúc dữ liệu không thay đổi giúp người học tự suy nghĩ về tính chất của tuple. Nó khuyến khích họ xem xét các tình huống thực tế mà tính bất biến có thể hữu ích, từ đó dẫn đến việc hiểu rõ hơn về lý do tại sao tuple lại immutable."
+    },
+    {
+      "id": "general",
+      "category": "GENERAL_KNOWLEDGE",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [],
+      "answer": "1+1 bằng 2.",
+      "latency_ms": 4185.0,
+      "correctness": 1,
+      "faithfulness": 1,
+      "naturalness": 1,
+      "follows_mode": false,
+      "reasoning": "Câu trả lời đã cung cấp thông tin chính xác về phép toán 1+1, nhưng nó không tuân theo yêu cầu của phương pháp Socratic, vì đã đưa ra câu trả lời trực tiếp thay vì khuyến khích người hỏi tự tìm ra câu trả lời."
+    },
+    {
+      "id": "insufficient",
+      "category": "RAG_QUESTION",
+      "category_match": true,
+      "citation_ok": true,
+      "citations": [],
+      "answer": "Tài liệu hiện có chưa đề cập đủ thông tin để trả lời câu hỏi này.",
+      "latency_ms": 6078.5,
+      "correctness": 5,
+      "faithfulness": 5,
+      "naturalness": 5,
+      "follows_mode": true,
+      "reasoning": "Câu trả lời thừa nhận rằng tài liệu không đủ thông tin về quantum networking mà không tự bịa ra nội dung, phù hợp với yêu cầu của câu hỏi."
+    }
+  ]
+}

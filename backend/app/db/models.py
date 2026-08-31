@@ -365,6 +365,62 @@ class Conversation(Base):
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
 
 
+class UserLearningPreference(Base):
+    """So thich Nova do chinh nguoi dung kiem soat, khong phai ho so nhay cam do LLM suy dien."""
+
+    __tablename__ = "user_learning_preference"
+    __table_args__ = (
+        CheckConstraint(
+            "preferred_language IN ('auto','vi','en')",
+            name="ck_learning_preference_language",
+        ),
+        CheckConstraint(
+            "explanation_depth IN ('auto','beginner','intermediate','advanced')",
+            name="ck_learning_preference_depth",
+        ),
+        CheckConstraint(
+            "response_length IN ('auto','short','medium','detailed')",
+            name="ck_learning_preference_length",
+        ),
+        CheckConstraint(
+            "example_style IN ('auto','code','analogy','step_by_step')",
+            name="ck_learning_preference_example_style",
+        ),
+        CheckConstraint("source IN ('explicit','inferred')", name="ck_learning_preference_source"),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True
+    )
+    preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="auto")
+    explanation_depth: Mapped[str] = mapped_column(String(20), nullable=False, default="auto")
+    response_length: Mapped[str] = mapped_column(String(20), nullable=False, default="auto")
+    example_style: Mapped[str] = mapped_column(String(20), nullable=False, default="auto")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="explicit")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ConversationMemory(Base):
+    """Tom tat ngan han theo conversation; luon bi rang buoc boi owner cua Conversation."""
+
+    __tablename__ = "conversation_memory"
+
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("conversation.id", ondelete="CASCADE"), primary_key=True
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    covered_concepts: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    open_questions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    last_summarized_message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("message.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Message(Base):
     """
     Một lượt tin nhắn trong hội thoại - có thể là câu hỏi của người dùng
@@ -841,3 +897,98 @@ class EvalCaseResult(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     eval_run: Mapped["EvalRun"] = relationship(back_populates="case_results")
+
+
+class ExternalIdentityLinkCode(Base):
+    """Ma lien ket mot lan; DB chi luu SHA-256, khong luu ma plaintext."""
+
+    __tablename__ = "external_identity_link_code"
+    __table_args__ = (
+        CheckConstraint("platform IN ('mock','discord','zalo','messenger')", name="ck_link_code_platform"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    app_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExternalIdentity(Base):
+    __tablename__ = "external_identity"
+    __table_args__ = (
+        CheckConstraint("platform IN ('mock','discord','zalo','messenger')", name="ck_external_identity_platform"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    external_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    app_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ExternalChannelBinding(Base):
+    __tablename__ = "external_channel_binding"
+    __table_args__ = (
+        CheckConstraint("platform IN ('mock','discord','zalo','messenger')", name="ck_channel_binding_platform"),
+        CheckConstraint("privacy_mode IN ('MENTION_ONLY','PRIVATE_ONLY')", name="ck_channel_binding_privacy"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    course_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("course.id", ondelete="CASCADE"), nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    privacy_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="MENTION_ONLY")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExternalConversation(Base):
+    __tablename__ = "external_conversation"
+    __table_args__ = (
+        CheckConstraint("scope IN ('PRIVATE','GROUP')", name="ck_external_conversation_scope"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(10), nullable=False)
+    conversation_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("conversation.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExternalMessageEvent(Base):
+    __tablename__ = "external_message_event"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False)
+    external_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    external_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="RECEIVED")
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ConnectorOutbox(Base):
+    __tablename__ = "connector_outbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    event_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("external_message_event.id", ondelete="CASCADE"), nullable=False, unique=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
