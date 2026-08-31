@@ -5,6 +5,7 @@ from app.academic_agent.instructor_context import ConceptGap, InstructorContext,
 from app.academic_agent.prompts import build_system_prompt
 from app.academic_agent.role_policy import resolve_role_context
 from app.academic_agent.tools import get_tools_for_role
+from app.router_agent.classifier import classify
 
 
 class Phase11InstructorAssistantTests(unittest.TestCase):
@@ -29,7 +30,9 @@ class Phase11InstructorAssistantTests(unittest.TestCase):
         instructor = {x["function"]["name"] for x in get_tools_for_role("INSTRUCTOR")}
         student = {x["function"]["name"] for x in get_tools_for_role("STUDENT")}
         self.assertIn("get_teaching_recommendations", instructor)
+        self.assertIn("get_my_courses_overview", instructor)
         self.assertNotIn("get_teaching_recommendations", student)
+        self.assertNotIn("get_my_courses_overview", student)
 
     def test_course_role_overrides_global_instructor(self):
         class Result:
@@ -40,6 +43,11 @@ class Phase11InstructorAssistantTests(unittest.TestCase):
             async def execute(self, *_args, **_kwargs): return Result(next(self.values))
         role = asyncio.run(resolve_role_context(Session(), user_id=7, global_role="INSTRUCTOR", course_id=42))
         self.assertEqual(role.effective_role, "STUDENT")
+
+    def test_my_courses_question_routes_to_action_without_llm(self):
+        route = classify("Tôi đang có bao nhiêu lớp và mỗi lớp bao nhiêu sinh viên?")
+        self.assertEqual(route.category, "ACTION_REQUEST")
+        self.assertEqual(route.classified_by, "rules")
 
 
 if __name__ == "__main__":

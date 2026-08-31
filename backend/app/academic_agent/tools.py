@@ -25,6 +25,19 @@ lượt LLM chọn tool.
 
 # ---------- Tool ĐỌC - GIẢNG VIÊN ----------
 
+_GET_MY_COURSES_OVERVIEW = {
+    "type": "function",
+    "function": {
+        "name": "get_my_courses_overview",
+        "description": (
+            "Liệt kê tất cả lớp do giảng viên hiện tại sở hữu, số sinh viên từng lớp và "
+            "tóm tắt sinh viên cần hỗ trợ/khái niệm yếu từ mastery chính thức. "
+            "Dùng khi hỏi 'tôi có bao nhiêu lớp' hoặc cần tổng quan nhiều lớp."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
 _GET_CLASS_ANALYTICS = {
     "type": "function",
     "function": {
@@ -422,6 +435,7 @@ _CREATE_COURSE = {
 }
 
 TOOLS_INSTRUCTOR: list[dict] = [
+    _GET_MY_COURSES_OVERVIEW,
     _GET_CLASS_ANALYTICS,
     _GET_COURSE_ROSTER,
     _GET_POPULAR_CONCEPTS,
@@ -483,6 +497,7 @@ TOOLS_REQUIRING_CONFIRMATION: set[str] = {
 # Nhãn tiếng Việt ngắn gọn cho từng tool - dùng hiển thị UI (câu hỏi xác
 # nhận, lịch sử hành động...). PHẢI có đủ nhãn cho MỌI tool (đọc lẫn ghi).
 TOOL_LABELS_VI: dict[str, str] = {
+    "get_my_courses_overview": "Xem tổng quan các lớp của bạn",
     "get_class_analytics": "Xem tình hình học tập của lớp",
     "get_course_roster": "Xem danh sách sinh viên",
     "get_popular_concepts": "Xem khái niệm được hỏi nhiều nhất",

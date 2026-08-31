@@ -321,11 +321,15 @@ export default function ChatBubble() {
   }, [tabs, tab]);
 
   useEffect(() => {
+    if (!user?.id) {
+      setCourses([]);
+      return;
+    }
     api
       .get<CoursePublic[]>("/v1/courses/me")
       .then(setCourses)
       .catch(() => setCourses([]));
-  }, []);
+  }, [user?.id]);
 
   // Hydrate lại messages của từng tab từ conversationId đã lưu ở
   // localStorage (đọc lúc khởi tạo state ở trên) - CHỈ chạy 1 lần khi

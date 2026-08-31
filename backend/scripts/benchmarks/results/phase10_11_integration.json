@@ -1,7 +1,7 @@
 {
   "summary": {
-    "cases": 10,
-    "passed": 10,
+    "cases": 12,
+    "passed": 12,
     "pass_rate": 1.0
   },
   "cases": {
@@ -11,6 +11,8 @@
     "instructor_context_course_scoped": true,
     "instructor_context_is_aggregate": true,
     "owner_gets_teaching_recommendations": true,
+    "owner_courses_are_loaded": true,
+    "course_overview_has_students": true,
     "cross_course_owner_blocked": true,
     "no_private_chat_in_tool_result": true,
     "instructor_kb_scoped": true,

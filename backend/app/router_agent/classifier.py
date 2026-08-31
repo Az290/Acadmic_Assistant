@@ -89,6 +89,11 @@ _CHITCHAT_PATTERNS = [
     r"^(thanks|thank you)[!.]?$",
 ]
 _COMPILED_CHITCHAT = [re.compile(p, re.IGNORECASE) for p in _CHITCHAT_PATTERNS]
+_INSTRUCTOR_DATA_PATTERNS = [
+    re.compile(r"\b(tôi|toi|mình|minh)\s+(đang\s+)?có\s+bao\s+nhiêu\s+lớp\b", re.IGNORECASE),
+    re.compile(r"\b(các|cac|những|nhung)\s+lớp\s+(của|cua)\s+(tôi|toi|mình|minh)\b", re.IGNORECASE),
+    re.compile(r"\bmỗi\s+lớp\s+(có\s+)?bao\s+nhiêu\s+sinh\s+viên\b", re.IGNORECASE),
+]
 
 _CLASSIFIER_SYSTEM_PROMPT = f"""Bạn là bộ phân loại câu hỏi cho hệ thống trợ lý học thuật. Nhiệm vụ DUY NHẤT: xếp câu hỏi của người dùng vào ĐÚNG 1 trong 7 danh mục sau, KHÔNG trả lời câu hỏi:
 
@@ -98,7 +103,7 @@ _CLASSIFIER_SYSTEM_PROMPT = f"""Bạn là bộ phân loại câu hỏi cho hệ 
 - OFF_TOPIC: câu hỏi lạc đề, không liên quan tới học thuật/môn học (nhưng KHÔNG độc hại - nếu độc hại đã bị chặn ở bước khác trước đó)
 - GENERAL_KNOWLEDGE: kiến thức phổ thông CHẮC CHẮN không liên quan môn học, trả lời được ngay không cần tài liệu (vd "1+1 bằng mấy", "thủ đô nước Pháp là gì", "hôm nay là thứ mấy"). QUAN TRỌNG: nếu còn nghi ngờ câu hỏi có thể liên quan tới nội dung môn học (kể cả khái niệm phổ biến như "Python là gì", "đạo hàm là gì") thì PHẢI xếp RAG_QUESTION, không xếp vào đây - tài liệu môn học có thể định nghĩa cụ thể khác với hiểu biết chung.
 - SYSTEM_QUESTION: hỏi về CÁCH HỆ THỐNG NÀY hoạt động (không phải nội dung môn học) - vd "tôi có làm quiz được không", "sao tôi không hỏi đáp được", "giảng viên có đọc được câu hỏi của tôi không", "làm sao để vào lớp".
-- ACTION_REQUEST: người dùng YÊU CẦU THỰC HIỆN một hành động cụ thể trong hệ thống - tạo/sửa/xoá dữ liệu (vd "tạo giúp tôi 1 khái niệm tên X", "giao bài tập về Y cho lớp Z", "duyệt tài liệu số 5", "xoá sinh viên A khỏi lớp"), HOẶC xem thông tin quản trị/tiến độ CỤ THỂ của lớp/chính họ (vd "lớp CS101 có bao nhiêu sinh viên cần hỗ trợ", "tiến độ học của tôi tới đâu rồi", "danh sách bài tập chưa nộp"). KHÁC với RAG_QUESTION (chỉ hỏi kiến thức môn học) và SYSTEM_QUESTION (chỉ hỏi CÁCH hệ thống hoạt động nói chung, không yêu cầu làm gì cụ thể hay xem dữ liệu cụ thể của họ).
+- ACTION_REQUEST: người dùng YÊU CẦU THỰC HIỆN một hành động cụ thể trong hệ thống - tạo/sửa/xoá dữ liệu (vd "tạo giúp tôi 1 khái niệm tên X", "giao bài tập về Y cho lớp Z", "duyệt tài liệu số 5", "xoá sinh viên A khỏi lớp"), HOẶC xem thông tin quản trị/tiến độ CỤ THỂ của lớp/chính họ (vd "tôi có bao nhiêu lớp và mỗi lớp có bao nhiêu sinh viên", "lớp CS101 có bao nhiêu sinh viên cần hỗ trợ", "tiến độ học của tôi tới đâu rồi", "danh sách bài tập chưa nộp"). KHÁC với RAG_QUESTION (chỉ hỏi kiến thức môn học) và SYSTEM_QUESTION (chỉ hỏi CÁCH hệ thống hoạt động nói chung, không yêu cầu làm gì cụ thể hay xem dữ liệu cụ thể của họ).
 
 Trả về JSON đúng định dạng: {{"category": "<một trong 7 giá trị trên>", "reasoning": "<giải thích ngắn gọn 1 câu>"}}"""
 
@@ -134,6 +139,13 @@ def classify(text: str, history: list[dict] | None = None) -> RouteResult:
         return RouteResult(
             category="CHITCHAT",
             reasoning="Khớp mẫu câu chào hỏi/xã giao ngắn, không cần gọi LLM phân loại.",
+            needs_retrieval=False,
+            classified_by="rules",
+        )
+    if any(pattern.search(text) for pattern in _INSTRUCTOR_DATA_PATTERNS):
+        return RouteResult(
+            category="ACTION_REQUEST",
+            reasoning="Người dùng đang yêu cầu xem dữ liệu thật về các lớp và số sinh viên của họ.",
             needs_retrieval=False,
             classified_by="rules",
         )

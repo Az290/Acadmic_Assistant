@@ -92,6 +92,33 @@ async def _require_enrolled(session: AsyncSession, *, user_id: int, course_id: i
 # ---------- Tool ĐỌC - GIẢNG VIÊN ----------
 
 
+async def _tool_get_my_courses_overview(
+    session: AsyncSession, args: dict, user: AppUser
+) -> ToolExecutionResult:
+    if user.role not in ("INSTRUCTOR", "ADMIN"):
+        return ToolExecutionResult(success=False, error_message="Chỉ giảng viên được xem tổng quan lớp.")
+    query = select(Course).order_by(Course.code)
+    if user.role != "ADMIN":
+        query = query.where(Course.owner_id == user.id)
+    courses = list((await session.execute(query)).scalars().all())
+    overview = []
+    for course in courses:
+        analytics = await _tool_get_class_analytics(session, {"course_id": course.id}, user)
+        if not analytics.success:
+            continue
+        data = analytics.data
+        overview.append({
+            "course_id": course.id,
+            "course_code": course.code,
+            "course_name": course.name,
+            "student_count": data["total_students"],
+            "students_with_mastery_data": data["students_with_data"],
+            "average_mastery": data["avg_mastery"],
+            "students_needing_support": data["students_needing_support"],
+        })
+    return ToolExecutionResult(success=True, data={"course_count": len(overview), "courses": overview})
+
+
 async def _tool_get_class_analytics(session: AsyncSession, args: dict, user: AppUser) -> ToolExecutionResult:
     course_id = args.get("course_id")
     course = await _get_course_or_none(session, course_id)
@@ -1011,6 +1038,7 @@ async def _tool_create_course(session: AsyncSession, args: dict, user: AppUser) 
 
 
 _DISPATCH_READ = {
+    "get_my_courses_overview": _tool_get_my_courses_overview,
     "get_class_analytics": _tool_get_class_analytics,
     "get_course_roster": _tool_get_course_roster,
     "get_popular_concepts": _tool_get_popular_concepts,
@@ -1065,6 +1093,7 @@ async def execute_tool(
     result = await handler(session, arguments, user)
 
     audited_read_tools = {
+        "get_my_courses_overview",
         "get_class_analytics",
         "get_course_roster",
         "get_student_assignment_details",
