@@ -994,7 +994,12 @@ export default function ChatBubble() {
                   <div className="text-[14px] font-bold" style={{ color: "var(--ink)" }}>Các phiên trò chuyện</div>
                   <div className="text-[11px]" style={{ color: "var(--ink-faint)" }}>Chỉ hiển thị lịch sử của tài khoản hiện tại</div>
                 </div>
-                <button type="button" onClick={() => setShowSessions(false)} className="rounded-lg px-3 py-1.5 text-[12px] font-semibold" style={{ color: "var(--accent)" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowSessions(false)}
+                  className="shrink-0 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+                  style={{ background: "var(--accent)", color: "#fff" }}
+                >
                   Đóng
                 </button>
               </div>
@@ -1529,40 +1534,40 @@ export default function ChatBubble() {
 
       {showPreferences && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(10, 12, 30, 0.45)" }} onClick={(e) => e.target === e.currentTarget && setShowPreferences(false)}>
-          <div className="w-[440px] max-w-[92vw] rounded-xl border bg-white p-5" style={{ borderColor: "var(--border)" }}>
-            <div className="mb-4 flex items-start justify-between">
-              <div>
+          <div className="w-full min-w-0 max-w-[440px] overflow-hidden rounded-xl border bg-white p-5" style={{ borderColor: "var(--border)" }}>
+            <div className="mb-4 flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
                 <div className="text-[15px] font-bold">Cá nhân hóa Nova</div>
                 <div className="mt-1 text-[11.5px]" style={{ color: "var(--ink-soft)" }}>Tùy chọn chỉ đổi cách diễn đạt, không đổi dữ liệu hay quyền truy cập.</div>
               </div>
-              <button onClick={() => setShowPreferences(false)} aria-label="Đóng">✕</button>
+              <button className="shrink-0" onClick={() => setShowPreferences(false)} aria-label="Đóng">✕</button>
             </div>
             {preferencesLoading ? (
               <div className="py-8 text-center text-[12px]" style={{ color: "var(--ink-soft)" }}>Đang tải tùy chọn…</div>
             ) : (
-              <div className="grid gap-3">
+              <div className="grid min-w-0 gap-3">
                 {([
                   ["preferred_language", "Ngôn ngữ", [["auto", "Tự động"], ["vi", "Tiếng Việt"], ["en", "English"]]],
                   ["explanation_depth", "Mức giải thích", [["auto", "Tự động"], ["beginner", "Cơ bản"], ["intermediate", "Trung bình"], ["advanced", "Nâng cao"]]],
                   ["response_length", "Độ dài", [["auto", "Tự động"], ["short", "Ngắn"], ["medium", "Vừa"], ["detailed", "Chi tiết"]]],
                   ["example_style", "Kiểu ví dụ", [["auto", "Tự động"], ["code", "Đoạn mã"], ["analogy", "So sánh dễ hiểu"], ["step_by_step", "Từng bước"]]],
                 ] as const).map(([field, label, options]) => (
-                  <label key={field} className="grid gap-1 text-[12px] font-medium">
+                  <label key={field} className="grid min-w-0 gap-1 text-[12px] font-medium">
                     {label}
-                    <select className="rounded-lg border px-3 py-2 text-[12.5px] font-normal" value={preferences[field]} onChange={(e) => setPreferences((current) => ({ ...current, [field]: e.target.value as NovaPreference[typeof field] }))}>
+                    <select className="block w-full min-w-0 max-w-full rounded-lg border px-3 py-2 text-[12.5px] font-normal" value={preferences[field]} onChange={(e) => setPreferences((current) => ({ ...current, [field]: e.target.value as NovaPreference[typeof field] }))}>
                       {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
                     </select>
                   </label>
                 ))}
-                <div className="rounded-lg border p-3 text-[11.5px]" style={{ borderColor: "var(--border)", background: "var(--panel-soft)" }}>
+                <div className="min-w-0 overflow-hidden rounded-lg border p-3 text-[11.5px]" style={{ borderColor: "var(--border)", background: "var(--panel-soft)" }}>
                   <div className="font-semibold">Bộ nhớ hội thoại cũ: {memories.length}</div>
-                  <div className="mt-1" style={{ color: "var(--ink-soft)" }}>Nova chỉ dùng phần hội thoại đã rời cửa sổ chat gần nhất. Bạn có thể xóa toàn bộ bất kỳ lúc nào.</div>
+                  <div className="mt-1 break-words" style={{ color: "var(--ink-soft)" }}>Nova chỉ dùng phần hội thoại đã rời cửa sổ chat gần nhất. Bạn có thể xóa toàn bộ bất kỳ lúc nào.</div>
                   {memories.slice(0, 3).map((memory) => (
-                    <div key={memory.conversation_id} className="mt-2 truncate" title={memory.summary}>Phiên #{memory.conversation_id}: {memory.summary}</div>
+                    <div key={memory.conversation_id} className="mt-2 min-w-0 truncate" title={memory.summary}>Phiên #{memory.conversation_id}: {memory.summary}</div>
                   ))}
                   <button className="mt-2 text-[11.5px] font-semibold text-red-600 disabled:opacity-50" onClick={() => void clearConversationMemory()} disabled={preferencesSaving || memories.length === 0}>Xóa toàn bộ bộ nhớ hội thoại</button>
                 </div>
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex min-w-0 gap-2">
                   <button className="btn flex-1" onClick={() => void resetPreferences()} disabled={preferencesSaving}>Đặt lại</button>
                   <button className="btn btn-primary flex-1" onClick={() => void savePreferences()} disabled={preferencesSaving}>{preferencesSaving ? "Đang lưu…" : "Lưu tùy chọn"}</button>
                 </div>
