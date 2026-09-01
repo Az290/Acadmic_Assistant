@@ -95,7 +95,7 @@ class AppUser(Base):
 
     __tablename__ = "app_user"
     __table_args__ = (
-        CheckConstraint("role IN ('STUDENT','INSTRUCTOR','ADMIN')", name="ck_app_user_role"),
+        CheckConstraint("role IN ('STUDENT','INSTRUCTOR','ADMIN','OWNER')", name="ck_app_user_role"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

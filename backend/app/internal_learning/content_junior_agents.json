@@ -1,0 +1,161 @@
+[
+  {
+    "id": "agent-architecture-patterns",
+    "track": "04 · LLM, RAG & Agents",
+    "level": "junior",
+    "eyebrow": "Agents",
+    "title": "Agent loop, state machine và planning patterns",
+    "summary": "Xây agent có budget, state, tool và điểm dừng thay vì gọi LLM trong vòng while vô hạn.",
+    "duration": "130 phút",
+    "prerequisites": ["Agentic RAG", "Tool calling", "Evaluation"],
+    "learningObjectives": ["Phân biệt workflow và autonomous agent", "Thiết kế state/checkpoint/budget", "So sánh ReAct, Plan-and-Execute và reflection"],
+    "keyTerms": ["agent loop", "state", "ReAct", "plan-and-execute", "reflection", "checkpoint", "budget", "termination"],
+    "sections": [
+      {
+        "title": "Workflow xác định và agent tự quyết",
+        "body": [
+          "Workflow dùng graph/if-else định trước nhánh; agent để model chọn bước tiếp theo dựa trên observation. Đa số sản phẩm nên bắt đầu workflow vì dễ test, latency dự đoán được và security scope rõ. Chỉ mở autonomy ở nơi input đa dạng khiến graph cố định thất bại đo được.",
+          "State gồm mục tiêu, conversation, plan, observations, tool results, remaining budget và artifacts. Mỗi transition phải có schema. Persist checkpoint cho job dài để retry không chạy lại side effect.",
+          "Termination gồm success condition, max steps, max token/cost/time, repeated-action detection và user cancellation. 'Model tự biết dừng' không phải control production."
+        ],
+        "projectExample": "Nova hiện là bounded agent: tối đa số query/vòng retrieval, tools allowlist và confirmation; không dùng free loop vì chưa có eval chứng minh cần."
+        ,"why": "Autonomy là budget rủi ro, không phải badge kiến trúc."
+      },
+      {
+        "title": "ReAct, Plan-and-Execute và reflection",
+        "body": [
+          "ReAct xen kẽ reasoning/action/observation, phù hợp nhiệm vụ khám phá nhưng nhiều model calls và dễ lặp. Không lưu chain-of-thought nhạy cảm; dùng action rationale ngắn có cấu trúc phục vụ audit.",
+          "Plan-and-Execute tạo plan trước rồi executor làm từng bước; tốt khi task có decomposition nhưng plan có thể lỗi thời, cần replan giới hạn. Reflection/critic đánh giá output và sửa, tăng chất lượng một số task nhưng có thể hợp thức hóa lỗi nếu critic cùng blind spot.",
+          "Routing/chaining/parallelization/orchestrator-workers/evaluator-optimizer là patterns, không framework-specific. Chọn pattern theo dependency và failure mode."
+        ],
+        "projectExample": "Evidence Planner→Composer là plan-and-execute hai bước rất hẹp; validator code đóng vai critic đáng tin hơn một lượt self-reflection tự do."
+        ,"why": "Pattern hẹp, có contract thường thắng agent chung chung trong sản phẩm có policy."
+      },
+      {
+        "title": "Durability, idempotency và human-in-the-loop",
+        "body": [
+          "Agent job dài cần event log/state version, retry policy và compensation cho side effect. Tool read có thể retry; tool write cần idempotency key và không tự retry mù nếu kết quả không rõ.",
+          "Human checkpoint nên xuất hiện trước hành động irreversible/high impact, khi identity mơ hồ hoặc evidence xung đột. UI phải hiển thị plan/arguments chứ không chỉ nút 'OK'.",
+          "Framework như LangGraph hữu ích khi graph có checkpoint, cycles và durable execution thật. Với pipeline tuyến tính nhỏ, Python functions dễ đọc/test hơn; framework không tự làm agent đúng."
+        ],
+        "projectExample": "PendingAction lưu tool+arguments và đợi xác nhận; DB constraint bảo vệ double execution."
+        ,"why": "Agent reliability chủ yếu là distributed-systems engineering quanh model."
+      }
+    ],
+    "pitfalls": ["While loop không max steps", "Retry write tool không idempotency", "Dùng chain-of-thought làm audit", "Thêm framework trước khi cần durability"],
+    "exercise": "Thiết kế state machine cho agent nghiên cứu 5 nguồn có budget và human approval trước khi gửi báo cáo.",
+    "lab": {"title": "Bounded research agent", "steps": ["Định nghĩa typed state/transitions", "Thêm search/read tools mock", "Budget + repeated-action guard", "Checkpoint/retry và eval"], "deliverable": "Agent repo có sequence diagram, traces và failure tests.", "acceptanceCriteria": ["Không loop vô hạn", "Unknown tool fail closed", "Retry không nhân side effect", "Có baseline workflow không-agent"]},
+    "interviewQuestions": ["Workflow và agent khác gì?", "ReAct trade-off là gì?", "Khi nào dùng LangGraph?", "Bạn bảo đảm agent dừng thế nào?"],
+    "quiz": [
+      {"question": "Điểm dừng agent nên do gì bảo vệ?", "options": ["Budget/conditions trong code", "Hy vọng model", "CSS", "Temperature cao"], "correctIndex": 0, "explanation": "Termination phải deterministic và đo được."},
+      {"question": "Tool write timeout có nên retry mù không?", "options": ["Có", "Không, cần idempotency/status", "Chỉ admin", "Chỉ local"], "correctIndex": 1, "explanation": "Write có thể đã thành công dù response mất."},
+      {"question": "LangGraph đáng dùng nhất khi nào?", "options": ["Cần graph cycle/checkpoint durable", "Một if đơn giản", "Đổi màu UI", "Một SQL query"], "correctIndex": 0, "explanation": "Framework có giá trị khi state orchestration thực sự phức tạp."}
+    ]
+  },
+  {
+    "id": "multi-agent-systems",
+    "track": "04 · LLM, RAG & Agents",
+    "level": "junior",
+    "eyebrow": "Multi-agent",
+    "title": "Multi-agent: supervisor, handoff, shared state và consensus",
+    "summary": "Biết khi nào nhiều agent tạo giá trị và khi nào chúng chỉ nhân latency, token và lỗi phối hợp.",
+    "duration": "145 phút",
+    "prerequisites": ["Agent architecture patterns", "Tool calling"],
+    "learningObjectives": ["Thiết kế supervisor/worker và handoff", "Quản lý shared state/provenance", "Nhận diện coordination overhead và correlated failure"],
+    "keyTerms": ["supervisor", "worker", "handoff", "blackboard", "shared state", "debate", "consensus", "agent identity"],
+    "sections": [
+      {
+        "title": "Multi-agent chỉ hợp khi có decomposition thật",
+        "body": [
+          "Nhiều prompt/persona không tự tạo chuyên môn. Multi-agent đáng dùng khi tasks độc lập có tool/context khác, có thể parallel, hoặc cần trust boundaries riêng. Nếu mọi agent dùng cùng model, dữ liệu và prompt gần giống, lỗi thường correlated.",
+          "Coordination overhead gồm extra calls, serialize context, conflict resolution, state consistency và debugging. Một agent có tools chuyên biệt thường đơn giản hơn ba agent nói qua lại.",
+          "Baseline bắt buộc là single-agent/workflow cùng budget. Multi-agent chỉ thắng nếu quality/coverage/latency trade-off được benchmark trên task decomposition thật."
+        ],
+        "projectExample": "Nova dùng Router→Planner→Composer như role-separated stages, chưa dùng autonomous agents vì các bước có contract tuyến tính và shared policy."
+        ,"why": "Không gọi pipeline nhiều bước là multi-agent nếu không có agency độc lập; tên đúng giúp thiết kế đúng."
+      },
+      {
+        "title": "Supervisor, handoff và blackboard",
+        "body": [
+          "Supervisor nhận task, phân rã và giao workers, sau đó tổng hợp. Bottleneck là supervisor sai plan hoặc mất thông tin. Workers nên trả structured artifact + provenance thay prose dài.",
+          "Handoff chuyển quyền kiểm soát giữa specialist dựa trên explicit condition và state schema. Blackboard cho agents đọc/ghi shared artifacts; cần version/concurrency/ownership để tránh overwrite và prompt injection lan truyền.",
+          "Peer debate/consensus có thể tăng reasoning diversity nhưng majority không bảo đảm đúng, đặc biệt cùng base model. Judge cần evidence/rubric và có thể là deterministic validator."
+        ],
+        "projectExample": "Một multi-agent phiên bản Nova có thể tách retrieval specialist, data-analytics specialist và pedagogy composer; supervisor không được cấp union mọi quyền nếu không cần."
+        ,"why": "Least privilege áp cả agent identity, không chỉ user."
+      },
+      {
+        "title": "Communication contract và failure isolation",
+        "body": [
+          "Agent message cần task_id, sender, artifact type, claims, evidence, confidence và errors. Không chuyển raw private context nếu worker không cần. Context window của mỗi worker là boundary giảm noise và leak.",
+          "Timeout/circuit breaker riêng từng worker; partial result có thể dùng nếu policy cho phép. Supervisor phải phân biệt no-result, failed và refused. Retry route sang model khác có thể đổi behavior và cần audit.",
+          "Shared memory phải có retention/tenant scope. Agent-generated content là untrusted input cho agent sau; sanitize và không cho instruction trong artifact nâng quyền."
+        ],
+        "projectExample": "Connector/channel data và course data không nên đưa chung blackboard; identity/privacy scope phải đi kèm mỗi artifact."
+        ,"why": "Multi-agent là distributed system với untrusted probabilistic nodes."
+      }
+    ],
+    "pitfalls": ["Dùng nhiều agent để trông hiện đại", "Supervisor có mọi tool", "Agents gửi prose không schema", "Majority vote=sự thật", "Shared memory không tenant scope"],
+    "exercise": "Thiết kế single-agent baseline và multi-agent alternative cho báo cáo lớp; tính số calls và trust boundary.",
+    "lab": {"title": "Supervisor + two specialists", "steps": ["Xây analytics và pedagogy workers với tool scope khác", "Structured handoff", "Parallel execution", "So single-agent baseline"], "deliverable": "Hai implementations + benchmark quality/cost/latency + architecture decision.", "acceptanceCriteria": ["Workers least privilege", "Provenance giữ xuyên handoff", "Partial failure không crash", "Chỉ chọn multi-agent nếu thắng metric định trước"]},
+    "interviewQuestions": ["Khi nào multi-agent tốt hơn một agent?", "Supervisor bottleneck là gì?", "Shared state cần bảo vệ gì?", "Vì sao debate có thể cùng sai?"],
+    "quiz": [
+      {"question": "Nhiều agent cùng model có đảm bảo diversity không?", "options": ["Có", "Không", "Chỉ temperature 0", "Chỉ GPU"], "correctIndex": 1, "explanation": "Chúng có thể chia sẻ blind spot và lỗi correlated."},
+      {"question": "Worker nên trả gì?", "options": ["Structured artifact có provenance", "Raw secret", "Chain-of-thought", "Không state"], "correctIndex": 0, "explanation": "Contract rõ giúp validate và tổng hợp."},
+      {"question": "Baseline cho multi-agent là gì?", "options": ["Single-agent/workflow cùng budget", "Không cần", "Random answer", "UI cũ"], "correctIndex": 0, "explanation": "Phải chứng minh overhead tạo thêm giá trị."}
+    ]
+  },
+  {
+    "id": "agent-evaluation",
+    "track": "04 · LLM, RAG & Agents",
+    "level": "junior",
+    "eyebrow": "Agent Eval",
+    "title": "Đánh giá agent và multi-agent bằng trajectory",
+    "summary": "Chấm không chỉ đáp án cuối mà cả tool choice, arguments, steps, cost và policy violations.",
+    "duration": "115 phút",
+    "prerequisites": ["Evaluation", "Multi-agent systems"],
+    "learningObjectives": ["Xây trajectory dataset", "Chấm task/tool/process efficiency", "Debug lỗi credit assignment"],
+    "keyTerms": ["trajectory", "task success", "tool accuracy", "step efficiency", "credit assignment", "simulation", "adversarial eval"],
+    "sections": [
+      {
+        "title": "Final answer đúng chưa đủ",
+        "body": [
+          "Agent có thể tình cờ ra đáp án đúng sau tool cấm, quá nhiều bước hoặc đọc dữ liệu sai scope. Eval cần task success, tool selection, argument correctness, state transitions, groundedness, policy, latency, token và side effects.",
+          "Trajectory exact match quá cứng vì nhiều đường hợp lệ. Chấm invariants và milestones: dùng đúng nguồn, không vượt budget, không gọi write trước confirmation, artifact cuối đủ rubric.",
+          "Credit assignment xác định lỗi do router, planner, worker, tool hay aggregator. Trace có correlation ID và structured events là dữ liệu eval/debug."
+        ],
+        "projectExample": "Nova log AgentActionLog và pipeline timings; evidence tests tách candidate/plan/composer failures."
+        ,"why": "Nếu chỉ chấm answer, agent học đi đường nguy hiểm miễn kết quả trông đúng."
+      },
+      {
+        "title": "Simulation, mocks và live environment",
+        "body": [
+          "Mock tools deterministic cho regression nhanh và inject timeout/error. Sandbox DB cho integration side effects. Live eval nhỏ kiểm vendor/model drift nhưng không nên là CI duy nhất.",
+          "User simulator bằng LLM tạo hội thoại đa lượt nhưng có bias; real anonymized cases cần consent/redaction. Adversarial cases gồm injection trong tool output, ambiguous identity, duplicate request và conflicting evidence.",
+          "Benchmark multi-agent phải giữ cùng task/model budget hoặc báo rõ. Quality tăng 1% với calls tăng 5× có thể không deploy được."
+        ],
+        "projectExample": "Connector tests mock webhook/replay; agent eval có thể mock course tools để chấm RBAC và retry mà không đụng production."
+        ,"why": "Eval environment nhiều tầng cân bằng tốc độ, realism và an toàn."
+      },
+      {
+        "title": "Release gate và online learning loop",
+        "body": [
+          "Offline pass là điều kiện cần; canary theo cohort đo completion, escalation, correction, cost và policy incidents. User thumbs feedback là noisy signal, không tự động thành label đúng.",
+          "Failure review tạo taxonomy và thêm regression case trước fix. Không train tự động ngay trên production conversations vì feedback poisoning, privacy và distribution bias.",
+          "Release gate nên hard-fail mọi privacy/authorization regression dù average helpfulness tăng."
+        ],
+        "projectExample": "Nova rollout thresholds và security tests là gate; benchmark của các tính năng sản phẩm chính có thể làm portfolio evidence sau khi loại dữ liệu nội bộ."
+        ,"why": "Agent improvement là controlled learning loop, không phải tự sửa không giám sát."
+      }
+    ],
+    "pitfalls": ["Chỉ chấm final answer", "Exact trajectory match", "LLM simulator là ground truth", "Auto-train mọi feedback", "Không cân bằng budget"],
+    "exercise": "Viết 20 trajectory cases cho agent tạo assignment, gồm happy path, ambiguity, timeout, duplicate và forbidden role.",
+    "lab": {"title": "Agent benchmark harness", "steps": ["Định schema case/trajectory", "Mock tools và failure injection", "Chấm invariants + cost", "Sinh HTML/Markdown report"], "deliverable": "Reusable eval harness với baseline comparison và failure taxonomy.", "acceptanceCriteria": ["Có negative/security cases", "Tách component failure", "Deterministic replay", "Báo quality cùng latency/cost"]},
+    "interviewQuestions": ["Bạn đánh giá agent khác chatbot thế nào?", "Trajectory metric nào quá cứng?", "Credit assignment là gì?", "Tại sao không train trực tiếp mọi thumbs-up?"],
+    "quiz": [
+      {"question": "Agent ra đáp án đúng sau khi gọi tool cấm có pass không?", "options": ["Có", "Không", "Chỉ admin", "Chỉ eval offline"], "correctIndex": 1, "explanation": "Process/policy là phần của correctness."},
+      {"question": "Mock tools hữu ích nhất cho gì?", "options": ["Regression/failure injection deterministic", "Thay production mãi mãi", "Tạo GPU", "CORS"], "correctIndex": 0, "explanation": "Mock cho test nhanh và kiểm soát lỗi."},
+      {"question": "Privacy regression nhưng helpfulness tăng có release không?", "options": ["Có", "Không", "Nếu tăng 10%", "Nếu model lớn"], "correctIndex": 1, "explanation": "Security/privacy là hard gate."}
+    ]
+  }
+]

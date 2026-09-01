@@ -1,0 +1,214 @@
+[
+  {
+    "id": "neural-networks-pytorch",
+    "track": "03 · Deep Learning",
+    "level": "junior",
+    "eyebrow": "PyTorch",
+    "title": "Neural Network và training loop bằng PyTorch",
+    "summary": "Tự xây MLP, hiểu forward/backward, DataLoader, checkpoint và debug gradient.",
+    "duration": "150 phút",
+    "prerequisites": ["Linear Algebra", "Calculus & Optimization", "Python"],
+    "learningObjectives": ["Giải thích MLP và activation", "Viết training/validation loop đúng", "Debug loss, gradient và overfitting"],
+    "keyTerms": ["perceptron", "MLP", "activation", "autograd", "Dataset", "DataLoader", "checkpoint"],
+    "sections": [
+      {
+        "title": "Từ linear layer tới MLP",
+        "body": [
+          "Một layer tính z=XW+b. Nếu xếp nhiều linear layer mà không có activation, toàn mạng vẫn tương đương một linear transformation. ReLU/GELU đưa phi tuyến để model học decision boundary phức tạp; sigmoid/tanh có saturation và gradient nhỏ ở vùng cực trị.",
+          "Width là số units mỗi layer, depth là số tầng. Capacity lớn tăng khả năng fit nhưng không bảo đảm generalization. Initialization giữ variance tín hiệu/gradient ổn định; Xavier thường cho tanh, Kaiming cho ReLU.",
+          "Output layer/loss phải khớp task: regression thường linear+MSE; binary classification một logit+BCEWithLogitsLoss; multiclass C logits+CrossEntropyLoss. Không softmax trước CrossEntropyLoss vì hàm đã kết hợp log-softmax ổn định số."
+        ],
+        "projectExample": "Nếu xây classifier intent riêng thay LLM router, một MLP baseline chỉ hợp lý sau logistic regression và cần output đúng bảy intent classes.",
+        "why": "Hiểu output/loss pairing tránh model chạy nhưng gradient/mục tiêu sai."
+      },
+      {
+        "title": "Training loop và autograd",
+        "body": [
+          "Loop chuẩn: model.train → zero_grad → forward → loss → backward → optimizer.step. Validation dùng model.eval và torch.no_grad. Dropout/BatchNorm hành xử khác train/eval nên quên chuyển mode làm metric sai.",
+          "DataLoader batch, shuffle train và dùng workers/pinned memory tùy phần cứng. Device/dtype phải nhất quán; chuyển tensor/model CPU-GPU nhiều lần làm chậm. Mixed precision giảm memory/tăng throughput nhưng cần gradient scaling.",
+          "Checkpoint lưu model_state, optimizer_state, epoch, scheduler và config/seed. Chỉ lưu object model pickled gây khó compatibility và security. Resume phải tái lập preprocessing/tokenizer version."
+        ],
+        "projectExample": "Training artifact khác model serving: production loader cần biết model version, label map và preprocessing contract, không chỉ file weights.",
+        "why": "Phần lớn lỗi training nằm ở loop/state/data chứ không ở công thức network."
+      },
+      {
+        "title": "Debug và regularization",
+        "body": [
+          "Bước đầu overfit một batch nhỏ. Nếu không thể, có bug data/loss/model/optimizer. Kiểm class distribution, NaN, gradient norm, parameter updates và prediction mẫu trước khi chạy nhiều epoch.",
+          "Learning curves phân biệt underfit/overfit. Weight decay, dropout, augmentation và early stopping có cơ chế khác; thêm tất cả cùng lúc làm mất khả năng biết cái gì giúp.",
+          "Reproducibility cần seed Python/NumPy/PyTorch, config và environment; GPU kernels vẫn có thể nondeterministic. Báo distribution nhiều runs quan trọng hơn một seed đẹp."
+        ],
+        "projectExample": "Benchmark Nova cũng giữ model/config/version; tư duy reproducibility giống training experiment dù pipeline dùng API model.",
+        "why": "Quy trình debug có thứ tự tiết kiệm GPU và tạo bằng chứng trong interview."
+      }
+    ],
+    "pitfalls": ["Softmax trước CrossEntropyLoss", "Quên model.eval", "Không zero_grad", "Train nhiều giờ trước khi overfit one batch", "Checkpoint thiếu preprocessing"],
+    "exercise": "Tự viết MLP classifier với training loop không dùng trainer framework; log loss, accuracy, gradient norm và learning rate.",
+    "lab": {"title": "PyTorch classifier production-ready", "steps": ["Tạo Dataset/DataLoader", "Viết MLP + loop train/validate", "Overfit one batch rồi train thật", "Checkpoint và inference script"], "deliverable": "Repository mini-project có config, tests shape, checkpoint và experiment report.", "acceptanceCriteria": ["Validation chạy no_grad/eval", "Resume checkpoint được", "Có baseline", "Có error analysis và nhiều seed"]},
+    "interviewQuestions": ["Vì sao cần activation giữa linear layers?", "model.train và eval khác gì?", "Autograd xây gradient ra sao?", "Bạn debug loss không giảm theo thứ tự nào?"],
+    "quiz": [
+      {"question": "Nhiều linear layer không activation tương đương gì?", "options": ["Một linear layer", "CNN", "Transformer", "Random forest"], "correctIndex": 0, "explanation": "Composition của linear transformations vẫn linear."},
+      {"question": "Validation cần dùng gì?", "options": ["model.eval + no_grad", "shuffle + dropout", "backward", "optimizer.step"], "correctIndex": 0, "explanation": "Validation không cập nhật weights và dùng behavior inference."},
+      {"question": "Debug training đầu tiên nên thử gì?", "options": ["Overfit một batch nhỏ", "Mua GPU", "Tăng 100 layers", "Bỏ validation"], "correctIndex": 0, "explanation": "Nếu không fit batch nhỏ, pipeline có lỗi cơ bản."}
+    ]
+  },
+  {
+    "id": "cnn-sequence-models",
+    "track": "03 · Deep Learning",
+    "level": "junior",
+    "eyebrow": "Architectures",
+    "title": "CNN, RNN/LSTM và inductive bias",
+    "summary": "Hiểu vì sao kiến trúc khác nhau phù hợp ảnh, chuỗi và khi nào Transformer thay thế chúng.",
+    "duration": "120 phút",
+    "prerequisites": ["Neural Network & PyTorch"],
+    "learningObjectives": ["Tính output shape convolution", "Giải thích recurrence và vanishing gradient", "Chọn architecture theo data/latency"],
+    "keyTerms": ["convolution", "kernel", "receptive field", "pooling", "RNN", "LSTM", "hidden state", "inductive bias"],
+    "sections": [
+      {
+        "title": "CNN và locality",
+        "body": [
+          "Convolution dùng kernel chia sẻ weights quét không gian, giả định pattern cục bộ có ý nghĩa ở nhiều vị trí. Output size theo input, kernel, padding, stride, dilation. Nhiều layers mở rộng receptive field.",
+          "Pooling/stride giảm spatial resolution và compute nhưng có thể mất chi tiết. Channels là feature maps, không phải chiều ảnh. BatchNorm/augmentation thường quan trọng cho vision training.",
+          "CNN vẫn hữu ích khi dữ liệu/compute hạn chế, cần latency thấp hoặc locality mạnh; Vision Transformer cần data/pretraining lớn hơn nhưng scale tốt."
+        ],
+        "projectExample": "Multimodal RAG tương lai có thể dùng vision encoder/OCR cho biểu đồ; chưa cần CNN tự train nếu API vision giải bài toán với benchmark tốt hơn.",
+        "why": "Architecture nên theo inductive bias và constraint, không theo xu hướng."
+      },
+      {
+        "title": "RNN, LSTM và sequence state",
+        "body": [
+          "RNN cập nhật hidden state tuần tự h_t=f(x_t,h_{t-1}), chia sẻ weights qua thời gian. Nó xử lý độ dài biến đổi nhưng khó parallel và gradient qua chuỗi dài bị vanish/explode.",
+          "LSTM/GRU dùng gates để giữ/quên/update state, cải thiện long dependencies nhưng không xóa hoàn toàn bottleneck tuần tự. Packed sequences/masking xử lý padding đúng.",
+          "RNN vẫn hợp streaming time-series nhỏ, edge inference hoặc khi state online quan trọng. Transformer mạnh hơn nhiều NLP tasks nhờ attention toàn cục và parallel training."
+        ],
+        "projectExample": "Voice wake-word/audio streaming có thể dùng model sequence nhỏ tại edge; Nova chat text dùng Transformer API."
+        ,"why": "Biết mô hình cũ giúp chọn giải pháp nhẹ thay vì ép LLM vào mọi tín hiệu."
+      },
+      {
+        "title": "Transfer learning và data augmentation",
+        "body": [
+          "Với dataset nhỏ, dùng pretrained backbone rồi freeze/train head, sau đó unfreeze một phần với LR thấp. Feature distribution quá khác pretraining có thể cần fine-tune sâu hơn.",
+          "Augmentation phải giữ label semantics. Flip phù hợp nhiều ảnh nhưng sai với chữ; time masking có thể phù hợp audio. Validation/test không dùng random augmentation.",
+          "Class imbalance dùng weighted loss, sampler hoặc augmentation nhưng cần kiểm calibration và distribution thật."
+        ],
+        "projectExample": "Nếu phân loại trang PDF scan, transfer learning/OCR baseline nên được so trước custom CNN."
+        ,"why": "Junior cần biết tận dụng pretrained models thay vì training mọi thứ từ zero."
+      }
+    ],
+    "pitfalls": ["Tính sai convolution shape", "Augmentation đổi label", "Không mask padding", "Fine-tune toàn backbone ngay với LR lớn"],
+    "exercise": "Tính parameter/output/receptive field của một CNN ba layer và memory theo batch size.",
+    "lab": {"title": "Transfer-learning document page classifier", "steps": ["Chuẩn bị dataset trang text/table/scan", "Train frozen pretrained backbone", "Unfreeze có kiểm soát", "So latency và confusion matrix"], "deliverable": "Model + model card + inference benchmark CPU/GPU.", "acceptanceCriteria": ["Split theo document", "Augmentation không leakage", "Có baseline", "Báo latency và size"]},
+    "interviewQuestions": ["Weight sharing của CNN có lợi gì?", "Receptive field là gì?", "LSTM giải quyết gì của RNN?", "Khi nào CNN/RNN vẫn hơn Transformer?"],
+    "quiz": [
+      {"question": "CNN chia sẻ kernel nhằm tận dụng gì?", "options": ["Locality và translation pattern", "JWT", "SQL join", "Tool call"], "correctIndex": 0, "explanation": "Pattern cục bộ có thể xuất hiện ở nhiều vị trí."},
+      {"question": "RNN khó parallel chủ yếu vì gì?", "options": ["h_t phụ thuộc h_{t-1}", "Không có weights", "Chỉ chạy CPU", "Không nhận số"], "correctIndex": 0, "explanation": "Recurrence tạo dependency tuần tự."},
+      {"question": "Dataset nhỏ nên bắt đầu vision bằng gì?", "options": ["Transfer learning", "Pretrain billion model", "Không split", "Random labels"], "correctIndex": 0, "explanation": "Pretrained representation giảm data/compute cần thiết."}
+    ]
+  },
+  {
+    "id": "transformer-from-scratch",
+    "track": "03 · Deep Learning",
+    "level": "junior",
+    "eyebrow": "Transformer",
+    "title": "Cài Transformer nhỏ từ đầu",
+    "summary": "Từ scaled dot-product attention tới causal mask, decoder block và language-model training.",
+    "duration": "180 phút",
+    "prerequisites": ["PyTorch", "Linear Algebra", "Transformer mechanics"],
+    "learningObjectives": ["Cài multi-head attention đúng shape", "Giải thích causal/padding mask", "Train decoder language model nhỏ"],
+    "keyTerms": ["scaled attention", "multi-head", "causal mask", "residual", "LayerNorm", "decoder-only", "teacher forcing"],
+    "sections": [
+      {
+        "title": "Attention tensor shapes",
+        "body": [
+          "Input (B,T,D) chiếu Q/K/V rồi reshape (B,H,T,Dh), với D=H×Dh. Scores QKᵀ có shape (B,H,T,T), scale sqrt(Dh), cộng mask -inf rồi softmax theo key dimension. Weighted sum với V trở lại (B,H,T,Dh), concat thành D.",
+          "Padding mask chặn token đệm; causal mask chặn nhìn token tương lai. Mask sai axis có thể broadcast mà không crash nhưng model học gian lận. Attention dropout chỉ trong train.",
+          "Quadratic T² làm attention dài tốn memory. FlashAttention tối ưu I/O mà giữ exact attention; sparse/linear attention đổi thuật toán/trade-off."
+        ],
+        "projectExample": "Context budget của Nova giảm T trước khi gọi API; không thể giải context dài chỉ bằng prompt."
+        ,"why": "Tự theo shape/mask là cách hiểu attention thực sự, không chỉ thuộc QKV."
+      },
+      {
+        "title": "Transformer block và normalization",
+        "body": [
+          "Block gồm attention, MLP, residual và LayerNorm. Pre-norm đặt norm trước sublayer, thường train deep network ổn định hơn post-norm. MLP thường mở rộng hidden dimension rồi co lại với GELU/SwiGLU.",
+          "Residual stream mang thông tin xuyên layers; mỗi sublayer viết update vào stream. Positional scheme cung cấp order; learned absolute, sinusoidal và RoPE có behavior extrapolation khác nhau.",
+          "Parameter count chủ yếu projection/MLP; activation memory, optimizer states và gradients làm training memory lớn hơn weights nhiều lần."
+        ],
+        "projectExample": "LoRA thường gắn low-rank adapters vào attention projections vì đây là matrices lớn và có ảnh hưởng hành vi."
+        ,"why": "Hiểu block giúp biết fine-tune target modules và serving bottleneck."
+      },
+      {
+        "title": "Causal language-model objective và generation",
+        "body": [
+          "Training tạo labels là input dịch trái: tại vị trí t dự đoán token t+1, cross-entropy bỏ padding. Teacher forcing cho model thấy prefix thật; inference autoregressive dùng chính token đã sinh nên error có thể tích lũy.",
+          "Perplexity=exp(cross-entropy trung bình) hữu ích cùng tokenizer/dataset nhưng không trực tiếp đo helpfulness, factuality hay safety. Lower perplexity không bảo đảm chatbot tốt hơn.",
+          "Generation cache K/V của token cũ để không tính lại toàn prefix; KV cache tăng theo batch×sequence×layers và là bottleneck serving."
+        ],
+        "projectExample": "LLM API stream token autoregressive; time-to-first-token và tokens/second phản ánh hai pha prefill/decode khác nhau."
+        ,"why": "Training objective giải thích khả năng và hallucination của LLM."
+      }
+    ],
+    "pitfalls": ["Mask broadcast sai", "Softmax sai dimension", "Không scale attention", "Đánh giá chatbot chỉ bằng perplexity", "Quên KV cache memory"],
+    "exercise": "Viết shape table cho mọi tensor trong attention với B=2,T=16,D=128,H=4 và kiểm causal mask bằng test.",
+    "lab": {"title": "Tiny decoder-only Transformer", "steps": ["Cài attention không dùng nn.MultiheadAttention", "Viết block + causal LM", "Train corpus nhỏ", "Sinh text và profile memory"], "deliverable": "Notebook/repo tiny-transformer có tests mask/shape và training curves.", "acceptanceCriteria": ["Causal test chứng minh không nhìn tương lai", "Loss giảm và overfit sample nhỏ", "Parameter count đúng", "So generation temperature"]},
+    "interviewQuestions": ["Vì sao chia sqrt(d_k)?", "Causal và padding mask khác gì?", "Pre-norm có lợi gì?", "KV cache dùng để làm gì?"],
+    "quiz": [
+      {"question": "Attention score shape sau QKᵀ là gì?", "options": ["(B,H,T,T)", "(B,T,D)", "(D,D)", "(B,H,Dh,Dh)"], "correctIndex": 0, "explanation": "Mỗi query position chấm mọi key position trên mỗi head."},
+      {"question": "Causal mask chặn gì?", "options": ["Token tương lai", "Token quá khứ", "Mọi token", "Weights"], "correctIndex": 0, "explanation": "Autoregressive model không được nhìn đáp án tương lai khi train."},
+      {"question": "KV cache giảm gì?", "options": ["Tính lại key/value prefix khi decode", "Parameter training", "Số user", "SQL storage"], "correctIndex": 0, "explanation": "Prefix states được reuse cho từng token mới."}
+    ]
+  },
+  {
+    "id": "fine-tuning-lora",
+    "track": "03 · Deep Learning",
+    "level": "junior",
+    "eyebrow": "Fine-tuning",
+    "title": "SFT, LoRA/QLoRA và đánh giá model đã fine-tune",
+    "summary": "Tạo dataset, train adapter, tránh catastrophic forgetting và quyết định có nên deploy.",
+    "duration": "190 phút",
+    "prerequisites": ["PyTorch", "Transformer from scratch", "Evaluation"],
+    "learningObjectives": ["Chuẩn bị chat/instruction dataset", "Giải thích LoRA và QLoRA", "Đánh giá base vs tuned có safety regression"],
+    "keyTerms": ["SFT", "instruction tuning", "LoRA", "rank", "alpha", "QLoRA", "quantization", "catastrophic forgetting"],
+    "sections": [
+      {
+        "title": "Dataset quyết định behavior",
+        "body": [
+          "SFT tiếp tục next-token training trên cặp instruction/response hoặc chat template. Format phải đúng tokenizer/model; loss thường mask system/user tokens để tập trung assistant response. Data quality/coverage/consistency quan trọng hơn số lượng thô.",
+          "Deduplicate, tách train/eval theo source/template và loại PII/secret. Synthetic data cần teacher quality, diversity và kiểm hallucination; self-training có thể khuếch đại lỗi.",
+          "Không fine-tune facts động như deadline. Dùng SFT cho style, domain terminology, tool formatting hoặc policy behavior đã có nhiều examples và eval rõ."
+        ],
+        "projectExample": "Nova hiện dùng prompt + structured output vì chưa có dataset behavior đủ lớn; log tốt không tự động được phép thành training data nếu chưa consent/redact."
+        ,"why": "Fine-tuning biến dataset thành specification ngầm nên governance dữ liệu là phần cốt lõi."
+      },
+      {
+        "title": "LoRA và QLoRA tiết kiệm tài nguyên",
+        "body": [
+          "LoRA freeze weight W và học update ΔW=BA low-rank, rank r nhỏ hơn dimension. Alpha scale update; target modules thường q/k/v/o projections hoặc MLP. Adapter nhỏ dễ lưu/chuyển nhưng vẫn phụ thuộc base model/version.",
+          "QLoRA quantize base weights thường 4-bit để giảm memory, compute forward qua quantized weights và train adapters ở precision phù hợp. Quantization có error; paged optimizer/gradient checkpointing đổi memory lấy compute.",
+          "Rank cao không mặc định tốt. LR, target modules, sequence length, batch/gradient accumulation và data mix phải benchmark. Merge adapter thuận serving nhưng mất khả năng đổi adapter nhanh."
+        ],
+        "projectExample": "Nếu fine-tune Nova style, adapter riêng cho assistant behavior tốt hơn nhét kiến thức course; retrieval vẫn cung cấp facts."
+        ,"why": "PEFT đưa fine-tuning vào ngân sách junior nhưng không xóa yêu cầu eval/data."
+      },
+      {
+        "title": "Train, evaluate và release",
+        "body": [
+          "Theo train/eval loss nhưng đánh giá task metrics và human rubric. So base, prompted-base và tuned model trên held-out cases; nếu prompt đã ngang tuned thì không đáng thêm artifact/serving complexity.",
+          "Kiểm catastrophic forgetting: general knowledge, multilingual, refusal, tool schema và formatting. Red-team prompt injection/PII. Fine-tuning có thể làm model tự tin hơn chứ không factual hơn.",
+          "Model card ghi base license, data provenance, hardware, carbon/compute estimate, intended use, limitations và eval. Version adapter cùng tokenizer/template và reproducible config."
+        ],
+        "projectExample": "Fine-tuned candidate chỉ vào Nova sau feature flag/canary; RAG/authorization vẫn giữ nguyên vì weights không phải security boundary."
+        ,"why": "Tuned model là dependency mới cần lifecycle như code và data."
+      }
+    ],
+    "pitfalls": ["Fine-tune facts động", "Train trên chat chưa consent", "Eval cùng template/source train", "Chỉ nhìn loss", "Coi fine-tune là security"],
+    "exercise": "Thiết kế 200-example dataset cho một behavior Nova, kèm taxonomy, split và 30 regression cases; giải thích vì sao behavior đáng fine-tune.",
+    "lab": {"title": "LoRA fine-tune model nhỏ", "steps": ["Chọn open model/license phù hợp", "Tạo/redact/version dataset", "Train LoRA hoặc QLoRA", "So base/prompted/tuned và publish model card"], "deliverable": "Adapter, training config, eval report và model card; không cần deploy nếu tuned không thắng baseline.", "acceptanceCriteria": ["Held-out split theo source", "Có base + prompt baseline", "Có safety/general regression", "Artifact không chứa PII", "Báo GPU/memory/time"]},
+    "interviewQuestions": ["SFT khác pretraining thế nào?", "LoRA giảm trainable parameters ra sao?", "QLoRA quantize phần nào?", "Bạn phát hiện catastrophic forgetting thế nào?", "Khi nào không nên fine-tune?"],
+    "quiz": [
+      {"question": "LoRA học update dạng gì?", "options": ["Tích hai matrix low-rank", "Thay tokenizer", "Thêm database", "Chỉ prompt"], "correctIndex": 0, "explanation": "ΔW=BA với rank nhỏ trong khi base frozen."},
+      {"question": "Fine-tune có thay backend authorization không?", "options": ["Có", "Không", "Chỉ OWNER", "Chỉ QLoRA"], "correctIndex": 1, "explanation": "Security boundary vẫn phải ở code/data layer."},
+      {"question": "Đánh giá tuned model cần baseline nào?", "options": ["Base và prompted-base", "Không cần", "Chỉ train loss", "Chỉ screenshot"], "correctIndex": 0, "explanation": "Phải chứng minh fine-tuning thêm giá trị so với giải pháp rẻ hơn."}
+    ]
+  }
+]

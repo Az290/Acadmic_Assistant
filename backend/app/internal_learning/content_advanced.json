@@ -1,0 +1,583 @@
+[
+  {
+    "id": "transformer-mechanics",
+    "eyebrow": "Nền tảng chuyên sâu",
+    "title": "Transformer hoạt động bên trong như thế nào?",
+    "summary": "Đi từ token embedding tới attention, residual stream và quá trình sinh từng token.",
+    "duration": "35 phút",
+    "learningObjectives": ["Giải thích được self-attention bằng trực giác và công thức", "Phân biệt training với autoregressive inference", "Hiểu temperature không phải thước đo độ đúng"],
+    "keyTerms": ["tokenization", "embedding", "Q/K/V", "self-attention", "positional encoding", "logits", "temperature"],
+    "sections": [
+      {
+        "title": "Tokenization và embedding đầu vào",
+        "body": [
+          "LLM không nhận trực tiếp chữ hay từ. Tokenizer tách chuỗi thành các đơn vị trong vocabulary; một từ tiếng Việt có thể là một token hoặc nhiều mảnh. Mỗi token ID được ánh xạ thành vector embedding. Vì vậy chi phí API và giới hạn context được tính theo token, không theo số ký tự hay số trang PDF.",
+          "Embedding token trong Transformer và embedding dùng cho vector search cùng biến dữ liệu thành vector nhưng mục tiêu khác nhau. Token embedding là trạng thái nội bộ để dự đoán token tiếp theo; retrieval embedding nén ý nghĩa của cả câu hoặc đoạn để so khoảng cách. Không nên lấy hai khái niệm này làm một.",
+          "Mô hình còn cần thông tin vị trí vì attention thuần túy không biết token nào đứng trước. Positional encoding hoặc rotary position embedding đưa thứ tự vào phép tính. Context window hữu hạn vì chi phí bộ nhớ và attention tăng theo chiều dài chuỗi."
+        ],
+        "projectExample": "HISTORY_LIMIT trong agent.py giới hạn lịch sử gần đây; chunking và context compression giúp Nova không đẩy vô hạn văn bản vào context window.",
+        "why": "Hiểu token giúp dự toán chi phí, thiết kế chunk và tránh nhầm rằng một PDF 50 trang có thể được gửi nguyên vẹn vào mọi request."
+      },
+      {
+        "title": "Self-attention: Query, Key và Value",
+        "body": [
+          "Từ mỗi trạng thái đầu vào, mô hình chiếu tuyến tính thành Query, Key và Value. Điểm liên quan giữa token i và j được tính gần với softmax(Q_i K_j^T / sqrt(d_k)); trọng số đó dùng để trộn các Value. Query có thể hiểu là điều token hiện tại đang tìm, Key là đặc trưng để được tìm thấy, Value là thông tin được mang sang.",
+          "Multi-head attention thực hiện nhiều phép attention song song để các head có thể học loại quan hệ khác nhau. Sau attention là feed-forward network xử lý từng vị trí. Residual connection và normalization giúp thông tin, gradient đi qua nhiều tầng ổn định hơn.",
+          "Attention weight không phải lời giải thích nhân quả hoàn hảo cho quyết định của model. Nó là tín hiệu nội bộ hữu ích nhưng không đủ để tuyên bố model đã suy luận theo một chuỗi lý do cụ thể."
+        ],
+        "projectExample": "Nova không can thiệp trọng số Transformer; dự án điều khiển model ở tầng context, tool, policy và validation—những điểm có thể quan sát và kiểm thử được.",
+        "why": "Ta không cần tự huấn luyện Transformer để xây sản phẩm LLM, nhưng cần hiểu giới hạn để thiết kế context và không thần thánh hóa model."
+      },
+      {
+        "title": "Logits, sampling và vì sao output không xác định",
+        "body": [
+          "Ở mỗi bước, model tạo logits cho toàn vocabulary, chuyển thành phân phối xác suất rồi chọn token. Greedy decoding chọn token cao nhất; sampling cho phép lựa chọn đa dạng. Temperature thấp làm phân phối sắc hơn, temperature cao làm phẳng hơn. Top-p giới hạn lựa chọn trong tập token có tổng xác suất tích lũy đủ lớn.",
+          "Temperature thấp làm output ổn định hơn nhưng không biến kiến thức sai thành đúng. Với planner có schema và nhiệm vụ chính xác, nên dùng nhiệt độ thấp; với diễn đạt hội thoại có thể cao hơn một chút. Tính đúng phải đến từ evidence, tool và validator.",
+          "Cùng prompt vẫn có thể cho output khác vì sampling, thay đổi model backend hoặc khác biệt nhỏ trong context. Vì vậy test LLM nên chấm invariant và rubric, không so toàn bộ chuỗi ký tự tuyệt đối."
+        ],
+        "projectExample": "Evidence Planner dùng cấu trúc chặt và nhiệt độ thấp; Response Composer được phép linh hoạt câu chữ nhưng không được thêm claim ngoài plan.",
+        "why": "Tách phần cần xác định khỏi phần cần tự nhiên giúp Nova vừa đáng tin vừa không nói chuyện như biểu mẫu."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/academic_agent/agent.py", "title": "Context và model call", "explanation": "Theo dõi history, prompt, model, temperature và nơi output được lưu."},
+      {"path": "backend/app/academic_agent/prompts.py", "title": "System instruction", "explanation": "Xem policy được ghép vào context thay vì thay đổi trọng số model."}
+    ],
+    "pitfalls": ["Đồng nhất token embedding với retrieval embedding", "Tăng temperature để mong model sáng tạo ra sự thật đúng", "Cho toàn bộ lịch sử vào context mà không có budget"],
+    "exercise": "Lấy một câu hỏi tiếng Việt, ước lượng phần nào trong prompt chiếm token nhiều nhất và đề xuất cách rút gọn mà không mất dữ kiện.",
+    "quiz": [
+      {"question": "Trong attention, phép QKᵀ chủ yếu biểu diễn gì?", "options": ["Kích thước vocabulary", "Mức liên quan giữa query và key", "Mật khẩu model", "Điểm mastery"], "correctIndex": 1, "explanation": "QKᵀ tạo điểm để softmax phân bổ mức chú ý lên các Value."},
+      {"question": "Temperature thấp có đảm bảo câu trả lời đúng không?", "options": ["Có", "Không, nó chủ yếu giảm độ ngẫu nhiên", "Chỉ với tiếng Việt", "Chỉ khi có GPU"], "correctIndex": 1, "explanation": "Độ đúng cần grounding và validation; temperature chỉ thay đổi phân phối sampling."},
+      {"question": "Vì sao test LLM không nên luôn so exact string?", "options": ["Model không trả chữ", "Output có thể khác câu chữ nhưng vẫn thỏa invariant", "Database không hỗ trợ", "Tokenizer xóa output"], "correctIndex": 1, "explanation": "Hệ sinh cần chấm facts, schema, citation và policy thay vì bắt một cách diễn đạt duy nhất."}
+    ]
+  },
+  {
+    "id": "model-adaptation",
+    "eyebrow": "Lựa chọn mô hình",
+    "title": "Prompting, RAG, fine-tuning và training: chọn lớp nào?",
+    "summary": "Một khung quyết định để không dùng fine-tuning giải bài toán dữ liệu và không dùng RAG giải bài toán hành vi.",
+    "duration": "28 phút",
+    "learningObjectives": ["Phân biệt knowledge adaptation và behavior adaptation", "Biết khi nào cần fine-tuning", "Thiết kế baseline trước khi nâng model"],
+    "keyTerms": ["prompt engineering", "few-shot", "RAG", "SFT", "LoRA", "distillation", "model routing"],
+    "sections": [
+      {
+        "title": "Bốn tầng can thiệp",
+        "body": [
+          "Prompting thay đổi instruction và ví dụ trong request, nhanh nhất nhưng bị giới hạn bởi context. RAG đưa kiến thức động vào context và giữ nguồn. Fine-tuning điều chỉnh trọng số để hành vi hoặc định dạng ổn định hơn. Pretraining từ đầu tạo foundation model, đòi dữ liệu và hạ tầng rất lớn.",
+          "Một lỗi phổ biến là fine-tune để model 'nhớ tài liệu'. Trọng số không phải kho key-value đáng tin và khó xóa một tài liệu cụ thể. Nếu dữ kiện thường cập nhật, RAG phù hợp hơn. Nếu model liên tục không tuân thủ một style chuyên biệt dù prompt/eval tốt, SFT hoặc LoRA mới đáng thử.",
+          "Few-shot examples nằm giữa rule và fine-tuning: cung cấp mẫu ngay trong prompt. Nó tốt khi số mẫu nhỏ, nhưng tăng token mỗi request và có thể không tổng quát nếu mẫu lệch."
+        ],
+        "projectExample": "Nova dùng prompt theo vai trò, RAG cho PDF và tool cho dữ liệu thật. Chưa fine-tune vì lỗi chính nằm ở retrieval, role context và workflow chứ chưa có dataset hành vi đủ tốt.",
+        "why": "Sửa đúng tầng giúp giảm chi phí và giữ khả năng cập nhật/audit."
+      },
+      {
+        "title": "Model routing và economics",
+        "body": [
+          "Không phải bước nào cũng cần model mạnh nhất. Classifier chỉ trả một enum; planner cần tuân schema và chọn evidence; composer cần ngôn ngữ tự nhiên. Mỗi bước có tiêu chí chất lượng, latency và chi phí khác nhau.",
+          "Model routing chọn model theo loại request hoặc độ khó. Baseline phải ghi version model, token, latency, error rate và quality score. Nâng model chỉ hợp lý khi phần tăng chất lượng vượt chi phí hoặc giảm được retry/hỗ trợ vận hành.",
+          "Caching có thể giảm chi phí cho system prompt hoặc câu hỏi lặp, nhưng phải đưa user/course/permission vào cache key. Cache sai scope là rò rỉ dữ liệu, không chỉ là lỗi chất lượng."
+        ],
+        "projectExample": "Router và Evidence Planner có model config riêng trong app/config.py để A/B test mà không đổi Composer.",
+        "why": "Tách cấu hình cho phép tối ưu từng nút thay vì nâng toàn pipeline."
+      },
+      {
+        "title": "Quy trình quyết định dựa trên eval",
+        "body": [
+          "Bắt đầu bằng prompt + model nhỏ làm baseline. Phân loại lỗi thành retrieval miss, instruction following, reasoning, format hoặc policy. Chỉ thêm kỹ thuật khi nó nhắm đúng nhóm lỗi lớn.",
+          "Nếu retrieval miss: sửa chunk/query/rerank. Nếu facts đã có nhưng composer bịa: siết plan/validator hoặc đổi model. Nếu style không ổn định trên hàng nghìn case đã có nhãn: cân nhắc fine-tuning. Nếu latency cao: routing, cache, giảm context hoặc model nhỏ.",
+          "Mọi thay đổi cần chạy cùng benchmark và báo cả điểm tốt lên lẫn regression. Không chọn bằng một demo đẹp."
+        ],
+        "projectExample": "Các phase Nova giữ feature flag và fallback để so pipeline mới với legacy thay vì thay thẳng một lần.",
+        "why": "Eval biến lựa chọn model từ sở thích thành quyết định kỹ thuật có thể lặp lại."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/config.py", "title": "Model và feature flags", "explanation": "Quan sát model planner, reranker, timeout và rollback flag."},
+      {"path": "backend/app/router_agent/classifier.py", "title": "Model routing", "explanation": "Một model nhỏ quyết định pipeline thay vì trả lời cuối."}
+    ],
+    "pitfalls": ["Fine-tune trước khi có benchmark", "Dùng model mạnh nhất cho mọi bước", "Cache không chứa permission scope"],
+    "exercise": "Lập decision table cho ba lỗi: sai citation, giọng văn cứng và không tìm thấy mã môn; chọn tầng cần sửa cho từng lỗi.",
+    "quiz": [
+      {"question": "Kiến thức PDF thay đổi hàng tuần nên ưu tiên gì?", "options": ["Pretrain lại", "RAG", "Tăng temperature", "Đổi CSS"], "correctIndex": 1, "explanation": "RAG cập nhật nhanh, xóa được và giữ citation."},
+      {"question": "Khi nào fine-tuning đáng cân nhắc hơn?", "options": ["Thêm một deadline", "Hành vi/style lặp lại chưa ổn dù prompt tốt và có dataset", "Sửa quyền lớp", "Tìm một student_id"], "correctIndex": 1, "explanation": "Fine-tuning phù hợp behavior adaptation ổn định, không phải dữ kiện động."},
+      {"question": "Cache key thiếu course_id có rủi ro gì?", "options": ["Font xấu", "Trả dữ liệu lớp khác", "Tokenize chậm", "Không tạo embedding"], "correctIndex": 1, "explanation": "Cache phải giữ cùng ranh giới phân quyền như truy vấn gốc."}
+    ]
+  },
+  {
+    "id": "document-ingestion",
+    "eyebrow": "RAG chuyên sâu",
+    "title": "Vòng đời tài liệu: từ PDF tới chỉ mục truy xuất",
+    "summary": "Mổ xẻ parsing, chunking, embedding, persistence, trạng thái duyệt và khả năng tái xử lý.",
+    "duration": "38 phút",
+    "learningObjectives": ["Thiết kế ingestion idempotent", "Chọn chunk theo cấu trúc tài liệu", "Hiểu vì sao phải lưu file gốc"],
+    "keyTerms": ["parsing", "OCR", "chunking", "overlap", "embedding", "idempotency", "document lineage"],
+    "sections": [
+      {
+        "title": "Parsing không chỉ là lấy text",
+        "body": [
+          "PDF là định dạng trình bày, không đảm bảo thứ tự đọc logic. Text có thể bị chia cột, header/footer lặp, ký tự lỗi font hoặc trang scan không có text layer. Parser cần giữ page number và metadata để citation có thể quay lại nguồn.",
+          "OCR cần cho trang ảnh nhưng có lỗi riêng: dấu tiếng Việt, công thức và bảng. Nên lưu confidence, đánh dấu trang OCR và benchmark theo loại tài liệu. Không được coi output parser là dữ liệu hoàn hảo.",
+          "File gốc là source of truth để reprocess khi đổi parser/chunking. Chỉ giữ chunks khiến không thể tái tạo chính xác và dẫn tới lỗi 'file gốc không còn trên máy chủ' sau restart."
+        ],
+        "projectExample": "Migration persist original document files đưa file vào PostgreSQL thay vì phụ thuộc ổ đĩa tạm của server; viewer có thể đọc lại bản gốc sau deploy.",
+        "why": "Server stateless có thể restart hoặc thay instance; persistence phải nằm ở storage bền vững."
+      },
+      {
+        "title": "Chunking theo cấu trúc và ngữ nghĩa",
+        "body": [
+          "Fixed-size chunk dễ triển khai nhưng có thể cắt giữa định nghĩa và ví dụ. Recursive/structure-aware chunk ưu tiên heading, paragraph và sentence trước khi cắt theo token. Semantic chunk dùng thay đổi chủ đề nhưng tốn model/embedding và khó ổn định hơn.",
+          "Chunk cần đủ tự chứa để trả lời nhưng không quá rộng. Metadata nên gồm document_id, course mapping, page, heading, ordinal, parser version và embedding version. Overlap cứu câu qua ranh giới nhưng làm index phình và top-k trùng lặp.",
+          "Không có kích thước chung tốt nhất. Benchmark nên phân nhóm câu định nghĩa, tổng hợp nhiều đoạn, bảng và code rồi thử grid chunk size/overlap."
+        ],
+        "projectExample": "DocumentChunk liên kết tài liệu và page để retrieval vừa lọc ACL vừa dựng citation. Dedup sau RRF giảm các chunk overlap lặp.",
+        "why": "Chunking là một hyperparameter của retrieval, phải được đo trên câu hỏi thật."
+      },
+      {
+        "title": "State machine, retry và idempotency",
+        "body": [
+          "Ingestion nên có trạng thái rõ như UPLOADED, PROCESSING, PENDING_REVIEW, APPROVED, REJECTED, FAILED. Chỉ APPROVED mới được retrieval cho sinh viên. Trạng thái không chỉ phục vụ UI mà ngăn race condition đọc dữ liệu chưa hoàn chỉnh.",
+          "Retry phải idempotent: chạy lại cùng document/version không tạo chunks trùng. Có thể xóa-replace trong transaction hoặc upsert theo document_id + version + ordinal. Lỗi embedding giữa chừng không được để một nửa index trở thành visible.",
+          "Khi đổi embedding model, vector cũ và mới không cùng không gian. Cần embedding_version, reindex job và cutover có kiểm soát thay vì trộn hai vector rồi tính cosine."
+        ],
+        "projectExample": "Luồng upload/duyệt tách quyền sinh viên đóng góp với giảng viên quyết định course và access; ingestion không tự biến upload thành tri thức được tin cậy.",
+        "why": "State và versioning biến một script xử lý file thành pipeline production có thể phục hồi."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/ingestion", "title": "Pipeline ingestion", "explanation": "Theo parser, chunker và embedder từ đầu vào tới DocumentChunk."},
+      {"path": "backend/app/documents/router.py", "title": "Upload và review policy", "explanation": "Xem trạng thái, quyền course và cách file gốc được trả về."},
+      {"path": "backend/app/db/models.py", "title": "Document lineage", "explanation": "Đọc quan hệ Document, mapping và chunks."}
+    ],
+    "pitfalls": ["Index tài liệu trước khi duyệt", "Không version embedding", "Dùng ổ đĩa container làm nơi lưu file duy nhất", "Retry tạo chunk trùng"],
+    "exercise": "Vẽ state machine cho một PDF từ lúc sinh viên đóng góp đến lúc Nova trích dẫn được; ghi actor nào được phép chuyển từng trạng thái.",
+    "quiz": [
+      {"question": "Vì sao cần giữ file PDF gốc?", "options": ["Để tăng token", "Để xem lại và reprocess khi pipeline đổi", "Để bỏ database", "Để model tự train"], "correctIndex": 1, "explanation": "Chunks là sản phẩm dẫn xuất; file gốc cho phép tái tạo và kiểm chứng."},
+      {"question": "Có thể trộn vector từ hai embedding model không?", "options": ["Có luôn", "Không nên vì chúng thuộc không gian khác nhau", "Chỉ khi PDF nhỏ", "Chỉ với tiếng Anh"], "correctIndex": 1, "explanation": "Khoảng cách giữa vector khác model không còn ý nghĩa nhất quán."},
+      {"question": "Idempotent ingestion nghĩa là gì?", "options": ["Chạy lại không gây bản ghi trùng hoặc trạng thái sai", "Luôn chạy một lần", "Không cần transaction", "Không lưu lỗi"], "correctIndex": 0, "explanation": "Retry cùng input phải đưa hệ thống về cùng kết quả logic."}
+    ]
+  },
+  {
+    "id": "hybrid-search-math",
+    "eyebrow": "RAG chuyên sâu",
+    "title": "Hybrid Search, cosine similarity, BM25 và RRF",
+    "summary": "Hiểu toán và trade-off của pipeline tìm kiếm Nova đang dùng.",
+    "duration": "42 phút",
+    "learningObjectives": ["Tính và diễn giải cosine similarity", "Hiểu lexical search bổ sung semantic search", "Giải thích RRF không cần chuẩn hóa score"],
+    "keyTerms": ["cosine similarity", "BM25", "full-text search", "RRF", "top-k", "ACL pre-filter"],
+    "sections": [
+      {
+        "title": "Dense retrieval và cosine similarity",
+        "body": [
+          "Embedding query và chunk thành vector. Cosine similarity là (q·d)/(||q|| ||d||), đo góc thay vì độ lớn. Vector cùng hướng có score gần 1. Với vector đã normalize, dot product và cosine có thứ hạng tương đương.",
+          "Dense retrieval bắt được paraphrase nhưng có failure mode: mã môn, số điều khoản, tên API hiếm hoặc phủ định tinh tế. Score không phải xác suất đúng; threshold phải được hiệu chuẩn trên corpus và model cụ thể.",
+          "ANN index tăng tốc nearest-neighbor bằng cách chấp nhận xấp xỉ. Với corpus nhỏ, exact scan có thể đủ; HNSW/IVFFlat đáng dùng khi latency và số vector chứng minh nhu cầu."
+        ],
+        "projectExample": "pgvector giữ vector cạnh metadata quan hệ, cho phép SQL lọc user/course/document status trước khi trả candidates.",
+        "why": "Giữ ACL trong truy vấn retrieval giảm nguy cơ lấy dữ liệu cấm rồi mới cố xóa ở prompt."
+      },
+      {
+        "title": "Sparse/lexical retrieval và BM25",
+        "body": [
+          "Lexical search dựa trên token xuất hiện. BM25 tăng điểm khi term quan trọng xuất hiện nhưng bão hòa tần suất và chuẩn hóa theo độ dài document. IDF làm term hiếm có trọng số cao hơn term phổ biến.",
+          "PostgreSQL full-text search cung cấp tsvector/tsquery và ranking. Với tiếng Việt, tokenizer/dấu và thuật ngữ Anh-Việt cần benchmark; query normalization và phục hồi dấu có thể cải thiện recall nhưng cũng có thể đổi nghĩa.",
+          "Sparse search đặc biệt tốt với CS101-PY, tên biến, error code và cụm chính xác—những thứ dense model có thể làm mờ."
+        ],
+        "projectExample": "Nova chạy vector và full-text rồi hợp nhất, thay vì buộc một phương pháp giải cả paraphrase lẫn keyword kỹ thuật.",
+        "why": "Hai nguồn lỗi khác nhau tạo ensemble mạnh hơn nếu fusion được thiết kế đúng."
+      },
+      {
+        "title": "Reciprocal Rank Fusion và ACL ordering",
+        "body": [
+          "Vector score và lexical rank không cùng thang đo. RRF cộng 1/(k + rank) từ mỗi danh sách, dựa vào thứ hạng thay vì score tuyệt đối. Một chunk xuất hiện cao ở nhiều danh sách được thưởng; k làm mềm ảnh hưởng top rank.",
+          "Fusion cần deduplicate theo chunk ID và giữ provenance: chunk đến từ query nào, rank nào. Sau RRF có thể rerank top-N bằng model sâu hơn. Kết quả cuối không nên chứa nhiều chunk gần giống từ cùng trang.",
+          "ACL phải áp trước hoặc ngay trong từng search. Retrieve toàn hệ thống rồi filter top-k có thể làm người dùng nhận zero result dù tài liệu hợp lệ đứng sau, đồng thời dữ liệu cấm đã đi qua tầng ứng dụng/log."
+        ],
+        "projectExample": "access_policy.py xây điều kiện course/enrollment/approval ngay trong SQL; bounded retrieval hợp nhất nhiều query bằng RRF.",
+        "why": "Pre-filter vừa an toàn vừa giữ recall đúng trong phạm vi user được xem."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/retrieval/hybrid_search.py", "title": "Hybrid retrieval", "explanation": "Đọc hai nhánh search, score và mapping thành SearchResult."},
+      {"path": "backend/app/retrieval/access_policy.py", "title": "ACL trong SQL", "explanation": "Theo dõi role/enrollment trước khi candidate rời database."},
+      {"path": "backend/app/academic_agent/bounded_retrieval.py", "title": "RRF nhiều query", "explanation": "Xem budget, dedup và reciprocal rank fusion."}
+    ],
+    "pitfalls": ["Coi similarity là xác suất", "Fusion trực tiếp hai score khác thang", "Filter ACL sau top-k", "Thêm ANN index khi corpus còn rất nhỏ"],
+    "exercise": "Cho hai ranking [A,B,C] và [B,D,A], tự tính RRF với k=60 và giải thích vì sao B đứng đầu.",
+    "quiz": [
+      {"question": "RRF hợp nhất dựa chủ yếu trên gì?", "options": ["Raw score", "Rank trong từng danh sách", "Kích thước PDF", "User role"], "correctIndex": 1, "explanation": "RRF dùng reciprocal rank nên tránh phải chuẩn hóa score khác loại."},
+      {"question": "Lexical search thường thắng dense search ở đâu?", "options": ["Paraphrase xa", "Mã lỗi và cụm chính xác", "Ảnh", "Giọng nói"], "correctIndex": 1, "explanation": "Exact tokens là thế mạnh của sparse retrieval."},
+      {"question": "Vì sao ACL filter sau top-k là sai?", "options": ["CSS chậm", "Giảm recall hợp lệ và để dữ liệu cấm đi quá xa", "Không tạo JWT", "Không dùng được SSE"], "correctIndex": 1, "explanation": "Security scope phải tham gia ngay từ truy vấn candidate."}
+    ]
+  },
+  {
+    "id": "query-reranking",
+    "eyebrow": "RAG chuyên sâu",
+    "title": "Query rewriting, multi-query và reranking",
+    "summary": "Cách tăng recall rồi lấy lại precision mà không cho agent tìm kiếm vô hạn.",
+    "duration": "34 phút",
+    "learningObjectives": ["Phân biệt recall stage và precision stage", "Thiết kế budget cho multi-query", "So sánh bi-encoder, cross-encoder và LLM reranker"],
+    "keyTerms": ["query rewrite", "multi-query", "candidate generation", "cross-encoder", "reranking", "context compression"],
+    "sections": [
+      {
+        "title": "Rewrite câu hỏi theo hội thoại",
+        "body": [
+          "Câu nối tiếp như 'phần trên thì sao?' không đủ nghĩa khi search riêng. Query rewriting dùng lịch sử để tạo câu độc lập, nhưng phải giữ ý định gốc và không thêm thực thể model tự đoán.",
+          "Multi-query tạo các góc tìm: semantic paraphrase, keyword kỹ thuật và query gắn course. Nó tăng recall nhưng nhân chi phí search và noise. Vì vậy số query, số vòng và candidate phải có hard limit.",
+          "Original query luôn nên được giữ như một nhánh. Nếu rewrite sai, truy vấn gốc là fallback và benchmark có thể chỉ ra generator đang làm giảm recall."
+        ],
+        "projectExample": "Bounded retrieval giữ query gốc đầu tiên, deduplicate và giới hạn tối đa ba query; feature flag cho phép quay về baseline.",
+        "why": "Agentic có giới hạn cho lợi ích thích nghi mà không tạo vòng lặp khó dự đoán."
+      },
+      {
+        "title": "Reranker đọc cặp query-document",
+        "body": [
+          "Embedding bi-encoder mã hóa query và document riêng nên search nhanh, nhưng tương tác token-token bị nén. Cross-encoder đọc cặp cùng lúc, chấm chính xác hơn nhưng phải chạy cho từng candidate nên chậm.",
+          "LLM reranker có thể hiểu chỉ dẫn và tiếng Việt tốt, trả structured list chunk IDs; đổi lại có latency, chi phí và tính không xác định. Server phải loại ID lạ, dedup và fallback nếu output lỗi.",
+          "Rerank chỉ top 10–30 candidates; không quét toàn corpus. Đây là coarse-to-fine architecture: tầng rẻ tối ưu recall, tầng đắt tối ưu precision."
+        ],
+        "projectExample": "reranker.py validate output model, từ chối chunk ngoài candidates và có local fallback để pipeline không chết khi API timeout.",
+        "why": "Tách tầng giữ latency có giới hạn và giúp eval từng phần."
+      },
+      {
+        "title": "Khi nào retrieval đủ tốt?",
+        "body": [
+          "Top-k cố định chưa nói evidence đủ cho mọi claim. Planner có thể phát hiện missing information và yêu cầu vòng hai, nhưng chỉ trong budget. Sau vòng hai phải trả lời với giới hạn hoặc hỏi lại, không lặp vô hạn.",
+          "Context compression bỏ boilerplate và phần không liên quan nhưng phải giữ câu hỗ trợ citation. Compression bằng LLM có nguy cơ biến đổi nghĩa; extractive compression an toàn hơn cho nguồn chính thức.",
+          "No-result là output hợp lệ. Hệ thống đáng tin phải nói chưa đủ tài liệu thay vì tự chuyển sang kiến thức chung cho deadline, đáp án hoặc policy lớp."
+        ],
+        "projectExample": "EvidencePlan có missing_information, needs_second_retrieval và must_not_say; validator áp retrieval budget.",
+        "why": "Điểm dừng là một phần của thiết kế agent, không phải chi tiết triển khai."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/academic_agent/query_generator.py", "title": "Sinh multi-query", "explanation": "Xem query budget và fallback deterministic."},
+      {"path": "backend/app/academic_agent/reranker.py", "title": "Rerank có validation", "explanation": "Theo structured output và cách reject unknown chunk."},
+      {"path": "backend/tests/test_bounded_retrieval.py", "title": "Contract tests", "explanation": "Đọc test original-query, cap và RRF."}
+    ],
+    "pitfalls": ["Để LLM tự tạo số query không giới hạn", "Không giữ query gốc", "Tin chunk ID model trả về mà không validate", "Rerank toàn corpus"],
+    "exercise": "Viết ba search query khác nhau cho câu nối tiếp 'còn cách kia?' và chỉ ra thông tin lịch sử nào bắt buộc phải giữ.",
+    "quiz": [
+      {"question": "Tầng candidate generation ưu tiên gì?", "options": ["Recall", "Văn phong", "Màu sắc", "Audit log"], "correctIndex": 0, "explanation": "Tầng đầu lấy đủ ứng viên; reranker mới tăng precision."},
+      {"question": "Vì sao giữ original query?", "options": ["Để tăng font", "Làm fallback khi rewrite sai", "Để bỏ history", "Để reset JWT"], "correctIndex": 1, "explanation": "Rewrite là một dự đoán và có thể làm lệch intent."},
+      {"question": "Reranker được phép trả chunk ngoài candidates không?", "options": ["Có", "Không, server phải reject", "Chỉ với admin", "Chỉ khi score cao"], "correctIndex": 1, "explanation": "Model không có quyền tạo nguồn mới ngoài tập đã truy xuất và kiểm scope."}
+    ]
+  },
+  {
+    "id": "planner-composer",
+    "eyebrow": "Agentic RAG",
+    "title": "Evidence Planner và Response Composer ở mức contract",
+    "summary": "Mổ xẻ pipeline hai bước: chốt điều được phép nói rồi mới diễn đạt tự nhiên.",
+    "duration": "45 phút",
+    "learningObjectives": ["Thiết kế EvidencePlan có invariant", "Phân biệt grounded/general/mixed claims", "Hiểu fallback khi planner lỗi"],
+    "keyTerms": ["structured output", "JSON Schema", "claim", "evidence mapping", "invariant", "composer"],
+    "sections": [
+      {
+        "title": "Plan là giao diện giữa hai bước",
+        "body": [
+          "Planner không viết câu trả lời đẹp. Nó phân loại answer_mode, liệt kê claims, map từng claim tới chunk IDs, ghi missing information, must_not_say và teaching strategy. Structured output biến quyết định của model thành dữ liệu server có thể validate.",
+          "Schema hợp lệ chưa đủ. Semantic invariants vẫn phải do code kiểm: grounded claim phải có evidence; ID phải thuộc candidates; general claim không được gắn citation giả; second retrieval không vượt budget.",
+          "Plan làm lỗi dễ quan sát. Nếu answer sai nhưng plan đúng, lỗi ở composer. Nếu claim thiếu nguồn đã lọt plan, lỗi ở planner/validator. Nếu source đúng không có trong candidates, lỗi ở retrieval."
+        ],
+        "projectExample": "evidence_planner.py dùng Pydantic model và validation trước khi truyền sang response_composer.py.",
+        "why": "Một output trung gian có contract giúp benchmark và rollback độc lập."
+      },
+      {
+        "title": "Composer bị giới hạn nhưng vẫn tự nhiên",
+        "body": [
+          "Composer chỉ nhận claims đã duyệt và evidence tương ứng, không nhận toàn bộ candidates bị loại. Nó được quyền chọn cấu trúc câu, ví dụ và chuyển ý theo preference, nhưng không được thêm factual claim nội bộ.",
+          "Grounded mode bắt nguồn cho claim tài liệu. General mode trả kiến thức phổ thông không tạo citation giả. Mixed mode phải nói rõ phần nào từ nguồn lớp và phần nào là kiến thức bổ sung. Socratic mode ưu tiên một câu hỏi gợi mở thay vì xổ đáp án.",
+          "Natural conversation không đồng nghĩa thêm greeting mỗi lượt. History giúp dùng đại từ và nối mạch; policy điều khiển độ dài, ngôn ngữ và trình độ."
+        ],
+        "projectExample": "normalize_socratic_answer bảo đảm đúng một câu hỏi gợi mở cuối; planned citations chỉ lấy ID đã qua mapping.",
+        "why": "Giới hạn facts nhưng mở style là điểm cân bằng giữa trust và trải nghiệm."
+      },
+      {
+        "title": "Timeout, fallback và failure semantics",
+        "body": [
+          "Planner có thể timeout, trả JSON lỗi hoặc plan rỗng. Pipeline production phải có timeout riêng và fallback về grounded RAG cũ, không để cả chat crash. Fallback cần được log để biết tỷ lệ và chất lượng thật.",
+          "Nếu không đủ evidence cho policy/điểm/deadline, câu đúng là 'chưa đủ dữ liệu'. Với nội dung nền an toàn có thể dùng general mode. Boundary này nằm trong policy, không để composer tự quyết theo cảm giác.",
+          "Citation verifier sau composer kiểm ID và quote, nhưng không cứu được retrieval sai chủ đề. Các lớp bảo vệ bổ sung nhau, không lớp nào thay toàn bộ pipeline."
+        ],
+        "projectExample": "Feature flags trong config tắt planner/composer để rollback; tests chấm unknown chunk và grounded invariant.",
+        "why": "Degrade có chủ đích tốt hơn lỗi trắng trang hoặc âm thầm bịa."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/academic_agent/evidence_planner.py", "title": "Plan schema và validator", "explanation": "Theo claims, modes, missing info và candidate validation."},
+      {"path": "backend/app/academic_agent/response_composer.py", "title": "Compose có giới hạn", "explanation": "Đọc instruction chỉ cho phép planned claims."},
+      {"path": "backend/tests/test_evidence_planner.py", "title": "Invariant tests", "explanation": "Xem grounded claim và citation scope bị chặn ra sao."}
+    ],
+    "pitfalls": ["Coi JSON Schema là đủ để bảo đảm semantics", "Cho composer toàn bộ candidates", "Fallback không có metric", "Citation đúng ID nhưng claim không được source hỗ trợ"],
+    "exercise": "Tự viết EvidencePlan cho câu 'Python là gì và tôi còn bài Python nào chưa nộp?', tách claim tài liệu với tool data.",
+    "quiz": [
+      {"question": "Planner nên tối ưu điều gì?", "options": ["Câu văn đẹp", "Claims và evidence có kiểm chứng", "Animation", "Mật khẩu"], "correctIndex": 1, "explanation": "Composer mới chịu trách nhiệm diễn đạt."},
+      {"question": "JSON đúng schema có chắc claim đúng nguồn không?", "options": ["Có", "Không, cần semantic invariant", "Chỉ khi temperature 0", "Chỉ với admin"], "correctIndex": 1, "explanation": "Schema kiểm hình dạng; server còn phải kiểm ID, mode và evidence mapping."},
+      {"question": "Planner timeout nên làm gì?", "options": ["Crash trang", "Fallback có giới hạn và ghi metric", "Bỏ phân quyền", "Gọi vô hạn"], "correctIndex": 1, "explanation": "Failure mode phải dự đoán được và quan sát được."}
+    ]
+  },
+  {
+    "id": "tool-calling-rbac",
+    "eyebrow": "Agent và Tool",
+    "title": "Function calling, tool execution và RBAC hai lớp",
+    "summary": "Tại sao model chỉ đề nghị hành động còn backend mới có quyền thực thi.",
+    "duration": "40 phút",
+    "learningObjectives": ["Thiết kế JSON Schema cho tool", "Phân biệt tool visibility với authorization", "Biết khi nào phải confirmation và audit"],
+    "keyTerms": ["function calling", "tool schema", "dispatcher", "RBAC", "authorization", "confirmation", "audit trail"],
+    "sections": [
+      {
+        "title": "Model chọn tool, code thực thi",
+        "body": [
+          "Tool schema mô tả tên, mục đích và tham số. Model sinh tool_name + arguments; nó không trực tiếp gọi database. Executor dùng dispatch allowlist rõ ràng, validate arguments rồi chạy hàm đã định nghĩa.",
+          "Không dùng eval/getattr tùy ý theo tên model trả về. Unknown tool phải fail closed. Result được chuyển về model để diễn đạt hoặc trả thẳng theo contract.",
+          "Schema nên dùng ID bắt buộc khi có thể, nhưng UX có thể cho phép tên rồi resolver xác định. Nếu nhiều kết quả khớp, hỏi lại thay vì tự đoán."
+        ],
+        "projectExample": "tools.py chỉ chứa OpenAI schemas; tool_executor.py chứa DB logic và explicit dispatch map.",
+        "why": "Tách mô tả khỏi side effect giúp audit và unit test từng handler."
+      },
+      {
+        "title": "Tool visibility không phải security",
+        "body": [
+          "Chỉ gửi tool phù hợp role giúp model không hứa chức năng sai và giảm token. Nhưng request giả có thể gọi thẳng endpoint/executor; mọi handler phải kiểm role, ownership và enrollment lại bằng DB.",
+          "Global role và effective role theo course giải quyết người vừa là giảng viên vừa là học viên. Capability list phải theo context đang hoạt động, còn backend ownership là lớp bảo vệ cuối.",
+          "Một tool xem chi tiết chỉ nhận một student_id làm truy vấn hàng loạt khó hơn. Đây là privacy by design, nhưng vẫn cần audit vì người có quyền có thể gọi lặp."
+        ],
+        "projectExample": "get_student_assignment_details yêu cầu course_id + student_id, assignment_id tùy chọn; executor kiểm course owner và ghi AgentActionLog.",
+        "why": "Prompt giảm lỗi UX; authorization code mới tạo ranh giới bảo mật."
+      },
+      {
+        "title": "Read, write, confirmation và idempotency",
+        "body": [
+          "Read tool thường chạy ngay nếu không nhạy cảm; read dữ liệu định danh vẫn nên audit. Write tool phải hiển thị actor, target và thay đổi dự kiến rồi chờ xác nhận rõ. Xác nhận cũ không được tái dùng cho arguments mới.",
+          "Double click/retry có thể tạo hai course hoặc hai assignment. Unique constraint, idempotency key hoặc transaction phải xử lý ở server. Chỉ disable button frontend không đủ.",
+          "Audit log cần user, conversation, tool, arguments đã lọc, success và summary. Không ghi secret hoặc toàn bộ dữ liệu nhạy cảm chỉ vì muốn debug."
+        ],
+        "projectExample": "TOOLS_REQUIRING_CONFIRMATION tách write tools; AgentActionLog ghi cả success/failure cho tác vụ nhạy cảm.",
+        "why": "Human-in-the-loop giảm lỗi side effect đắt tiền mà vẫn cho Nova chuẩn bị công việc."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/academic_agent/tools.py", "title": "Tool registry", "explanation": "So sánh tool student/instructor và confirmation set."},
+      {"path": "backend/app/academic_agent/tool_executor.py", "title": "Executor và RBAC", "explanation": "Theo dispatch, ownership và audit."},
+      {"path": "backend/app/academic_agent/role_policy.py", "title": "Effective role", "explanation": "Xem role trong course thắng global role thế nào."}
+    ],
+    "pitfalls": ["Tin role do model nói", "Dùng eval để dispatch", "Write ngay không confirmation", "Chỉ chống double-click ở UI"],
+    "exercise": "Thiết kế tool 'gia hạn bài tập' gồm schema, permission checks, confirmation text, idempotency và audit fields.",
+    "quiz": [
+      {"question": "Ai có quyền quyết định tool được thực thi?", "options": ["LLM", "Backend executor sau authorization", "CSS", "Embedding"], "correctIndex": 1, "explanation": "Model chỉ đề nghị call; backend xác minh và thực thi."},
+      {"question": "Ẩn tool khỏi prompt đã đủ chặn truy cập chưa?", "options": ["Đủ", "Không", "Chỉ với student", "Chỉ trên HTTPS"], "correctIndex": 1, "explanation": "Caller có thể bỏ qua UI/model; handler phải kiểm quyền."},
+      {"question": "Write tool cần gì trước khi chạy?", "options": ["Temperature cao", "Xác nhận gắn với đúng arguments", "Nhiều chunk", "OCR"], "correctIndex": 1, "explanation": "Confirmation phải mô tả đúng side effect sắp thực hiện."}
+    ]
+  },
+  {
+    "id": "learning-model-data",
+    "eyebrow": "Learning Analytics",
+    "title": "Mastery, bài nộp và dữ liệu cá nhân hóa học tập",
+    "summary": "Biến hành vi làm bài thành tín hiệu sư phạm mà không suy diễn quá mức.",
+    "duration": "36 phút",
+    "learningObjectives": ["Hiểu mastery là estimate không phải bản chất người học", "Tách official assessment khỏi chat", "Thiết kế deadline và mistake context"],
+    "keyTerms": ["mastery", "observation", "concept", "submission", "learner model", "due soon", "pedagogical signal"],
+    "sections": [
+      {
+        "title": "Từ câu trả lời tới mastery",
+        "body": [
+          "Mỗi câu hỏi gắn concept và tạo observation đúng/sai. Mastery đơn giản có thể là smoothed accuracy; mô hình nâng cao gồm Bayesian Knowledge Tracing hoặc IRT. Dù dùng công thức nào, mastery là estimate với uncertainty, không phải nhãn 'thông minh/yếu'.",
+          "Ít observation thì score không ổn định. UI và Nova nên nêu số lượt dữ liệu, tránh so 1/1 đúng với 90/100 đúng như cùng độ tin cậy. Recency weighting hữu ích khi muốn phản ánh tiến bộ nhưng cần giải thích được.",
+          "Concept mapping sai làm mọi analytics sau sai. Cần version taxonomy, cho giảng viên chỉnh mapping và benchmark concept matcher."
+        ],
+        "projectExample": "StudentMastery lưu n_correct/n_obs theo concept; dashboard chỉ tính sinh viên đã có dữ liệu và tách chưa làm quiz khỏi học kém.",
+        "why": "Giữ raw counts giúp diễn giải score và thay thuật toán sau này."
+      },
+      {
+        "title": "Student context có căn cứ",
+        "body": [
+          "StudentContext tổng hợp bài chưa nộp, deadline, concept mastery và recent mistakes của chính user trong course xác định. Nó không đọc cảm xúc hay gán động cơ từ đoạn chat.",
+          "Due soon dùng công thức timezone-aware 0 < deadline-now <= 48h; overdue tách riêng. Cảnh báo tối đa một lần mỗi conversation để hữu ích mà không lặp gây khó chịu.",
+          "Đáp án bài chưa nộp là policy khác việc giảng khái niệm. Nova có thể dạy điều kiện dừng của đệ quy nhưng không nói 'câu 3 chọn B' khi solution chưa công bố."
+        ],
+        "projectExample": "student_context.py tạo context xác minh; prompts.py đánh dấu rõ dữ liệu và deadline block.",
+        "why": "Cá nhân hóa tốt là chọn đúng hỗ trợ từ dữ liệu minh bạch, không phải giám sát hội thoại."
+      },
+      {
+        "title": "Analytics giảng viên và ranh giới riêng tư",
+        "body": [
+          "Giảng viên cần aggregate: distribution, concept gap, submission rate và nhóm cần hỗ trợ. Chi tiết official submission của một sinh viên có thể xem khi hỏi đích danh vì đó là dữ liệu chấm bài; lịch sử chat riêng không được dùng.",
+          "Không tự động liệt kê toàn bộ câu sai của cả lớp. Tool một student_id, audit và rate limit làm truy vấn hàng loạt khó/quan sát được. Báo cáo nên tránh suy diễn thái độ, động cơ hoặc năng lực ngoài evidence.",
+          "Missing data là một nhóm riêng. '4 sinh viên chưa làm quiz' khác '4 sinh viên mastery thấp'; gộp hai nhóm dẫn tới can thiệp sư phạm sai."
+        ],
+        "projectExample": "instructor_context.py trả aggregate không identity/chat; tool chi tiết dùng khi giảng viên hỏi đúng một người.",
+        "why": "Privacy boundary đúng giữ niềm tin để sinh viên dám hỏi Nova."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/learning/student_context.py", "title": "Hồ sơ học tập", "explanation": "Theo due soon, submissions, concepts và course role."},
+      {"path": "backend/app/academic_agent/instructor_context.py", "title": "Aggregate giảng viên", "explanation": "Xem cách loại identity và chat."},
+      {"path": "backend/app/db/models.py", "title": "Schema learning", "explanation": "Đọc Assignment, Submission, Answer và StudentMastery."}
+    ],
+    "pitfalls": ["Coi không có dữ liệu là mastery 0", "Suy diễn động cơ từ chat", "Không hiển thị n_obs", "Trộn official submission với private conversation"],
+    "exercise": "Thiết kế lời cảnh báo cho ba người: mastery thấp có nhiều dữ liệu, chưa làm quiz, và bỏ bài nhưng học bù; không dùng nhãn phán xét.",
+    "quiz": [
+      {"question": "Mastery 100% từ 1 observation có chắc hơn 80% từ 50 observation không?", "options": ["Có", "Không, cần xét uncertainty và n_obs", "Luôn bằng nhau", "Không lưu được"], "correctIndex": 1, "explanation": "Sample size quyết định độ tin cậy của estimate."},
+      {"question": "Giảng viên có nên xem chat riêng của sinh viên để đánh giá không?", "options": ["Có mặc định", "Không", "Chỉ khi lớp đông", "Chỉ khi dùng RAG"], "correctIndex": 1, "explanation": "Chat là không gian riêng; analytics dùng dữ liệu học tập chính thức."},
+      {"question": "Sinh viên chưa làm quiz thuộc nhóm nào?", "options": ["Chắc chắn yếu", "Missing data", "Chắc chắn mạnh", "Bị khóa"], "correctIndex": 1, "explanation": "Không có observation không chứng minh năng lực thấp."}
+    ]
+  },
+  {
+    "id": "backend-security",
+    "eyebrow": "Software Engineering",
+    "title": "FastAPI, async PostgreSQL, JWT và authorization",
+    "summary": "Đọc kiến trúc backend như một hệ thống production thay vì chỉ là các endpoint.",
+    "duration": "44 phút",
+    "learningObjectives": ["Hiểu dependency injection của FastAPI", "Phân biệt access và refresh token", "Nhận diện transaction/race condition"],
+    "keyTerms": ["ASGI", "async I/O", "dependency injection", "JWT", "HttpOnly cookie", "transaction", "constraint"],
+    "sections": [
+      {
+        "title": "Async giải quyết chờ I/O, không làm CPU nhanh hơn",
+        "body": [
+          "FastAPI chạy trên ASGI. Khi await PostgreSQL/OpenAI, event loop có thể xử lý request khác. Code CPU-bound như parsing nặng vẫn chặn loop nếu không đưa sang worker/thread. Async không tự động biến mọi hàm nhanh hơn.",
+          "AsyncSession nên sống theo request; transaction boundary phải rõ. Không chia sẻ session giữa task song song tùy tiện. External API call trong transaction dài giữ connection/lock không cần thiết.",
+          "Dependency injection cấp DB và current user trước endpoint. Đây là nơi tái sử dụng authentication, nhưng domain authorization như course ownership vẫn phải ở service/handler phù hợp."
+        ],
+        "projectExample": "get_db yield AsyncSessionLocal; get_current_user đọc cookie, decode JWT rồi tra user mới nhất trong DB.",
+        "why": "Tra lại DB cho phép role/account thay đổi có hiệu lực thay vì tin claim cũ trong token."
+      },
+      {
+        "title": "Access token, refresh token và cookie",
+        "body": [
+          "Access JWT sống ngắn, tự chứa sub/role/exp và được ký. Payload không được mã hóa bí mật; không đặt password hay dữ liệu nhạy cảm trong JWT. Refresh token sống dài, lưu hash trong DB để có thể revoke.",
+          "HttpOnly ngăn JavaScript đọc cookie, giảm hậu quả XSS; Secure chỉ gửi qua HTTPS; SameSite liên quan CSRF và mô hình frontend/backend khác domain. CORS không phải authorization và không bảo vệ request từ non-browser.",
+          "Logout cần revoke refresh token và xóa cookie. Login error không nên tiết lộ email có tồn tại để giảm account enumeration."
+        ],
+        "projectExample": "auth/security.py tách bcrypt password hash, access JWT và SHA-256 refresh-token hash theo đúng mục đích.",
+        "why": "Password, access token và refresh token có threat model khác nên dùng primitive khác."
+      },
+      {
+        "title": "Database constraint và race condition",
+        "body": [
+          "Check trước rồi insert vẫn có race: hai request cùng thấy email chưa có. Unique constraint là lớp bảo vệ cuối; code bắt IntegrityError, rollback và trả 409. Tương tự với enrollment/course code.",
+          "Migration phải có upgrade/downgrade hợp lý và chạy transactional. Thay check constraint role cần xét dữ liệu OWNER khi downgrade. Schema model và database constraint phải đồng bộ.",
+          "N+1 queries và transaction quá dài ảnh hưởng hiệu năng. Eager aggregate hoặc query theo batch tốt hơn vòng lặp gọi DB từng sinh viên khi tạo dashboard."
+        ],
+        "projectExample": "Auth register/create instructor kiểm tra thân thiện rồi vẫn bắt unique violation; Alembic quản lý lịch sử schema.",
+        "why": "Application check cải thiện UX, database constraint bảo vệ tính đúng dưới concurrency."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/auth/dependencies.py", "title": "Authentication dependency", "explanation": "Theo cookie → JWT → DB user → role guard."},
+      {"path": "backend/app/auth/security.py", "title": "Cryptographic boundaries", "explanation": "Phân biệt bcrypt, JWT signing và refresh hash."},
+      {"path": "backend/app/db/session.py", "title": "Async session lifetime", "explanation": "Xem engine, pool pre-ping và sessionmaker."}
+    ],
+    "pitfalls": ["Đặt secret trong JWT payload", "Tin CORS là authorization", "Check uniqueness chỉ bằng SELECT", "Giữ DB transaction trong lúc chờ LLM lâu"],
+    "exercise": "Theo request login từ form tới cookie và request /v1/internal-learning/modules; ghi lớp nào trả 401 và lớp nào trả 403.",
+    "quiz": [
+      {"question": "JWT payload có bí mật mặc định không?", "options": ["Có", "Không, chỉ được ký", "Chỉ trên Chrome", "Chỉ role bí mật"], "correctIndex": 1, "explanation": "JWT thường base64url + signature; không đặt secret vào payload."},
+      {"question": "Unique constraint giải lỗi gì mà SELECT trước insert chưa đủ?", "options": ["Race condition", "Font", "Tokenization", "OCR"], "correctIndex": 0, "explanation": "Hai transaction có thể cùng vượt check trước khi insert."},
+      {"question": "Async giúp nhất với công việc nào?", "options": ["CPU loop nặng", "Chờ DB/network", "Băm password nhanh hơn", "Render ảnh GPU"], "correctIndex": 1, "explanation": "Event loop tận dụng thời gian chờ I/O để xử lý việc khác."}
+    ]
+  },
+  {
+    "id": "realtime-frontend",
+    "eyebrow": "Software Engineering",
+    "title": "Next.js, state hội thoại, SSE và voice UX",
+    "summary": "Cách frontend giữ trải nghiệm realtime nhưng không trở thành nguồn sự thật về quyền và dữ liệu.",
+    "duration": "35 phút",
+    "learningObjectives": ["Hiểu Server/Client Component boundary", "Mô tả SSE lifecycle", "Thiết kế session chat tách theo tài khoản"],
+    "keyTerms": ["App Router", "Client Component", "hydration", "SSE", "optimistic UI", "localStorage", "Web Speech API"],
+    "sections": [
+      {
+        "title": "Server và Client Components",
+        "body": [
+          "Next App Router mặc định dùng Server Components, giảm JavaScript client và giữ secret phía server. Component cần state, event handler, localStorage hoặc microphone phải có 'use client'. Boundary càng cao thì bundle client càng lớn.",
+          "Dashboard layout là client vì phụ thuộc AuthContext và redirect; ChatBubble sống ở layout nên giữ state khi chuyển trang con. Trang Learning là interactive client nhưng nội dung được tải từ API bảo vệ thay vì import vào bundle.",
+          "Frontend route guard chỉ là UX. Người dùng có thể gọi API trực tiếp nên backend require_role OWNER mới là security boundary."
+        ],
+        "projectExample": "Learning page chỉ render hub; hub fetch /v1/internal-learning/modules. Student/instructor không nhận payload bài học dù biết URL.",
+        "why": "Tách content khỏi bundle đáp ứng yêu cầu tài liệu kiến trúc chỉ dành cho owner."
+      },
+      {
+        "title": "SSE streaming và state machine của một lượt chat",
+        "body": [
+          "Server-Sent Events là luồng một chiều server → browser trên HTTP. Backend phát status, start, chunk, action_pending/action_result, done hoặc blocked. Frontend phải parse từng event, ghép text và luôn kết thúc loading ở mọi nhánh lỗi.",
+          "SSE đơn giản hơn WebSocket khi client chỉ gửi một request rồi nhận stream. WebSocket phù hợp giao tiếp hai chiều liên tục nhưng tăng quản lý connection/reconnect. Voice audio realtime có thể cần WebSocket/WebRTC, còn text token stream hợp SSE.",
+          "Optimistic user bubble xuất hiện trước response; nếu request fail cần gắn lỗi và cho retry, không tạo trùng message. conversation_id từ server phải được lưu theo user và tab, không dùng một global key cho mọi tài khoản."
+        ],
+        "projectExample": "ChatBubble xử lý status/chunk/done và danh sách sessions từ backend; server query conversation theo user_id để ngăn xem chéo.",
+        "why": "State machine rõ tránh spinner treo và session lẫn tài khoản."
+      },
+      {
+        "title": "Voice input là pipeline bất định",
+        "body": [
+          "Speech recognition phụ thuộc microphone, browser, ngôn ngữ, noise và tên kỹ thuật. Interim transcript không nên gửi; final transcript cần debounce/silence detection và cho người dùng thấy trước khi hành động nhạy cảm.",
+          "Từ như 'machine learning' có thể bị nhận sai khi locale tiếng Việt. Có thể dùng phrase hints nếu API hỗ trợ, post-correction theo glossary học thuật hoặc server transcription tốt hơn, nhưng phải đo WER trên giọng người dùng thật.",
+          "Text-to-speech nên đọc response cuối, hủy speech cũ khi có câu mới và tôn trọng setting. Mic/recognition phải cleanup onend/unmount; gọi stop hai lần hoặc callback cập nhật component đã unmount có thể gây crash."
+        ],
+        "projectExample": "VoiceInput dùng silence auto-submit và custom event nối với ChatBubble; lỗi voice được đưa về UI thay vì làm sập trang.",
+        "why": "Voice cần lifecycle và consent riêng, không chỉ thêm icon microphone."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "frontend/app/(dashboard)/layout.tsx", "title": "Dashboard composition", "explanation": "Xem Sidebar, Topbar, page và ChatBubble cùng tồn tại."},
+      {"path": "frontend/components/ChatBubble.tsx", "title": "Chat state machine", "explanation": "Theo session, SSE events, pending action và custom events."},
+      {"path": "frontend/components/VoiceInput.tsx", "title": "Voice lifecycle", "explanation": "Đọc start/stop, silence và cleanup."}
+    ],
+    "pitfalls": ["Dùng frontend guard làm bảo mật", "Không kết thúc loading khi SSE lỗi", "localStorage key dùng chung user", "Gửi interim transcript", "Không cleanup recognition"],
+    "exercise": "Vẽ sequence diagram cho một câu hỏi voice: mic → transcript → chat API → SSE → TTS, kèm ba nhánh lỗi.",
+    "quiz": [
+      {"question": "Vì sao SSE phù hợp token streaming?", "options": ["Hai chiều realtime bắt buộc", "Luồng server→client đơn giản trên HTTP", "Không cần backend", "Lưu được password"], "correctIndex": 1, "explanation": "Một request chat chủ yếu cần server liên tục đẩy event về client."},
+      {"question": "Ai bảo vệ route Learning thật sự?", "options": ["Sidebar", "Backend require_role OWNER", "Màu nút", "localStorage"], "correctIndex": 1, "explanation": "Ẩn UI không ngăn gọi API trực tiếp."},
+      {"question": "Interim transcript nên được gửi ngay không?", "options": ["Luôn luôn", "Không, đợi final/silence policy", "Chỉ với OWNER", "Chỉ trên mobile"], "correctIndex": 1, "explanation": "Interim thay đổi liên tục và dễ gửi câu chưa hoàn chỉnh."}
+    ]
+  },
+  {
+    "id": "eval-operations",
+    "eyebrow": "Production AI",
+    "title": "Benchmark, tracing, cost và rollout an toàn",
+    "summary": "Biến Nova từ demo thành hệ có số đo, budget, fallback và quyết định release rõ ràng.",
+    "duration": "43 phút",
+    "learningObjectives": ["Xây eval set phân tầng", "Đọc latency/cost theo stage", "Thiết kế canary và rollback threshold"],
+    "keyTerms": ["golden set", "Recall@K", "faithfulness", "trace", "p95", "canary", "rollback"],
+    "sections": [
+      {
+        "title": "Eval pyramid",
+        "body": [
+          "Tầng thấp test deterministic contracts: schema, ACL, role, citation IDs và RRF. Tầng giữa chấm retrieval trên golden query-chunk pairs. Tầng cao chấm answer factuality, helpfulness và policy bằng rubric/người/LLM judge. Cuối cùng là end-to-end user journey.",
+          "Eval set cần easy, ambiguous, no-answer, multi-turn, Vietnamese không dấu, prompt injection và cross-account access. Split dev/test tránh chỉnh prompt theo đúng bộ test rồi tưởng tổng quát.",
+          "Báo aggregate có thể che nhóm xấu. Cần slice theo course, language, document type, intent và role. Một cải tiến trung bình nhưng làm privacy case giảm là không chấp nhận được."
+        ],
+        "projectExample": "tests hiện chấm evidence invariant, reranker unknown ID, connector mention/privacy và role policy; benchmark reports so từng phase.",
+        "why": "AI quality là vector nhiều chiều, không thể thu về một demo hoặc một điểm duy nhất."
+      },
+      {
+        "title": "Tracing latency, token và failure",
+        "body": [
+          "Một trace nối request_id qua guardrail, router, embedding, search, planner, composer và DB. Mỗi span có duration, status, model/version và token/cost nhưng payload nhạy cảm phải redact.",
+          "Average latency che tail; p95 cho biết 5% request chậm nhất. Time-to-first-token quan trọng với cảm giác chat, total latency quan trọng với hoàn thành. SSE status không giảm latency thật nhưng giảm sự mơ hồ khi chờ.",
+          "Cost cần quy theo feature/user/cohort và gồm retry. Model rẻ nhưng lỗi nhiều khiến gọi lại hoặc người dùng bỏ cuộc có thể đắt hơn model tốt."
+        ],
+        "projectExample": "operations metrics có pipeline timing/cost, request ID middleware và rollout metrics; admin tool đọc aggregate thay vì raw secret.",
+        "why": "Không có trace thì câu 'Nova chậm' không cho biết phải tối ưu bước nào."
+      },
+      {
+        "title": "Feature flag, canary và rollback",
+        "body": [
+          "Feature flag cho phép tắt planner, multi-query hoặc reranker mà không deploy code cũ. Stable cohort hashing giữ một user ở cùng nhánh để số liệu không nhiễu giữa lượt.",
+          "Canary bắt đầu tỷ lệ nhỏ, so quality/error/latency/cost với baseline. Rollback threshold phải định nghĩa trước như dead job count hoặc p95, tránh tranh luận khi sự cố đang xảy ra.",
+          "Migration DB và deploy app cần backward compatibility khi rollout nhiều instance. Expand-contract pattern thêm cột trước, code dùng dần, rồi mới xóa cấu trúc cũ."
+        ],
+        "projectExample": "nova_rollout_percent, timeout và rollback thresholds nằm trong Settings, có validation và tests deterministic cohort.",
+        "why": "Khả năng quay lại là một phần của feature, đặc biệt với pipeline AI nhiều dịch vụ ngoài."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/operations", "title": "Operational metrics", "explanation": "Xem rollout, latency percentile và health criteria."},
+      {"path": "backend/tests", "title": "Eval contracts", "explanation": "Đọc test theo component trước khi nhìn end-to-end."},
+      {"path": "docs/phase-10-operations-runbook.md", "title": "Runbook", "explanation": "Theo trigger, diagnosis và rollback thực tế."}
+    ],
+    "pitfalls": ["Chỉ đo average", "Log nguyên prompt chứa PII", "Canary đổi cohort mỗi request", "Đặt rollback threshold sau khi có sự cố", "Chỉ dùng LLM judge"],
+    "exercise": "Thiết kế dashboard release cho reranker mới gồm 3 quality metrics, 3 operational metrics và điều kiện rollback.",
+    "quiz": [
+      {"question": "Metric nào phản ánh tail latency tốt hơn?", "options": ["Average duy nhất", "p95", "Số chương", "Cosine"], "correctIndex": 1, "explanation": "p95 cho thấy trải nghiệm nhóm request chậm."},
+      {"question": "Stable cohort để làm gì?", "options": ["Một user không nhảy A/B giữa request", "Tăng temperature", "Thay JWT", "Parse PDF"], "correctIndex": 0, "explanation": "Cohort ổn định giúp trải nghiệm và phép so sánh nhất quán."},
+      {"question": "Golden eval có cần no-answer case không?", "options": ["Không", "Có, để đo khả năng không bịa", "Chỉ với voice", "Chỉ production"], "correctIndex": 1, "explanation": "Biết dừng khi thiếu evidence là hành vi cốt lõi của RAG đáng tin."}
+    ]
+  }
+]

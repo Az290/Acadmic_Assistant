@@ -8,6 +8,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   STUDENT: "Sinh viên",
   INSTRUCTOR: "Giảng viên",
   ADMIN: "Quản trị viên",
+  OWNER: "Chủ hệ thống",
 };
 
 // Tiêu đề trang theo route. Thứ tự trong object QUAN TRỌNG với các route
@@ -26,6 +27,7 @@ const PAGE_TITLE: Record<string, string> = {
   "/admin": "Quản trị hệ thống",
   "/courses": "Lớp học",
   "/documents": "Tài liệu",
+  "/learning": "Nova Learning Lab",
 };
 
 function pageTitleFor(pathname: string): string {

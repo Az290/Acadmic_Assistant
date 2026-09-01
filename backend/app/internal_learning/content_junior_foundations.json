@@ -1,0 +1,489 @@
+[
+  {
+    "id": "python-ai-engineering",
+    "track": "01 · Foundation",
+    "level": "foundation",
+    "eyebrow": "Python",
+    "title": "Python cho AI Engineer: từ script tới code production",
+    "summary": "Viết Python có kiểu dữ liệu, test, logging, error handling và cấu trúc đủ tốt để vận hành pipeline AI.",
+    "duration": "90 phút",
+    "prerequisites": [],
+    "learningObjectives": ["Sử dụng collection, iterator và comprehension đúng chỗ", "Viết type hints, dataclass/Pydantic và async I/O", "Tổ chức package, test và exception boundary"],
+    "keyTerms": ["mutability", "iterator", "generator", "typing", "dataclass", "async/await", "context manager"],
+    "sections": [
+      {
+        "title": "Object model, mutability và complexity",
+        "body": [
+          "Python biến tên thành reference tới object. List/dict/set mutable; tuple/str thường immutable. Gán b=a không copy list nên thay đổi qua b xuất hiện ở a. Shallow copy chỉ sao container ngoài, còn nested objects vẫn dùng chung. Đây là nguồn bug phổ biến khi xây message history hoặc config mặc định.",
+          "Chọn collection theo thao tác: list giữ thứ tự và append amortized O(1); set/dict lookup trung bình O(1); tìm trong list O(n). Generator tạo từng phần tử khi cần, giảm memory cho file lớn nhưng chỉ duyệt một lần và lỗi có thể xuất hiện muộn khi iteration.",
+          "Comprehension tốt cho biến đổi ngắn; pipeline nhiều nhánh nên dùng loop/hàm rõ ràng. Code ngắn không đồng nghĩa dễ bảo trì. AI pipeline cần ưu tiên provenance và error context hơn số dòng ít."
+        ],
+        "projectExample": "Nova dùng dataclass cho ToolExecutionResult/RoleContext và typed Pydantic schema cho request, thay dict tùy ý ở ranh giới quan trọng.",
+        "why": "Hiểu reference và complexity tránh memory spike khi xử lý chunks và mutation ngoài ý muốn trong context."
+      },
+      {
+        "title": "Typing, validation và exception design",
+        "body": [
+          "Type hints giúp IDE/static checker phát hiện sai trước runtime nhưng không tự validate input. Pydantic phù hợp boundary API/LLM structured output; dataclass phù hợp object nội bộ nhẹ. TypedDict mô tả dict nhưng không tạo runtime validation.",
+          "Exception nên giữ nguyên cause và thêm context có ích. Không dùng except Exception: pass vì nó biến lỗi thành dữ liệu thiếu âm thầm. Domain error khác infrastructure error: 403 permission, 409 conflict, 422 validation, timeout model và database unavailable cần xử lý khác nhau.",
+          "Context manager bảo đảm đóng file/session dù lỗi. Secrets không được đưa vào exception/log. Logging structured với request_id tốt hơn print rời rạc."
+        ],
+        "projectExample": "FastAPI dùng schemas.py để không trả password_hash; agent fallback phân biệt timeout/schema invalid thay vì nuốt mọi lỗi.",
+        "why": "AI output không đáng tin nên runtime validation là bắt buộc ở interface giữa model và code."
+      },
+      {
+        "title": "Async, concurrency và testing",
+        "body": [
+          "asyncio phù hợp nhiều I/O chờ như DB và API. await nhường event loop; gọi hàm blocking trong async vẫn chặn toàn server. asyncio.gather chạy đồng thời nhưng failure/cancellation và session safety phải được thiết kế.",
+          "Unit test cô lập pure function; integration test kiểm DB/API; contract test giữ schema và invariant. Mock external LLM để test deterministic logic, nhưng cần một tập end-to-end thật có kiểm soát để phát hiện integration drift.",
+          "Dependency injection làm code testable: truyền session/client/config thay vì khởi tạo global khắp nơi. Randomness cần seed trong ML experiment nhưng không dùng random thường cho token bảo mật."
+        ],
+        "projectExample": "Agent chạy guardrail/router/context song song, đưa OpenAI sync SDK qua asyncio.to_thread và dùng unittest cho contracts.",
+        "why": "Junior AI Engineer phải debug được cả model logic lẫn software concurrency quanh model."
+      }
+    ],
+    "codeWalkthroughs": [
+      {"path": "backend/app/academic_agent/agent.py", "title": "Async orchestration", "explanation": "Tìm asyncio.gather, to_thread, typed outcomes và fallback."},
+      {"path": "backend/app/auth/schemas.py", "title": "Boundary validation", "explanation": "So Pydantic response với ORM model chứa password_hash."}
+    ],
+    "pitfalls": ["Mutable default dùng chung", "Nuốt exception", "Gọi blocking SDK trực tiếp trong event loop", "Tin type hint là runtime validation"],
+    "exercise": "Refactor một hàm xử lý list dict thành typed dataclass/Pydantic, thêm ba error cases và unit tests.",
+    "lab": {
+      "title": "Xây mini document processor có type và test",
+      "steps": ["Đọc nhiều file text bằng iterator", "Chuẩn hóa và chia chunk với metadata", "Validate output bằng Pydantic", "Thêm structured logging và test edge cases"],
+      "deliverable": "Một package Python `mini_ingestion/` có README, type hints và test report.",
+      "acceptanceCriteria": ["Không giữ toàn bộ nhiều file trong RAM", "Test file rỗng, Unicode và lỗi đọc", "Không dùng except-pass", "Static typecheck sạch"]
+    },
+    "interviewQuestions": ["Shallow copy và deep copy khác nhau thế nào?", "Khi nào dùng generator thay list?", "asyncio giúp gì và không giúp gì?", "Pydantic khác dataclass ở đâu?"],
+    "quiz": [
+      {"question": "Type hint có tự chặn JSON sai lúc runtime không?", "options": ["Có", "Không", "Chỉ với list", "Chỉ trong FastAPI"], "correctIndex": 1, "explanation": "Cần validator như Pydantic hoặc logic runtime."},
+      {"question": "Lookup membership trung bình nhanh nhất ở cấu trúc nào?", "options": ["List", "Set", "Generator", "String dài"], "correctIndex": 1, "explanation": "Hash set lookup trung bình O(1)."},
+      {"question": "Hàm CPU-bound chạy trực tiếp trong async endpoint gây gì?", "options": ["Event loop bị block", "Tự dùng GPU", "DB nhanh hơn", "Không ảnh hưởng"], "correctIndex": 0, "explanation": "Async chỉ hữu ích khi task nhường control trong lúc chờ."}
+    ]
+  },
+  {
+    "id": "git-testing-collaboration",
+    "track": "01 · Foundation",
+    "level": "foundation",
+    "eyebrow": "Engineering",
+    "title": "Git, testing và cách làm việc như một engineer",
+    "summary": "Biến code chạy được thành thay đổi nhỏ, kiểm chứng được và review được.",
+    "duration": "70 phút",
+    "prerequisites": ["Python cơ bản"],
+    "learningObjectives": ["Tổ chức commit và branch an toàn", "Thiết kế test pyramid", "Viết README/ADR/runbook phục vụ cộng tác"],
+    "keyTerms": ["commit", "branch", "rebase", "test pyramid", "fixture", "contract test", "ADR", "runbook"],
+    "sections": [
+      {
+        "title": "Git lưu snapshot và lịch sử quyết định",
+        "body": [
+          "Commit là snapshot có parent, không chỉ bản sao file. Staging area cho phép chọn đúng phần liên quan. Một commit tốt có một mục đích, build/test được và message mô tả outcome; không trộn refactor, feature và file tạm.",
+          "Merge giữ topology; rebase viết lại parent để lịch sử tuyến tính. Không rebase commit đã chia sẻ nếu làm mất lịch sử người khác. Resolve conflict bằng hiểu intent hai phía, không chọn ours/theirs máy móc.",
+          "Không commit .env, API key, model artifact lớn hoặc dữ liệu cá nhân. Nếu secret từng vào Git, xóa file ở commit mới chưa đủ—phải rotate secret và có thể rewrite history."
+        ],
+        "projectExample": "Repository có migrations, runbooks và feature flags; commit cần giữ migration/model/API/frontend cùng một contract deploy được.",
+        "why": "Nhà tuyển dụng đọc Git history và README để đánh giá tư duy engineering, không chỉ nhìn demo."
+      },
+      {
+        "title": "Test pyramid cho AI system",
+        "body": [
+          "Nhiều unit/contract test chạy nhanh ở đáy; ít integration test DB/API ở giữa; một số end-to-end journey ở đỉnh. LLM eval nằm song song vì output xác suất cần rubric/dataset, không thay unit test deterministic.",
+          "Test behavior thay implementation. RRF test thứ hạng/invariant thay việc mock từng dòng nội bộ. Security regression phải có negative tests: user khác, role khác, unknown chunk, prompt injection.",
+          "Flaky test phá niềm tin. Cố định seed/time, mock network ở unit layer và tách live eval khỏi CI bắt buộc nếu vendor không ổn định."
+        ],
+        "projectExample": "Backend tests chấm evidence contract, role policy và connector privacy mà không gọi OpenAI thật.",
+        "why": "AI không xác định càng cần phần vỏ deterministic có test mạnh."
+      },
+      {
+        "title": "Documentation là interface vận hành",
+        "body": [
+          "README trả lời cách chạy/test/deploy. ADR ghi context, decision, alternatives và consequences của lựa chọn kiến trúc. Runbook nói trigger, diagnosis, mitigation và rollback khi sự cố.",
+          "Sơ đồ cần làm rõ data/control flow, trust boundary và ownership. Comment giải thích vì sao, không lặp lại code làm gì. Tài liệu lỗi thời nguy hiểm hơn thiếu tài liệu nên phải gần code và có owner.",
+          "Portfolio case study nên nêu baseline, vấn đề đo được, quyết định, trade-off, kết quả và hạn chế. Không viết 'dùng AI tiên tiến' mà thiếu metric."
+        ],
+        "projectExample": "nova-agentic-rag-omnichannel-plan ghi lựa chọn bounded agent thay vòng lặp tự do và lý do chưa thay pgvector.",
+        "why": "Interview seniority được thể hiện qua cách giải thích quyết định, không qua số framework liệt kê."
+      }
+    ],
+    "pitfalls": ["Commit secret", "Một commit chứa mọi thứ", "Test exact wording của LLM", "README chỉ có ảnh demo"],
+    "exercise": "Chọn một feature Nova, viết ADR một trang gồm hai giải pháp thay thế và consequences.",
+    "lab": {"title": "Đóng gói một pull request portfolio-grade", "steps": ["Tách branch và atomic commits", "Viết unit + negative tests", "Cập nhật README/ADR", "Tạo PR description có evidence"], "deliverable": "Một PR hoặc commit series công khai thể hiện problem→decision→verification.", "acceptanceCriteria": ["Không chứa secret", "Mỗi commit có mục đích rõ", "Có command test tái lập", "Nêu limitation và rollback"]},
+    "interviewQuestions": ["Merge và rebase khác nhau thế nào?", "Bạn xử lý flaky test ra sao?", "Contract test trong AI pipeline bảo vệ điều gì?"],
+    "quiz": [
+      {"question": "Xóa .env ở commit mới đã xử lý secret từng commit chưa?", "options": ["Rồi", "Chưa, phải rotate và xử lý history", "Chỉ cần đổi tên", "Git tự xóa"], "correctIndex": 1, "explanation": "Secret vẫn tồn tại trong lịch sử commit."},
+      {"question": "LLM output nên test chủ yếu bằng gì?", "options": ["Exact string mọi lần", "Invariant/rubric và eval cases", "Không test", "Screenshot"], "correctIndex": 1, "explanation": "Câu chữ có thể đổi nhưng facts/policy phải giữ."},
+      {"question": "ADR tập trung vào gì?", "options": ["Chỉ code", "Context, decision, alternatives, consequences", "Mật khẩu", "CV"], "correctIndex": 1, "explanation": "ADR lưu lý do lựa chọn kiến trúc."}
+    ]
+  },
+  {
+    "id": "sql-data-modeling",
+    "track": "01 · Foundation",
+    "level": "foundation",
+    "eyebrow": "Data",
+    "title": "SQL và data modeling cho hệ thống AI",
+    "summary": "Thiết kế schema, query, index và transaction cho dữ liệu học tập lẫn vector metadata.",
+    "duration": "100 phút",
+    "prerequisites": ["Python cơ bản"],
+    "learningObjectives": ["Viết JOIN/aggregate/window query", "Thiết kế normalization và constraint", "Đọc query plan và chọn index"],
+    "keyTerms": ["primary key", "foreign key", "normalization", "JOIN", "CTE", "window function", "index", "transaction"],
+    "sections": [
+      {
+        "title": "Relational modeling và constraints",
+        "body": [
+          "Entity có identity; relationship biểu diễn bằng foreign key hoặc junction table. Enrollment là quan hệ user-course có thuộc tính role_in_course nên không thể chỉ là một mảng ID trong User.",
+          "Normalization giảm duplication và update anomaly; denormalization có chủ đích phục vụ read hot path sau khi đo. NOT NULL, UNIQUE, CHECK và FK biến invariant thành bảo vệ ở database dưới concurrency.",
+          "Soft delete giữ audit nhưng mọi query phải lọc; hard delete đơn giản nhưng mất lịch sử. Dữ liệu học tập cần policy retention và cascade rõ."
+        ],
+        "projectExample": "DocumentCourseMapping cho một tài liệu vào nhiều lớp; Enrollment tách global role với role trong course.",
+        "why": "Schema tốt làm authorization/query rõ hơn và tránh dữ liệu mâu thuẫn mà LLM không thể sửa."
+      },
+      {
+        "title": "Query analytics mà không N+1",
+        "body": [
+          "JOIN kết hợp bảng theo key; GROUP BY aggregate theo lớp/concept; window function tính rank/running aggregate mà không gom mất từng row. CTE làm query dễ đọc nhưng không mặc định nhanh hơn.",
+          "N+1 xảy ra khi query danh sách rồi query thêm từng item. Batch JOIN/aggregate hoặc eager loading giảm round trips. Tuy nhiên join quá nhiều có thể nhân row; cần hiểu cardinality và COUNT DISTINCT.",
+          "NULL không bằng false hay zero; dùng IS NULL và định nghĩa meaning rõ. Missing mastery không được COALESCE thành 0 nếu nghiệp vụ coi là chưa có dữ liệu."
+        ],
+        "projectExample": "Class analytics cần tách total_students, students_with_data và weak count; mastery rows được aggregate theo user/concept.",
+        "why": "Analytics sai thường đến từ cardinality/NULL chứ không phải LLM."
+      },
+      {
+        "title": "Index, EXPLAIN và transaction isolation",
+        "body": [
+          "B-tree tốt cho equality/range/order; composite index phụ thuộc thứ tự cột và query pattern. GIN phục vụ full-text/JSON; vector index phục vụ ANN. Index tăng read nhưng tốn storage và làm write chậm.",
+          "EXPLAIN ANALYZE cho actual rows/time; estimate lệch có thể do statistics. Index không được dùng nếu query trả phần lớn bảng hoặc expression không khớp. Đo trước/sau với dataset đại diện.",
+          "Transaction cung cấp atomicity. Isolation thấp có anomaly; locking quá mạnh giảm concurrency. Unique constraint + bắt IntegrityError thường tốt hơn application lock cho đăng ký email."
+        ],
+        "projectExample": "PostgreSQL chứa relational data, full-text và pgvector để ACL/filter/transaction ở cùng nơi.",
+        "why": "Một AI engineer production phải tối ưu data path chứ không chỉ prompt."
+      }
+    ],
+    "codeWalkthroughs": [{"path": "backend/app/db/models.py", "title": "Domain schema", "explanation": "Vẽ ERD từ User, Course, Enrollment, Document, Assignment, Conversation."}, {"path": "backend/app/instructor/router.py", "title": "Analytics queries", "explanation": "Tìm aggregate, ownership và khả năng N+1."}],
+    "pitfalls": ["COALESCE missing mastery thành yếu", "Index mọi cột", "COUNT sai do join nhân row", "Không có database constraint"],
+    "exercise": "Viết query tìm ba concept yếu nhất mỗi lớp bằng aggregate + window rank, phân biệt sinh viên chưa có dữ liệu.",
+    "lab": {"title": "Audit và tối ưu một query analytics", "steps": ["Tạo dataset đủ lớn", "Chạy EXPLAIN ANALYZE baseline", "Thêm/chỉnh composite index", "So latency và write trade-off"], "deliverable": "SQL script + before/after query plan + báo cáo quyết định index.", "acceptanceCriteria": ["Kết quả nghiệp vụ đúng với NULL", "Có actual plan", "Không chỉ nói nhanh hơn mà có số", "Giải thích chi phí index"]},
+    "interviewQuestions": ["WHERE và HAVING khác nhau thế nào?", "Composite index (a,b) dùng được cho query nào?", "N+1 là gì?", "Transaction isolation bảo vệ điều gì?"],
+    "quiz": [
+      {"question": "Missing mastery nên mặc định bằng 0 không?", "options": ["Luôn có", "Không nếu nghĩa là chưa quan sát", "Chỉ PostgreSQL", "Chỉ admin"], "correctIndex": 1, "explanation": "Missing data khác evidence về năng lực thấp."},
+      {"question": "Index có trade-off chính gì?", "options": ["Read nhanh hơn nhưng write/storage tăng", "Luôn làm mọi thứ nhanh", "Xóa transaction", "Thay API"], "correctIndex": 0, "explanation": "Mỗi index cần được duy trì khi ghi."},
+      {"question": "Junction table dùng khi nào?", "options": ["Many-to-many có quan hệ", "Chỉ lưu password", "Render UI", "Tạo embedding"], "correctIndex": 0, "explanation": "Nó biểu diễn quan hệ nhiều-nhiều và thuộc tính của quan hệ."}
+    ]
+  },
+  {
+    "id": "linear-algebra-ai",
+    "track": "01 · Foundation",
+    "level": "foundation",
+    "eyebrow": "Math",
+    "title": "Linear Algebra trực giác cho ML và embeddings",
+    "summary": "Vector, matrix, dot product, projection và eigen/SVD đủ để hiểu mô hình thay vì học thuộc API.",
+    "duration": "110 phút",
+    "prerequisites": ["Đại số phổ thông", "Python cơ bản"],
+    "learningObjectives": ["Thao tác shape và matrix multiplication", "Giải thích dot/cosine/projection", "Hiểu SVD/PCA ở mức ứng dụng"],
+    "keyTerms": ["scalar", "vector", "matrix", "tensor", "basis", "dot product", "norm", "eigenvector", "SVD"],
+    "sections": [
+      {
+        "title": "Vector space, shape và phép nhân matrix",
+        "body": [
+          "Vector là danh sách số có ý nghĩa trong một basis; matrix là linear transformation. Shape là contract: (batch, features) @ (features, hidden) → (batch, hidden). Phần lớn lỗi deep learning là mismatch shape hoặc broadcast ngoài ý muốn.",
+          "Matrix multiplication không phải nhân từng phần tử. Nó kết hợp row-column dot products và biểu diễn composition của transformations. Tensor mở rộng matrix nhiều chiều; axis nào là batch/sequence/channel phải được ghi rõ.",
+          "Linear independence và rank cho biết số chiều thông tin độc lập. Features trùng tuyến tính gây khó cho một số estimator và cho thấy dữ liệu có redundancy."
+        ],
+        "projectExample": "Một batch embeddings có shape (n_chunks, embedding_dim); query vector dot với transpose để tạo n_chunks similarities.",
+        "why": "Shape literacy giúp đọc paper/code PyTorch nhanh và debug model."
+      },
+      {
+        "title": "Dot product, norm, cosine và projection",
+        "body": [
+          "Dot product đo mức cùng hướng có xét độ lớn. L2 norm là căn tổng bình phương. Cosine chia dot product cho hai norm để chỉ đo góc; normalize vector làm cosine bằng dot product.",
+          "Projection của a lên b lấy thành phần a theo hướng b. Least squares có thể nhìn như chiếu target lên column space của design matrix. Orthogonality làm các thành phần không tương quan theo hình học Euclid.",
+          "Khoảng cách có ý nghĩa phụ thuộc embedding training objective. Không phải mọi chiều có diễn giải độc lập và gần vector không đảm bảo factual entailment."
+        ],
+        "projectExample": "Hybrid retrieval dùng cosine cho semantic candidate nhưng cần reranker vì geometric similarity chưa chắc hỗ trợ đúng claim.",
+        "why": "Hiểu hình học giải thích cả sức mạnh lẫn giới hạn của vector search."
+      },
+      {
+        "title": "Eigen, SVD và giảm chiều",
+        "body": [
+          "Eigenvector giữ hướng sau transformation, eigenvalue cho hệ số co giãn. SVD phân rã matrix thành UΣVᵀ và tồn tại rộng hơn eigendecomposition. Singular values cho biết mức năng lượng/thông tin theo hướng.",
+          "PCA center dữ liệu rồi chọn principal directions có variance cao nhất, dùng nén/visualization/noise reduction. Nó tuyến tính và variance cao không nhất thiết là feature hữu ích cho target.",
+          "Condition number cao báo bài toán nhạy với noise. Regularization có thể làm nghiệm ổn định hơn khi features gần phụ thuộc."
+        ],
+        "projectExample": "Có thể dùng PCA để visualize embedding clusters khi debug corpus, nhưng không dùng plot đẹp thay retrieval benchmark.",
+        "why": "SVD/PCA là cầu nối từ đại số tới compression, recommendation và representation analysis."
+      }
+    ],
+    "pitfalls": ["Nhầm element-wise với matrix multiply", "Không kiểm shape", "Coi cosine cao là entailment", "PCA trước khi split gây leakage"],
+    "exercise": "Dùng NumPy tự tính cosine, projection và PCA hai chiều; kiểm kết quả với thư viện.",
+    "lab": {"title": "Embedding geometry notebook", "steps": ["Tạo embedding cho 30 câu theo ba chủ đề", "Tính cosine matrix bằng NumPy", "PCA xuống 2D", "Phân tích nearest-neighbor sai"], "deliverable": "Notebook có công thức, visualization và error analysis.", "acceptanceCriteria": ["Tự cài cosine trước khi gọi sklearn", "Ghi shape ở mỗi bước", "Có ít nhất ba failure cases", "Không kết luận chỉ từ biểu đồ"]},
+    "interviewQuestions": ["Dot product có ý nghĩa hình học gì?", "Cosine khác Euclidean thế nào?", "PCA tối ưu đại lượng nào?", "Rank deficient nghĩa là gì?"],
+    "quiz": [
+      {"question": "(32,768) @ (768,128) cho shape nào?", "options": ["(32,128)", "(768,768)", "(128,32)", "Không hợp lệ"], "correctIndex": 0, "explanation": "Hai chiều trong 768 triệt tiêu, giữ batch 32 và output 128."},
+      {"question": "Normalize L2 xong cosine tương đương gì?", "options": ["Dot product", "Determinant", "Trace", "Mean"], "correctIndex": 0, "explanation": "Hai norm bằng 1 nên mẫu số biến mất."},
+      {"question": "PCA ưu tiên gì?", "options": ["Variance lớn", "Target accuracy trực tiếp", "Số class", "Latency API"], "correctIndex": 0, "explanation": "PCA là unsupervised linear variance maximization."}
+    ]
+  },
+  {
+    "id": "calculus-optimization",
+    "track": "01 · Foundation",
+    "level": "foundation",
+    "eyebrow": "Math",
+    "title": "Calculus, gradient và optimization",
+    "summary": "Hiểu training model là tối ưu hàm loss qua đạo hàm, chain rule và các optimizer.",
+    "duration": "105 phút",
+    "prerequisites": ["Linear Algebra", "Hàm số phổ thông"],
+    "learningObjectives": ["Tính derivative/partial derivative cơ bản", "Giải thích gradient descent và chain rule", "So sánh SGD, momentum và Adam"],
+    "keyTerms": ["derivative", "partial derivative", "gradient", "chain rule", "loss surface", "learning rate", "SGD", "Adam"],
+    "sections": [
+      {
+        "title": "Đạo hàm là độ nhạy cục bộ",
+        "body": [
+          "Derivative f'(x) đo thay đổi đầu ra khi x đổi rất nhỏ. Với nhiều biến, partial derivative giữ các biến khác cố định; gradient gom tất cả partial và chỉ hướng tăng nhanh nhất. Negative gradient là hướng giảm loss cục bộ.",
+          "Gradient bằng zero có thể là minimum, maximum hoặc saddle. Deep network có loss surface cao chiều nên trực giác bát lồi chỉ là gần đúng. Scale feature ảnh hưởng geometry và tốc độ hội tụ.",
+          "Numerical gradient hữu ích kiểm implementation nhưng chậm và có sai số; automatic differentiation xây computation graph để áp chain rule hiệu quả."
+        ],
+        "projectExample": "Inference Nova không training trọng số, nhưng fine-tuning LoRA sau này vẫn dựa toàn bộ vào gradient của loss token prediction.",
+        "why": "Không hiểu gradient sẽ biến hyperparameter tuning thành thử ngẫu nhiên."
+      },
+      {
+        "title": "Chain rule và backpropagation",
+        "body": [
+          "Model là composition nhiều hàm. Chain rule nhân local derivatives từ output về input. Backprop tái sử dụng intermediate gradients nên chi phí cùng bậc với forward, thay vì tính lại mọi đường.",
+          "Vanishing gradient xảy ra khi nhiều đạo hàm nhỏ nhân nhau; exploding khi lớn. Activation, initialization, normalization, residual connection và gradient clipping giúp kiểm soát.",
+          "detach/no_grad cắt graph và tiết kiệm memory khi inference; detach sai trong training làm parameter không nhận gradient."
+        ],
+        "projectExample": "Residual connections trong Transformer tạo đường gradient ngắn hơn; inference API chạy không cần lưu graph training.",
+        "why": "Backprop là cơ chế chung phía sau MLP, CNN và Transformer."
+      },
+      {
+        "title": "Optimizer, learning rate và regularization",
+        "body": [
+          "Batch gradient dùng toàn dữ liệu; SGD dùng mini-batch tạo noise nhưng scale tốt. Momentum tích lũy hướng; Adam điều chỉnh learning rate theo moment từng parameter. Adam hội tụ nhanh không đảm bảo generalization tốt nhất.",
+          "Learning rate quá cao diverge, quá thấp chậm/kẹt. Scheduler/warmup đặc biệt quan trọng với Transformer. Weight decay, dropout, early stopping và data augmentation giảm overfitting theo cơ chế khác nhau.",
+          "Train loss thấp nhưng validation loss tăng là dấu overfit. Hyperparameter phải chọn trên validation, test chỉ mở cuối cùng."
+        ],
+        "projectExample": "Khi fine-tune model nhỏ, theo train/validation loss, gradient norm và checkpoint; không đánh giá chỉ bằng loss training.",
+        "why": "Optimization và generalization là hai bài toán liên quan nhưng không đồng nhất."
+      }
+    ],
+    "pitfalls": ["Dùng test set để tune", "Learning rate quá lớn", "Quên zero_grad", "Detach nhầm graph", "Coi train loss thấp là model tốt"],
+    "exercise": "Tự đạo hàm linear regression MSE và so gradient analytic với finite difference.",
+    "lab": {"title": "Gradient descent từ NumPy", "steps": ["Sinh dữ liệu tuyến tính có noise", "Tự viết MSE và gradient", "Train bằng batch GD", "Vẽ loss theo learning rates"], "deliverable": "Notebook không dùng sklearn optimizer, có gradient check và convergence plot.", "acceptanceCriteria": ["Gradient check sai số nhỏ", "So ít nhất ba learning rate", "Tách train/validation", "Giải thích divergence"]},
+    "interviewQuestions": ["Gradient chỉ hướng nào?", "Chain rule liên quan backprop ra sao?", "SGD và Adam khác gì?", "Overfitting nhận biết thế nào?"],
+    "quiz": [
+      {"question": "Negative gradient chỉ hướng gì?", "options": ["Giảm nhanh nhất cục bộ", "Tăng nhanh nhất", "Luôn global optimum", "Không có nghĩa"], "correctIndex": 0, "explanation": "Gradient là hướng tăng dốc nhất nên lấy âm để giảm."},
+      {"question": "Validation dùng chủ yếu để làm gì?", "options": ["Tune/chọn model", "Báo final unbiased sau mọi tune", "Lưu password", "Tạo JWT"], "correctIndex": 0, "explanation": "Test set dành cho đánh giá cuối sau khi quyết định."},
+      {"question": "Adam tốt hơn SGD trong mọi trường hợp không?", "options": ["Có", "Không", "Chỉ GPU", "Chỉ NLP"], "correctIndex": 1, "explanation": "Optimizer là trade-off và phải benchmark theo bài toán."}
+    ]
+  },
+  {
+    "id": "probability-statistics",
+    "track": "01 · Foundation",
+    "level": "foundation",
+    "eyebrow": "Math",
+    "title": "Probability và statistics để đánh giá model đúng cách",
+    "summary": "Từ biến ngẫu nhiên, Bayes và sampling tới confidence interval và A/B test.",
+    "duration": "120 phút",
+    "prerequisites": ["Đại số phổ thông"],
+    "learningObjectives": ["Dùng conditional probability và Bayes", "Hiểu expectation/variance/sampling", "Báo uncertainty thay vì chỉ point estimate"],
+    "keyTerms": ["random variable", "distribution", "expectation", "variance", "conditional probability", "Bayes", "confidence interval", "hypothesis test"],
+    "sections": [
+      {
+        "title": "Random variables và distributions",
+        "body": [
+          "Random variable ánh xạ outcome sang số. PMF cho discrete, PDF cho continuous; xác suất continuous tại đúng một điểm bằng zero nhưng interval có xác suất. Expectation là trung bình dài hạn, variance đo độ phân tán quanh mean.",
+          "Bernoulli mô hình đúng/sai, Binomial số thành công trong n thử độc lập, Gaussian xuất hiện qua central limit theorem trong nhiều aggregate. Dữ liệu thực có skew/heavy tail nên không mặc định normal.",
+          "Correlation không chứng minh causation. Selection bias, confounder và leakage có thể tạo correlation đẹp nhưng model thất bại production."
+        ],
+        "projectExample": "Quiz correctness là Bernoulli observation nhưng các lượt của cùng sinh viên không độc lập hoàn toàn; interval phải xét cấu trúc sample.",
+        "why": "Metric AI luôn là estimate trên sample, không phải sự thật tuyệt đối."
+      },
+      {
+        "title": "Conditional probability và Bayes",
+        "body": [
+          "P(A|B)=P(A∩B)/P(B). Bayes đổi chiều điều kiện: posterior ∝ likelihood × prior. Base-rate neglect làm ta đánh giá model sai khi class hiếm.",
+          "Sensitivity và specificity không trực tiếp là xác suất một prediction positive đúng; precision còn phụ thuộc prevalence. Đây là lý do metric thay đổi khi production distribution khác test.",
+          "Bayesian updating phù hợp learner mastery: prior biểu diễn hiểu biết trước observation, evidence mới cập nhật posterior và uncertainty giảm dần."
+        ],
+        "projectExample": "Mastery smoothing tránh score cực đoan 0%/100% sau một câu; BKT là hướng mở rộng nếu cần uncertainty rõ hơn.",
+        "why": "Conditional reasoning là nền cho classification, diagnosis và personalization."
+      },
+      {
+        "title": "Confidence, significance và experiment design",
+        "body": [
+          "Point estimate như accuracy 82% không nói uncertainty. Bootstrap resample dataset để ước lượng distribution/interval khi công thức khó. Confidence interval không có nghĩa 95% xác suất parameter cố định nằm trong interval theo diễn giải frequentist.",
+          "p-value không đo xác suất hypothesis đúng và statistical significance không đảm bảo practical significance. Multiple comparisons tăng false positive; phải định metric chính trước experiment.",
+          "A/B test cần randomization, sample size/power, stable exposure và guardrail metrics. Với AI eval nhỏ, paired comparison trên cùng câu hỏi thường mạnh hơn hai sample độc lập."
+        ],
+        "projectExample": "So reranker mới/cũ trên cùng golden queries, báo paired delta và confidence interval thay vì chỉ nêu average tăng 2 điểm.",
+        "why": "Benchmark không có uncertainty dễ khiến team deploy theo noise."
+      }
+    ],
+    "pitfalls": ["Correlation=causation", "Chỉ báo average", "P-hacking", "Dùng accuracy cho class hiếm", "Data leakage"],
+    "exercise": "Bootstrap confidence interval cho Recall@5 của hai retrieval pipelines và tính distribution của paired difference.",
+    "lab": {"title": "Statistical benchmark report", "steps": ["Tạo paired results trên ít nhất 100 queries", "Bootstrap 2000 lần", "Báo interval và effect size", "Phân tích slices"], "deliverable": "Notebook + báo cáo một trang quyết định deploy hay chưa.", "acceptanceCriteria": ["Có uncertainty", "Không chỉ p-value", "Nêu sample limitations", "Có ít nhất ba slices"]},
+    "interviewQuestions": ["Precision phụ thuộc base rate thế nào?", "Confidence interval nói gì?", "Correlation và causation khác gì?", "Tại sao paired eval hữu ích?"],
+    "quiz": [
+      {"question": "Accuracy phù hợp class 99:1 không?", "options": ["Luôn phù hợp", "Không đủ, cần metric theo class", "Chỉ khi GPU", "Không tính được"], "correctIndex": 1, "explanation": "Model đoán class đa số có 99% accuracy nhưng vô dụng."},
+      {"question": "p-value nhỏ có chứng minh effect lớn không?", "options": ["Có", "Không", "Chỉ A/B", "Chỉ NLP"], "correctIndex": 1, "explanation": "Significance và effect size là hai điều khác nhau."},
+      {"question": "Bayes posterior tỷ lệ với gì?", "options": ["Likelihood × prior", "Mean + variance", "Accuracy / recall", "Loss × epoch"], "correctIndex": 0, "explanation": "Evidence qua likelihood cập nhật prior thành posterior."}
+    ]
+  },
+  {
+    "id": "ml-data-splitting",
+    "track": "02 · Machine Learning",
+    "level": "junior",
+    "eyebrow": "ML Workflow",
+    "title": "Từ dữ liệu thô tới baseline không leakage",
+    "summary": "EDA, split, preprocessing pipeline, feature engineering và baseline trước khi chọn model phức tạp.",
+    "duration": "100 phút",
+    "prerequisites": ["Python", "Probability & Statistics"],
+    "learningObjectives": ["Thiết kế train/validation/test split đúng thời gian/group", "Nhận diện leakage", "Xây preprocessing pipeline tái lập"],
+    "keyTerms": ["EDA", "data leakage", "train/validation/test", "stratification", "feature engineering", "baseline", "pipeline"],
+    "sections": [
+      {
+        "title": "Problem framing trước model",
+        "body": [
+          "Xác định unit of prediction, target, prediction time và decision sử dụng output. Feature chỉ hợp lệ nếu có sẵn tại prediction time. Metric phải liên hệ cost của false positive/negative và business outcome.",
+          "Baseline có thể là majority class, mean predictor, rule hoặc model tuyến tính. Không có baseline thì không biết deep model có tạo giá trị hay chỉ phức tạp hơn.",
+          "EDA xem schema, missingness, outlier, distribution và target imbalance. Không dùng test set để ra quyết định EDA/tune vì làm test mất tính độc lập."
+        ],
+        "projectExample": "Dự đoán sinh viên cần hỗ trợ phải định nghĩa thời điểm dự đoán; dùng kết quả bài xảy ra sau thời điểm đó là target leakage.",
+        "why": "Framing sai không model nào cứu được."
+      },
+      {
+        "title": "Split theo cấu trúc dữ liệu",
+        "body": [
+          "Random split phù hợp IID samples; time split dùng khi dự đoán tương lai; group split ngăn cùng user/document xuất hiện hai phía. Stratification giữ tỷ lệ class nhưng không thay group/time constraint.",
+          "Duplicate hoặc near-duplicate qua split làm metric ảo. Với RAG, chunks cùng document phải group; với student data, observations cùng student có thể gây identity leakage.",
+          "Cross-validation giảm phụ thuộc một split nhưng tốn compute. Time-series dùng walk-forward, không shuffle tương lai vào quá khứ."
+        ],
+        "projectExample": "Eval retrieval nên tách document/course hoặc thời gian nếu muốn đo khả năng tổng quát ngoài tài liệu đã tune.",
+        "why": "Split mô phỏng production là thiết kế quan trọng hơn chọn thuật toán."
+      },
+      {
+        "title": "Preprocessing và feature pipeline",
+        "body": [
+          "Imputation/scaling/encoding phải fit trên train rồi transform validation/test. Fit trước split làm leakage. sklearn Pipeline đóng gói để cross-validation không vô tình học từ validation fold.",
+          "Numeric scaling quan trọng cho distance/gradient models; tree ít nhạy. One-hot cho categorical nominal; ordinal encoding chỉ khi có thứ tự. High-cardinality có thể dùng hashing/target encoding nhưng target encoding phải out-of-fold.",
+          "Feature store chỉ đáng dùng khi cần reuse/online-offline consistency ở quy mô; project nhỏ có thể giữ versioned transformation code và schema tests."
+        ],
+        "projectExample": "Mastery features cần snapshot theo thời điểm, không query trạng thái mới nhất khi training cho quyết định quá khứ.",
+        "why": "Pipeline tái lập ngăn training-serving skew."
+      }
+    ],
+    "pitfalls": ["Split sau preprocessing", "Random split cho time data", "Không baseline", "Target leakage", "Duplicate qua split"],
+    "exercise": "Thiết kế split cho dữ liệu bài làm nhiều lượt theo sinh viên và thời gian; giải thích muốn generalize tới ai/khi nào.",
+    "lab": {"title": "Baseline dự đoán nguy cơ bỏ bài", "steps": ["Tạo snapshot dataset không dùng future data", "Group/time split", "Xây sklearn preprocessing Pipeline", "So dummy baseline với logistic regression"], "deliverable": "Notebook + data card mô tả target, features, split và limitations.", "acceptanceCriteria": ["Không leakage", "Có baseline", "Pipeline fit chỉ train", "Metric theo class và calibration"]},
+    "interviewQuestions": ["Data leakage là gì?", "Khi nào group split?", "Tại sao preprocessing phải nằm trong CV pipeline?", "Baseline tốt có tác dụng gì?"],
+    "quiz": [
+      {"question": "Fit scaler trên toàn dataset trước split có sao không?", "options": ["Đúng", "Leakage", "Chỉ chậm", "Chỉ lỗi SQL"], "correctIndex": 1, "explanation": "Validation/test statistics đã rò vào training transform."},
+      {"question": "Nhiều rows cùng student nên cân nhắc split nào?", "options": ["Group split", "Random từng row luôn", "Không split", "Alphabetical"], "correctIndex": 0, "explanation": "Group split đo generalization sang student chưa thấy."},
+      {"question": "Baseline dùng để làm gì?", "options": ["Mốc tối thiểu để chứng minh model có ích", "Thay test", "Tăng GPU", "Mã hóa JWT"], "correctIndex": 0, "explanation": "Model phức tạp phải thắng một giải pháp đơn giản hợp lý."}
+    ]
+  },
+  {
+    "id": "supervised-models",
+    "track": "02 · Machine Learning",
+    "level": "junior",
+    "eyebrow": "ML Models",
+    "title": "Regression, classification, trees và ensembles",
+    "summary": "Hiểu assumption, loss, bias–variance và cách chọn model tabular.",
+    "duration": "140 phút",
+    "prerequisites": ["Linear Algebra", "Calculus", "ML data splitting"],
+    "learningObjectives": ["Giải thích linear/logistic regression", "Hiểu decision tree và ensembles", "Chẩn đoán underfit/overfit"],
+    "keyTerms": ["MSE", "cross-entropy", "regularization", "decision tree", "random forest", "gradient boosting", "bias-variance"],
+    "sections": [
+      {
+        "title": "Linear và logistic models",
+        "body": [
+          "Linear regression dự đoán y=Xw+b, thường tối ưu MSE. Coefficient dễ giải thích khi features/scales và assumptions hợp lý; multicollinearity làm coefficient bất ổn. Ridge L2 co weights, Lasso L1 có thể đưa weights về zero.",
+          "Logistic regression áp sigmoid lên linear score để mô hình log-odds và tối ưu binary cross-entropy. Threshold 0.5 không thần thánh; chọn threshold theo cost và validation. Probability cần kiểm calibration.",
+          "Linear model là baseline mạnh cho sparse/high-dimensional data, nhanh và dễ debug. Nonlinear feature interactions cần transform hoặc model khác."
+        ],
+        "projectExample": "Logistic regression có thể làm baseline dự đoán cần hỗ trợ từ submission/mastery features trước khi thử neural network.",
+        "why": "Interpretability và baseline quan trọng trong giáo dục hơn chạy model phức tạp ngay."
+      },
+      {
+        "title": "Decision tree và ensembles",
+        "body": [
+          "Tree chia feature space bằng threshold để giảm impurity/loss. Tree đơn dễ giải thích nhưng high variance và overfit. Pruning/depth/min samples kiểm complexity.",
+          "Random forest bagging nhiều trees trên bootstrap/features để giảm variance, dễ dùng và parallel. Gradient boosting xây trees tuần tự sửa residual/gradient, thường mạnh trên tabular nhưng nhạy hyperparameter và leakage.",
+          "Feature importance dạng impurity có bias; permutation importance đo performance drop nhưng correlated features chia sẻ importance. SHAP giúp local/global explanation nhưng không biến correlation thành causation."
+        ],
+        "projectExample": "Boosted tree là candidate tốt cho student-risk tabular, nhưng lời giải thích cho giảng viên phải kèm caveat và không gán nguyên nhân.",
+        "why": "Tree ensembles thường thắng deep learning trên tabular vừa/nhỏ."
+      },
+      {
+        "title": "Bias–variance và model selection",
+        "body": [
+          "Underfit: train và validation đều kém (high bias). Overfit: train tốt, validation kém (high variance). Thêm capacity giúp bias nhưng có thể tăng variance; data/regularization/bagging giúp variance.",
+          "Hyperparameter search phải nằm trong CV trên train; test chỉ dùng một lần. Random search thường hiệu quả hơn grid khi chỉ vài hyperparameter quan trọng. Early stopping dùng validation signal.",
+          "Chọn model không chỉ metric: latency, explainability, calibration, maintenance và fairness. Một delta rất nhỏ không đáng đổi lấy hệ thống khó vận hành."
+        ],
+        "projectExample": "Risk model trong giáo dục nên ưu tiên calibration và false-negative analysis theo cohort, không chỉ ROC-AUC tổng."
+        ,"why": "Model selection là multi-objective engineering."
+      }
+    ],
+    "pitfalls": ["Threshold mặc định không đánh giá", "Tune trên test", "SHAP=causation", "Dùng neural network cho mọi tabular", "Chỉ báo ROC-AUC"],
+    "exercise": "So logistic, random forest và gradient boosting trên cùng split; phân tích learning curve, calibration và confusion matrix.",
+    "lab": {"title": "Model comparison có experiment report", "steps": ["Dùng cùng preprocessing/split", "Tune trong CV", "Đánh giá discrimination + calibration", "Viết model card"], "deliverable": "Notebook, saved pipeline và model card có recommendation.", "acceptanceCriteria": ["Có dummy baseline", "Test chưa dùng khi tune", "Có error slices", "Nêu trade-off vận hành"]},
+    "interviewQuestions": ["L1 và L2 khác gì?", "Bagging và boosting khác gì?", "Bias–variance trade-off là gì?", "Tại sao calibration quan trọng?"],
+    "quiz": [
+      {"question": "Random forest chủ yếu giảm gì so với một tree?", "options": ["Variance", "Số feature về zero", "Token", "JWT"], "correctIndex": 0, "explanation": "Bagging decorrelates trees và average để giảm variance."},
+      {"question": "Threshold classification nên chọn ở đâu?", "options": ["Validation theo cost", "Test sau khi xem kết quả", "Luôn 0.5", "Training loss duy nhất"], "correctIndex": 0, "explanation": "Threshold là decision policy cần tune ngoài test."},
+      {"question": "Train tốt, validation kém là dấu gì?", "options": ["Overfit", "Underfit", "Perfect", "No data"], "correctIndex": 0, "explanation": "Gap lớn thường là high variance/overfitting."}
+    ]
+  },
+  {
+    "id": "ml-evaluation-metrics",
+    "track": "02 · Machine Learning",
+    "level": "junior",
+    "eyebrow": "ML Evaluation",
+    "title": "Metrics, calibration, fairness và error analysis",
+    "summary": "Chọn metric theo quyết định thật và tìm nơi model thất bại thay vì chỉ khoe một con số.",
+    "duration": "105 phút",
+    "prerequisites": ["Probability & Statistics", "Supervised models"],
+    "learningObjectives": ["Chọn precision/recall/F-score/PR-AUC", "Đánh giá calibration và threshold", "Làm slice/error/fairness analysis"],
+    "keyTerms": ["confusion matrix", "precision", "recall", "specificity", "ROC-AUC", "PR-AUC", "calibration", "fairness"],
+    "sections": [
+      {
+        "title": "Confusion matrix và metric theo cost",
+        "body": [
+          "TP/FP/FN/TN phụ thuộc positive class và threshold. Precision hỏi prediction positive đúng bao nhiêu; recall hỏi positive thật bắt được bao nhiêu; specificity đo negative thật nhận đúng. F-beta tăng trọng số recall hoặc precision theo nhu cầu.",
+          "ROC-AUC đo ranking qua thresholds nhưng có thể trông cao với class rất hiếm. PR-AUC tập trung positive performance và baseline bằng prevalence. Không so PR-AUC giữa datasets khác prevalence mà không chú thích.",
+          "Trong cảnh báo sinh viên, false negative bỏ sót người cần giúp; false positive gây cảnh báo thừa/stigma. Cost không chỉ kỹ thuật nên cần stakeholder."
+        ],
+        "projectExample": "Ngưỡng mastery <40% là policy đơn giản; nếu thay bằng model risk phải giải thích cost/threshold cho giảng viên."
+        ,"why": "Metric đúng bắt đầu từ quyết định mà prediction hỗ trợ."
+      },
+      {
+        "title": "Calibration và uncertainty",
+        "body": [
+          "Model calibrated nghĩa là nhóm dự đoán 0.7 xảy ra positive khoảng 70%. Reliability diagram và Brier score đánh giá calibration. AUC tốt không đảm bảo probability calibrated.",
+          "Platt scaling/isotonic fit trên validation/calibration set, không test. Distribution shift làm calibration suy giảm và cần monitor/recalibrate.",
+          "Uncertainty có aleatoric từ noise và epistemic từ thiếu dữ liệu/model. Một confidence score không tự phân biệt hai loại và không nên dùng như sự thật."
+        ],
+        "projectExample": "Nếu risk probability dùng để ưu tiên can thiệp, calibration quan trọng hơn chỉ xếp hạng đúng."
+        ,"why": "Decision resource allocation cần xác suất có ý nghĩa."
+      },
+      {
+        "title": "Slice, fairness và error taxonomy",
+        "body": [
+          "Aggregate metric che lỗi theo course, cohort, ngôn ngữ hoặc missing-data pattern. Slice phải đủ sample và được chọn cả theo hypothesis trước lẫn khám phá sau, tránh cherry-pick.",
+          "Fairness có nhiều định nghĩa xung đột: demographic parity, equal opportunity, equalized odds, calibration. Chọn theo context pháp lý/đạo đức; không có một metric fairness chung tối ưu mọi thứ.",
+          "Error analysis đọc mẫu FP/FN, gắn taxonomy như label noise, missing feature, shift hoặc model limitation. Mỗi nhóm dẫn tới giải pháp khác: sửa data, policy, model hay UX."
+        ],
+        "projectExample": "Không dùng protected attributes để suy diễn năng lực; nếu đánh giá fairness phải có governance và mục đích rõ."
+        ,"why": "Cải tiến model bắt đầu từ hiểu lỗi cụ thể."
+      }
+    ],
+    "pitfalls": ["Chỉ dùng accuracy", "AUC=calibration", "Fairness một metric", "Slice quá nhỏ", "Tối ưu metric không liên quan quyết định"],
+    "exercise": "Tạo error taxonomy cho 50 predictions sai và đề xuất data/model/policy fix riêng từng nhóm.",
+    "lab": {"title": "Evaluation dashboard cho student-risk model", "steps": ["Chọn threshold theo cost matrix", "Vẽ PR/ROC/reliability", "Slice theo course và data availability", "Viết limitations"], "deliverable": "Evaluation report có plots, threshold decision và ethical caveats.", "acceptanceCriteria": ["Có confusion matrix tại threshold deploy", "Có calibration", "Có confidence interval/slice sample size", "Không đưa causal claim"]},
+    "interviewQuestions": ["Precision và recall trade-off thế nào?", "ROC-AUC và PR-AUC khi class imbalance?", "Calibration là gì?", "Bạn làm error analysis ra sao?"],
+    "quiz": [
+      {"question": "Model dự đoán 0.8 có positive khoảng 80% mô tả gì?", "options": ["Calibration", "Recall", "Latency", "Regularization"], "correctIndex": 0, "explanation": "Calibration nối probability dự đoán với frequency quan sát."},
+      {"question": "Class rất hiếm nên xem thêm metric nào?", "options": ["PR-AUC", "Accuracy duy nhất", "MSE duy nhất", "Token count"], "correctIndex": 0, "explanation": "PR curve tập trung chất lượng positive predictions."},
+      {"question": "Fairness metric có một loại luôn đúng không?", "options": ["Có", "Không", "Chỉ ML", "Chỉ giáo dục"], "correctIndex": 1, "explanation": "Các định nghĩa fairness có thể xung đột và phụ thuộc context."}
+    ]
+  }
+]

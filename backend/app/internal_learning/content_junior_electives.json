@@ -1,0 +1,102 @@
+[
+  {
+    "id": "reinforcement-learning-fundamentals",
+    "track": "07 · Applied AI Extensions",
+    "level": "junior-plus",
+    "eyebrow": "Reinforcement Learning",
+    "title": "Reinforcement learning từ MDP đến policy gradient",
+    "summary": "Nắm state, action, reward, value và exploration để hiểu RL thật sự trước khi học RLHF.",
+    "duration": "180 phút",
+    "prerequisites": ["Probability", "Calculus", "PyTorch"],
+    "learningObjectives": ["Mô hình hóa MDP", "Phân biệt value-based và policy-based", "Hiểu exploration, credit assignment và offline RL risk"],
+    "keyTerms": ["MDP", "policy", "return", "discount", "Bellman equation", "Q-learning", "DQN", "policy gradient", "actor-critic", "exploration"],
+    "sections": [
+      {"title": "MDP, return và Bellman", "body": ["Markov Decision Process gồm state, action, transition, reward và discount gamma. Policy ánh xạ state sang phân phối action; return là tổng reward có chiết khấu. Value V đo return kỳ vọng từ state, Q đo từ state-action.", "Bellman equation phân rã value thành reward hiện tại cộng value tương lai, tạo nền cho dynamic programming và temporal-difference learning. Reward phải phản ánh mục tiêu dài hạn; proxy sai tạo hành vi tối ưu sai."], "projectExample": "Hội thoại Nova không nên tự gọi là RL chỉ vì có thumbs up; hiện chưa có environment, policy update và counterfactual exploration.", "why": "Đặt đúng thuật ngữ giúp không nhầm feedback logging với reinforcement learning."},
+      {"title": "Q-learning, DQN và exploration", "body": ["Q-learning là off-policy TD control, cập nhật theo reward + gamma max Q(s',a'). DQN xấp xỉ Q bằng neural network, dùng replay buffer để giảm tương quan và target network để ổn định target.", "Epsilon-greedy cân exploration/exploitation nhưng exploration ngoài đời có thể gây hại. Reward scaling, terminal handling và correlated samples là nguồn lỗi phổ biến."], "projectExample": "Không exploration ngẫu nhiên trên hành động gửi/xóa dữ liệu. High-impact action luôn qua policy và xác nhận.", "why": "RL production cần safety boundary ngoài learned policy."},
+      {"title": "Policy gradient, actor-critic và offline RL", "body": ["REINFORCE tối ưu log probability action nhân return/advantage nhưng variance cao. Actor-critic dùng actor chọn action và critic ước lượng value để giảm variance; PPO giới hạn policy update và được dùng trong RLHF cổ điển.", "Offline RL học từ log cố định, dễ đánh giá quá cao action hiếm ngoài distribution. Cần coverage, conservative objectives và off-policy evaluation; nếu logging policy không đủ exploration thì dữ liệu không trả lời được mọi chính sách."], "projectExample": "Preference optimization Nova dùng DPO trước vì dữ liệu offline và không có lý do xây online RL environment.", "why": "RL mạnh cho quyết định tuần tự, nhưng data/eval/safety khó hơn supervised learning."}
+    ],
+    "pitfalls": ["Reward proxy là mục tiêu thật", "Quên terminal state", "Evaluate trên cùng random seeds", "Offline RL chọn action ngoài data support"],
+    "exercise": "Mô hình hóa lộ trình học thành MDP rồi phản biện vì sao chưa nên deploy learned policy.",
+    "lab": {"title": "DQN CartPole có baseline", "steps": ["Random-policy baseline", "Replay buffer + target network", "Train nhiều seed", "Ablation target/replay"], "deliverable": "Code, learning curves và error analysis.", "acceptanceCriteria": ["Ít nhất năm seed", "Tách train/eval exploration", "Có moving-average return", "Giải thích instability"]},
+    "interviewQuestions": ["V và Q khác gì?", "Vì sao DQN cần target network?", "On-policy và off-policy khác gì?", "Reward hacking là gì?"],
+    "quiz": [
+      {"question": "Q-learning thuộc loại nào?", "options": ["Off-policy value-based", "Supervised clustering", "On-policy chỉ", "RAG"], "correctIndex": 0, "explanation": "Q-learning học greedy target dù behavior có thể khám phá."},
+      {"question": "Replay buffer giúp gì?", "options": ["Giảm tương quan mẫu và tái sử dụng experience", "Tạo CSS", "Mã hóa password", "Thay reward"], "correctIndex": 0, "explanation": "Experience được sample lại gần IID hơn."}
+    ]
+  },
+  {
+    "id": "generative-models-diffusion",
+    "track": "07 · Applied AI Extensions",
+    "level": "junior-plus",
+    "eyebrow": "Generative AI",
+    "title": "Generative models: autoregressive, VAE, GAN và diffusion",
+    "summary": "Hiểu các họ mô hình sinh chính, objective, sampling và cách đánh giá thay vì đồng nhất GenAI với LLM.",
+    "duration": "170 phút",
+    "prerequisites": ["Probability", "Neural networks", "CNN", "Transformer"],
+    "learningObjectives": ["So sánh likelihood và implicit generation", "Giải thích VAE/GAN/diffusion", "Chọn metric và nhận diện memorization"],
+    "keyTerms": ["autoregressive", "latent variable", "ELBO", "VAE", "GAN", "mode collapse", "diffusion", "noise schedule", "classifier-free guidance", "FID"],
+    "sections": [
+      {"title": "Bốn họ mô hình sinh", "body": ["Autoregressive factorize xác suất theo thứ tự và sinh tuần tự; likelihood rõ nhưng sampling chậm. VAE tối ưu ELBO gồm reconstruction và KL, học latent liên tục nhưng output có thể mờ. GAN dùng generator-discriminator, ảnh sắc nhưng train bất ổn và mode collapse.", "Normalizing flow có exact likelihood và invertible transform nhưng kiến trúc bị ràng buộc. Không có họ nào tốt nhất cho mọi dữ liệu, latency và controllability."], "projectExample": "Nova dùng autoregressive LLM cho text; ảnh robot là asset/UI, không cần tự host diffusion pipeline.", "why": "Chọn model theo modality và requirement, không theo nhãn GenAI."},
+      {"title": "Diffusion và latent diffusion", "body": ["Forward process thêm noise dần; network học dự đoán noise/score để reverse sampling. Noise schedule, số bước và sampler đổi chất lượng-latency. Latent diffusion chạy trong latent space của autoencoder nên rẻ hơn pixel diffusion.", "Text conditioning thường qua cross-attention. Classifier-free guidance tăng bám prompt bằng conditional/unconditional predictions nhưng quá cao giảm đa dạng và tạo artifact. Fine-tune có thể dùng LoRA, DreamBooth tùy mục tiêu và quyền dữ liệu."], "projectExample": "Nếu sinh ảnh minh họa học tập, cần content safety, provenance và license dataset; không trộn generated image vào evidence học thuật.", "why": "Ảnh thuyết phục về thị giác không đồng nghĩa đúng về kiến thức."},
+      {"title": "Evaluation, dữ liệu và safety", "body": ["FID/KID so distribution feature nhưng không đo prompt alignment hay lỗi cá nhân; CLIP score có bias. Kết hợp human pairwise, diversity, semantic adherence, artifact rate và task metric. Kiểm tra nearest-neighbor/memorization trên train.", "Dataset image có copyright, consent, demographic bias và metadata. Watermark/provenance không tuyệt đối nhưng hữu ích; mọi output vẫn cần policy theo use case."], "projectExample": "Một generator diagram phải được kiểm tra nhãn/chữ thủ công vì metric thị giác dễ bỏ qua sơ đồ sai logic.", "why": "Generative evaluation luôn đa chiều và phụ thuộc mục đích."}
+    ],
+    "pitfalls": ["FID thấp nghĩa là mọi ảnh đúng", "Guidance càng cao càng tốt", "Không kiểm memorization", "Dùng generated content làm nguồn sự thật"],
+    "exercise": "Chọn VAE, GAN, diffusion hoặc autoregressive cho ba bài toán và bảo vệ lựa chọn bằng metric/cost.",
+    "lab": {"title": "Tiny diffusion trên MNIST", "steps": ["Cài forward noise schedule", "Train noise predictor", "Sample nhiều step/guidance", "Đánh giá quality/diversity"], "deliverable": "Notebook, samples grid và experiment report.", "acceptanceCriteria": ["Có baseline", "Seed/config tái lập", "So sampling latency", "Nêu limitations"]},
+    "interviewQuestions": ["VAE và GAN khác objective gì?", "Diffusion train và sample thế nào?", "Classifier-free guidance là gì?", "FID không đo được gì?"],
+    "quiz": [
+      {"question": "Diffusion forward process làm gì?", "options": ["Thêm noise dần", "Xóa database", "Rerank văn bản", "Train reward model"], "correctIndex": 0, "explanation": "Reverse model học khử noise của forward process."},
+      {"question": "Latent diffusion rẻ hơn chủ yếu vì sao?", "options": ["Denoise trong không gian nén", "Không dùng neural network", "Không cần data", "Chỉ sinh text"], "correctIndex": 0, "explanation": "Spatial latent nhỏ hơn pixel space."}
+    ]
+  },
+  {
+    "id": "causal-inference-experimentation",
+    "track": "03 · Machine Learning",
+    "level": "junior-plus",
+    "eyebrow": "Causal · Experimentation",
+    "title": "Causal inference, A/B testing và ra quyết định",
+    "summary": "Phân biệt dự đoán với nguyên nhân, thiết kế thí nghiệm và tránh kết luận sản phẩm sai từ correlation.",
+    "duration": "165 phút",
+    "prerequisites": ["Probability", "Statistics", "Evaluation"],
+    "learningObjectives": ["Viết causal question và DAG", "Thiết kế A/B test có power", "Hiểu confounding, selection và heterogeneous effects"],
+    "keyTerms": ["potential outcomes", "ATE", "confounder", "DAG", "randomization", "power", "p-value", "confidence interval", "propensity score", "difference-in-differences"],
+    "sections": [
+      {"title": "Prediction không phải causation", "body": ["Model dự đoán ai có nguy cơ thấp điểm không chứng minh gửi cảnh báo làm điểm tăng. Potential outcomes định nghĩa treatment effect bằng chênh lệch kết quả nếu cùng người nhận và không nhận treatment, nhưng chỉ quan sát được một trạng thái.", "Confounder ảnh hưởng cả treatment và outcome; collider conditioning có thể tạo bias. DAG buộc nêu giả định và chọn adjustment set, nhưng dữ liệu không tự xác nhận mọi causal assumption."], "projectExample": "Mastery thấp tương quan với bỏ bài không chứng minh Nova reminder cải thiện học tập.", "why": "Sản phẩm cần biết can thiệp có tác dụng, không chỉ biết dự đoán ai gặp rủi ro."},
+      {"title": "Randomized experiment đúng", "body": ["Xác định unit randomization, primary metric, guardrails, minimum detectable effect, alpha/power và duration trước khi chạy. Sample-ratio mismatch, peeking và multiple comparisons làm false discovery tăng.", "Dùng confidence interval và effect size, không chỉ p-value. Novelty, network interference và attrition cần kiểm tra; A/A test xác minh assignment/instrumentation."], "projectExample": "Thử banner nhắc 48h nên randomize theo sinh viên hoặc lớp có kiểm soát contamination, đo submission/learning outcome và annoyance guardrail.", "why": "A/B test là data product cần quality controls như model."},
+      {"title": "Khi không thể randomize", "body": ["Matching/propensity weighting cân observed confounders nhưng không xử lý hidden confounding. Difference-in-differences cần parallel trends; instrumental variables cần relevance/exclusion; regression discontinuity cần ngưỡng khó thao túng.", "Báo assumptions, sensitivity và uncertainty. Causal ML như uplift/causal forest ước lượng heterogeneous effect nhưng đòi sample lớn và validation policy-aware."], "projectExample": "So lớp dùng Nova với lớp không dùng dễ bias do giảng viên/lớp tự chọn; không được ghi causal claim nếu chỉ observational.", "why": "Phương pháp phức tạp không loại bỏ giả định nhận dạng."}
+    ],
+    "pitfalls": ["Correlation thành causal claim", "Peeking rồi dừng sớm", "Nhiều metrics không correction", "Propensity score xử lý hidden confounder"],
+    "exercise": "Vẽ DAG cho tác động Nova reminder lên nộp bài và liệt kê confounder/collider có thể có.",
+    "lab": {"title": "Experiment analysis end-to-end", "steps": ["Pre-register hypothesis/metrics", "Power calculation", "Phân tích synthetic A/B với SRM", "Effect CI và segment exploration"], "deliverable": "Experiment design và analysis report.", "acceptanceCriteria": ["Primary metric định trước", "Có guardrail", "Kiểm SRM", "Không overclaim segment"]},
+    "interviewQuestions": ["Prediction khác causal inference thế nào?", "P-value không nói điều gì?", "Sample ratio mismatch là gì?", "DiD cần giả định nào?"],
+    "quiz": [
+      {"question": "Randomization chủ yếu giúp gì?", "options": ["Cân confounders theo kỳ vọng", "Tăng CSS", "Xóa mọi missing data", "Bảo đảm effect lớn"], "correctIndex": 0, "explanation": "Random assignment tạo nhóm so sánh hợp lệ theo kỳ vọng."},
+      {"question": "P-value nhỏ có nghĩa gì?", "options": ["Dữ liệu ít tương thích với null theo giả định", "Effect chắc chắn lớn", "Giả thuyết đúng 100%", "Không cần CI"], "correctIndex": 0, "explanation": "P-value không phải xác suất giả thuyết đúng."}
+    ]
+  },
+  {
+    "id": "junior-ai-engineer-readiness",
+    "track": "08 · Portfolio & Interview",
+    "level": "junior",
+    "eyebrow": "Readiness Matrix",
+    "title": "Ma trận năng lực Junior AI Engineer và kế hoạch apply",
+    "summary": "Biến 50 chương trước thành bằng chứng năng lực: biết gì là bắt buộc, làm artifact nào và trả lời phỏng vấn ra sao.",
+    "duration": "120 phút",
+    "prerequisites": ["Hoàn thành các track 01–06", "Một capstone chạy được"],
+    "learningObjectives": ["Tự chấm năng lực theo evidence", "Chọn role mục tiêu", "Đóng gói project và luyện interview có hệ thống"],
+    "keyTerms": ["competency matrix", "T-shaped", "portfolio evidence", "STAR", "system design", "trade-off", "baseline", "ownership"],
+    "sections": [
+      {"title": "Lõi bắt buộc cho mọi Junior AI Engineer", "body": ["Mức làm được: Python, Git, SQL, API, test; xác suất-thống kê và linear algebra đủ giải thích model; supervised/unsupervised ML và metrics; data split/leakage/error analysis; PyTorch training loop; Docker, deployment, monitoring và security cơ bản.", "Mức bằng chứng: ít nhất một ML pipeline tái lập từ raw data đến serving, có baseline, experiment tracking, tests, error analysis và README. Không cần thuộc mọi công thức, nhưng phải giải thích lựa chọn và debug được failure."], "projectExample": "Academic Assistant chứng minh API/DB/RAG/agent/eval/security; lab classifier hoặc forecasting bổ sung bằng chứng classical ML/training.", "why": "Nhà tuyển dụng đánh giá khả năng giao sản phẩm và tư duy thực nghiệm, không đếm thuật ngữ."},
+      {"title": "Nhánh LLM/GenAI Engineer", "body": ["Phải sâu token/Transformer, prompting, embeddings, ingestion/chunking, hybrid retrieval/reranking, RAG families, tool calling, agent state, eval/benchmark, prompt injection/RBAC, latency/cost. Fine-tuning LoRA và DPO cần hiểu và có lab, nhưng không phải dự án nào cũng cần deploy weights riêng.", "Multi-agent chỉ là điểm cộng khi bro chứng minh nó thắng single-agent baseline. Voice/multimodal, distributed training và RLHF-PPO là mở rộng; hiểu architecture/trade-off trước khi tự nhận chuyên sâu."], "projectExample": "Nova là flagship phù hợp nhất nhánh này nếu benchmark và privacy boundaries được trình bày bằng số liệu.", "why": "Chiều sâu một production system có giá trị hơn danh sách framework."},
+      {"title": "Definition of ready và lộ trình 12 tuần", "body": ["Ready apply khi bro tự dựng và giải thích pipeline không nhìn tutorial, viết test/eval, đọc log để debug, nói được một thất bại thật, ước lượng latency/cost và bảo vệ dữ liệu. Mỗi CV claim phải trỏ tới artifact hoặc demo không chứa dữ liệu riêng tư.", "Tuần 1–3 củng cố math/ML + mini-project; 4–6 deep learning/Transformer; 7–9 hoàn thiện Nova benchmark/RAG/security; 10–11 MLOps/deploy/monitor; 12 mock interview, CV và applications. Học song song apply, không chờ biết 'tất cả'."], "projectExample": "Dùng Nova hỏi lại từng module, nhưng phải tự làm lab và ghi decision journal; quiz đúng không thay artifact.", "why": "AI quá rộng để hoàn tất tuyệt đối; readiness là năng lực giải quyết vấn đề và học tiếp có bằng chứng."}
+    ],
+    "pitfalls": ["Đợi học hết AI mới apply", "CV liệt kê công nghệ không outcome", "Chỉ có notebook không serving/test", "Không nói limitations", "Public dữ liệu/secret nội bộ"],
+    "exercise": "Tự chấm 0-chưa biết, 1-giải thích, 2-làm có hướng dẫn, 3-tự làm/debug cho từng track; chọn ba gap ưu tiên.",
+    "lab": {"title": "Interview-ready evidence pack", "steps": ["Chạy toàn bộ benchmark", "Tạo architecture + trust-boundary diagram", "Viết 5 STAR stories", "Mock coding/ML/system design", "Tạo CV bullets có metric"], "deliverable": "Portfolio pack riêng tư/public-safe và kế hoạch 30 applications.", "acceptanceCriteria": ["Có demo tái lập", "Có baseline và limitations", "Không PII/secret", "Trả lời system design 45 phút", "Mỗi claim có evidence"]},
+    "interviewQuestions": ["Thiết kế trợ lý RAG đa tenant", "Debug model offline tốt online tệ", "Khi nào fine-tune thay RAG?", "Thiết kế evaluation cho agent", "Kể một quyết định trade-off bro sở hữu"],
+    "quiz": [
+      {"question": "Dấu hiệu mạnh nhất cho readiness là gì?", "options": ["Artifact chạy được có baseline/eval và giải thích trade-off", "Thuộc nhiều tên framework", "Quiz 100%", "GPU đắt"], "correctIndex": 0, "explanation": "Evidence end-to-end thể hiện năng lực thực tế."},
+      {"question": "Có cần biết mọi nhánh AI trước khi apply không?", "options": ["Không, cần lõi vững + một nhánh sâu + khả năng học", "Có tuyệt đối", "Chỉ cần prompt", "Chỉ cần chứng chỉ"], "correctIndex": 0, "explanation": "T-shaped competency phù hợp junior hơn học dàn trải vô hạn."}
+    ]
+  }
+]

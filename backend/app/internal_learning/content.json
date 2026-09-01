@@ -1,0 +1,487 @@
+[
+  {
+    "id": "ai-foundations",
+    "eyebrow": "Nền tảng",
+    "title": "AI, Machine Learning và LLM khác nhau thế nào?",
+    "summary": "Đặt đúng tên cho từng lớp công nghệ trước khi đi vào kiến trúc Nova.",
+    "duration": "12 phút",
+    "sections": [
+      {
+        "title": "Từ AI đến mô hình ngôn ngữ lớn",
+        "body": [
+          "Trí tuệ nhân tạo (AI) là phạm vi rộng: xây hệ thống thực hiện công việc vốn cần trí thông minh của con người. Machine Learning (ML) là một cách xây AI bằng cách học quy luật từ dữ liệu thay vì viết mọi luật bằng tay.",
+          "Deep Learning là nhánh ML dùng mạng nơ-ron nhiều tầng. LLM là mô hình deep learning được huấn luyện trên lượng văn bản lớn để dự đoán token tiếp theo. Khả năng hội thoại, tóm tắt và viết mã xuất hiện từ bài toán dự đoán này ở quy mô lớn."
+        ],
+        "projectExample": "Nova dùng LLM để hiểu câu hỏi và diễn đạt câu trả lời; còn điểm mastery, deadline và quyền sở hữu lớp được tính bằng logic backend xác định, không giao cho LLM tự đoán.",
+        "why": "LLM phù hợp với ngôn ngữ không cấu trúc. Code thông thường phù hợp hơn với phép tính, quyền truy cập và quy tắc phải đúng tuyệt đối. Kết hợp hai loại tạo ra hệ thống vừa linh hoạt vừa kiểm soát được.",
+        "alternatives": [
+          {
+            "name": "Hệ luật thuần túy",
+            "useWhen": "Luồng ít biến thể, quy tắc rõ và ổn định.",
+            "whyNotHere": "Không hiểu được hàng nghìn cách sinh viên đặt cùng một câu hỏi."
+          },
+          {
+            "name": "Mô hình ML phân loại",
+            "useWhen": "Chỉ cần dự đoán một nhãn cố định với dữ liệu huấn luyện tốt.",
+            "whyNotHere": "Không đủ để tạo giải thích dài và hội thoại nhiều lượt."
+          }
+        ]
+      },
+      {
+        "title": "Huấn luyện và suy luận",
+        "body": [
+          "Training là quá trình điều chỉnh trọng số mô hình từ dữ liệu, tốn nhiều tài nguyên. Inference là lúc dùng mô hình đã huấn luyện để tạo câu trả lời. Academic Assistant chủ yếu làm inference và cung cấp ngữ cảnh riêng của trường cho mô hình.",
+          "Ta không fine-tune LLM chỉ để thêm một PDF mới. Kiến thức lớp thay đổi liên tục nên được truy xuất ở thời điểm hỏi; fine-tuning phù hợp hơn khi muốn thay đổi hành vi hoặc phong cách ổn định trên nhiều tình huống."
+        ],
+        "projectExample": "Khi giảng viên duyệt tài liệu, hệ thống lập chỉ mục tài liệu. Lúc sinh viên hỏi, Nova lấy đoạn liên quan rồi mới gọi LLM, vì vậy kiến thức có thể cập nhật mà không huấn luyện lại mô hình.",
+        "why": "Retrieval rẻ hơn, cập nhật nhanh hơn và giữ được nguồn trích dẫn. Fine-tuning không phải cơ sở dữ liệu và không bảo đảm nhớ chính xác từng dữ kiện."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Thành phần nào nên quyết định một giảng viên có sở hữu lớp hay không?",
+        "options": [
+          "LLM suy luận từ câu hỏi",
+          "Logic phân quyền backend",
+          "Embedding model",
+          "Prompt hệ thống"
+        ],
+        "correctIndex": 1,
+        "explanation": "Quyền truy cập phải được backend xác minh bằng dữ liệu xác định; prompt không phải hàng rào bảo mật."
+      },
+      {
+        "question": "Vì sao không fine-tune lại Nova mỗi khi có PDF mới?",
+        "options": [
+          "LLM không đọc được PDF",
+          "Fine-tuning chỉ dùng cho ảnh",
+          "Retrieval cập nhật nhanh và có thể trích nguồn",
+          "Embedding luôn chính xác 100%"
+        ],
+        "correctIndex": 2,
+        "explanation": "Kiến thức động nên được truy xuất; fine-tuning phù hợp hơn để điều chỉnh hành vi ổn định."
+      }
+    ]
+  },
+  {
+    "id": "llm-context",
+    "eyebrow": "LLM",
+    "title": "Token, prompt, context window và hallucination",
+    "summary": "Hiểu LLM thật sự nhìn thấy gì trong một lượt chat và vì sao nó có thể trả lời sai.",
+    "duration": "14 phút",
+    "sections": [
+      {
+        "title": "Prompt không chỉ là câu người dùng nhập",
+        "body": [
+          "Một request thường gồm system instruction, lịch sử hội thoại, hồ sơ vai trò, dữ liệu truy xuất, kết quả tool và câu hỏi hiện tại. Tất cả được mã hóa thành token và phải nằm trong context window của mô hình.",
+          "Context dài không đồng nghĩa tốt hơn. Nhiều dữ liệu nhiễu làm tăng chi phí, độ trễ và nguy cơ mô hình chú ý nhầm. Vì vậy retrieval phải chọn đúng phần nhỏ cần thiết."
+        ],
+        "projectExample": "Nova chỉ nạp lịch sử gần đây, thông tin lớp đang chọn và các đoạn tài liệu đứng đầu thay vì gửi toàn bộ cơ sở dữ liệu cho mỗi câu hỏi.",
+        "why": "Ngữ cảnh tối thiểu nhưng đủ dùng giúp câu trả lời nhanh, rẻ và ít mâu thuẫn hơn."
+      },
+      {
+        "title": "Hallucination và grounding",
+        "body": [
+          "Hallucination là câu trả lời nghe hợp lý nhưng không được dữ liệu hỗ trợ. LLM tối ưu xác suất ngôn ngữ, không tự có cơ chế kiểm chứng sự thật.",
+          "Grounding neo câu trả lời vào dữ liệu đáng tin: tài liệu đã duyệt, kết quả truy vấn PostgreSQL hoặc tool có kiểm soát. Citation giúp người dùng kiểm tra nguồn, nhưng citation chỉ hữu ích khi thực sự trỏ tới đoạn hỗ trợ kết luận."
+        ],
+        "projectExample": "Câu hỏi học thuật đi qua retrieval và trả kèm nguồn. Câu hỏi như 1+1 có thể trả bằng kiến thức chung; dữ liệu cá nhân như bài chưa nộp phải lấy qua tool.",
+        "why": "Không ép mọi câu hỏi vào RAG, nhưng cũng không cho phép mô hình bịa dữ liệu riêng của sinh viên."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Thêm toàn bộ tài liệu vào prompt luôn có tốt hơn không?",
+        "options": [
+          "Có, context càng dài càng chính xác",
+          "Không, dữ liệu nhiễu tăng chi phí và làm giảm tập trung",
+          "Có, vì token miễn phí",
+          "Chỉ tốt với PDF"
+        ],
+        "correctIndex": 1,
+        "explanation": "Retrieval tốt ưu tiên đúng đoạn, không phải nhiều đoạn."
+      },
+      {
+        "question": "Grounding dùng để làm gì?",
+        "options": [
+          "Làm avatar đẹp hơn",
+          "Huấn luyện lại LLM",
+          "Neo câu trả lời vào dữ liệu kiểm chứng được",
+          "Mở rộng context vô hạn"
+        ],
+        "correctIndex": 2,
+        "explanation": "Grounding kết nối phát biểu của mô hình với tài liệu hoặc dữ liệu hệ thống đáng tin."
+      }
+    ]
+  },
+  {
+    "id": "retrieval",
+    "eyebrow": "Tìm kiếm",
+    "title": "Embeddings, chunking và vector search",
+    "summary": "Cơ chế biến tài liệu thành những đoạn có thể tìm theo ý nghĩa.",
+    "duration": "16 phút",
+    "sections": [
+      {
+        "title": "Embedding và độ tương đồng",
+        "body": [
+          "Embedding biến văn bản thành vector số sao cho các đoạn gần nghĩa nằm gần nhau trong không gian vector. Vector database hoặc phần mở rộng vector của PostgreSQL tìm các vector gần câu hỏi nhất.",
+          "Semantic search hiểu gần nghĩa tốt hơn tìm từ khóa thuần túy, nhưng có thể bỏ lỡ mã môn, tên hàm hoặc thuật ngữ chính xác. Hybrid search kết hợp semantic và lexical search để bù điểm yếu này."
+        ],
+        "projectExample": "PDF đã duyệt được chia đoạn, tạo embedding và gắn metadata như document, course, page. Truy vấn phải lọc theo lớp người dùng được phép xem trước khi xếp hạng.",
+        "why": "Metadata filtering vừa tăng độ liên quan vừa ngăn rò rỉ tài liệu giữa các lớp.",
+        "alternatives": [
+          {
+            "name": "Full-text/BM25",
+            "useWhen": "Tìm mã, tên riêng, cụm từ chính xác hoặc kho nhỏ.",
+            "whyNotHere": "Yếu khi người hỏi diễn đạt khác tài liệu; phù hợp để kết hợp chứ không thay hoàn toàn semantic search."
+          },
+          {
+            "name": "Knowledge Graph",
+            "useWhen": "Quan hệ thực thể là trung tâm và cần truy vấn nhiều bước rõ ràng.",
+            "whyNotHere": "Chi phí xây ontology và đồng bộ cao hơn nhu cầu PDF học thuật hiện tại."
+          }
+        ]
+      },
+      {
+        "title": "Chunking và reranking",
+        "body": [
+          "Chunk quá nhỏ mất ngữ cảnh; chunk quá lớn chứa nhiều chủ đề và tốn token. Overlap giữ phần chuyển tiếp nhưng overlap quá nhiều tạo kết quả lặp.",
+          "Retrieval ban đầu ưu tiên tốc độ để lấy một tập ứng viên. Reranker đọc sâu câu hỏi và từng ứng viên để sắp xếp lại, tăng chất lượng trước khi gửi vài đoạn tốt nhất cho LLM."
+        ],
+        "projectExample": "Nova lưu số trang và nguồn cùng chunk để câu trả lời có thể dẫn người học trở lại PDF gốc thay vì chỉ đưa một đoạn văn vô danh.",
+        "why": "Pipeline hai tầng cân bằng tốc độ và độ chính xác tốt hơn việc dùng một mô hình đắt tiền quét cả kho tài liệu."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Tại sao phải lọc metadata theo course trước khi retrieval?",
+        "options": [
+          "Để đổi màu giao diện",
+          "Để giảm token và bảo vệ phạm vi truy cập",
+          "Để fine-tune LLM",
+          "Để tạo tài khoản"
+        ],
+        "correctIndex": 1,
+        "explanation": "Bộ lọc course vừa liên quan tới chất lượng vừa là một phần của ranh giới dữ liệu."
+      },
+      {
+        "question": "Reranker làm việc gì?",
+        "options": [
+          "Chia PDF",
+          "Sắp xếp lại tập kết quả ứng viên",
+          "Tạo tài khoản",
+          "Thay thế hoàn toàn LLM"
+        ],
+        "correctIndex": 1,
+        "explanation": "Reranker chấm sâu hơn một tập nhỏ sau bước tìm kiếm nhanh ban đầu."
+      }
+    ]
+  },
+  {
+    "id": "rag-families",
+    "eyebrow": "RAG",
+    "title": "Các dạng RAG và cách chọn đúng",
+    "summary": "RAG không phải một kiến trúc duy nhất; mỗi biến thể giải một loại bài toán khác nhau.",
+    "duration": "20 phút",
+    "sections": [
+      {
+        "title": "Naive, Advanced và Modular RAG",
+        "body": [
+          "Naive RAG có ba bước tuyến tính: retrieve → ghép context → generate. Nó dễ xây, tốt cho hỏi đáp tài liệu nhỏ nhưng dễ thất bại khi câu hỏi mơ hồ hoặc cần nhiều nguồn.",
+          "Advanced RAG cải thiện trước và sau retrieval bằng query rewriting, hybrid search, metadata filter, reranking và context compression. Modular RAG xem các bước như module có thể thay đổi hoặc rẽ nhánh theo loại câu hỏi."
+        ],
+        "projectExample": "Nova dùng routing để câu hỏi cơ bản không phải truy xuất, câu hỏi tài liệu chạy retrieval, còn dữ liệu học tập chạy tool. Đây là tư duy Modular/Agentic thay vì một pipeline cố định cho mọi câu.",
+        "why": "Các loại dữ liệu có độ tin cậy và cách truy cập khác nhau; một pipeline duy nhất tạo chi phí thừa và dễ trả lời sai nguồn.",
+        "alternatives": [
+          {
+            "name": "Naive RAG",
+            "useWhen": "Prototype, FAQ nhỏ, câu hỏi một bước.",
+            "whyNotHere": "Không đủ cho dữ liệu lớp, tool và quyền theo vai trò."
+          },
+          {
+            "name": "Advanced RAG tuyến tính",
+            "useWhen": "Nguồn chủ yếu là tài liệu và quy trình ổn định.",
+            "whyNotHere": "Tốt cho nhánh tài liệu nhưng không tự giải quyết yêu cầu hành động hay analytics."
+          }
+        ]
+      },
+      {
+        "title": "Self-RAG, Corrective RAG, Graph RAG và Multimodal RAG",
+        "body": [
+          "Self-RAG cho mô hình tự đánh giá có cần retrieval và bằng chứng có đủ không. Corrective RAG chấm chất lượng kết quả; nếu kém thì viết lại query hoặc đổi nguồn. Hai dạng này hữu ích khi kho dữ liệu không đồng đều nhưng tăng số lần gọi model.",
+          "Graph RAG tổ chức tri thức theo thực thể và quan hệ, mạnh với câu hỏi nối nhiều mối quan hệ. Multimodal RAG truy xuất cả chữ, hình, bảng hoặc âm thanh, phù hợp tài liệu kỹ thuật nhiều sơ đồ."
+        ],
+        "projectExample": "Academic Assistant hiện ưu tiên văn bản PDF và dữ liệu quan hệ rõ trong PostgreSQL. Graph RAG hay multimodal retrieval chưa phải nút thắt lớn nhất nên chưa đáng thêm hạ tầng.",
+        "why": "Chọn kiến trúc theo lỗi đo được trong benchmark, không theo độ mới của tên công nghệ.",
+        "alternatives": [
+          {
+            "name": "Self/Corrective RAG",
+            "useWhen": "Retrieval hay thiếu bằng chứng và chấp nhận thêm độ trễ.",
+            "whyNotHere": "Có thể bổ sung sau nếu eval cho thấy query rewriting/reranking hiện tại chưa đủ."
+          },
+          {
+            "name": "Graph RAG",
+            "useWhen": "Cần tổng hợp quan hệ nhiều bước giữa người, sự kiện, khái niệm.",
+            "whyNotHere": "Kho hiện tại thiên về đoạn PDF; xây graph sẽ tăng ingestion và vận hành."
+          },
+          {
+            "name": "Multimodal RAG",
+            "useWhen": "Thông tin chính nằm trong sơ đồ, ảnh, slide hoặc video.",
+            "whyNotHere": "Giai đoạn hiện tại tập trung text; OCR/vision cần benchmark và chi phí riêng."
+          }
+        ]
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Kiến trúc RAG nào đơn giản nhất cho FAQ tài liệu nhỏ?",
+        "options": [
+          "Graph RAG",
+          "Naive RAG",
+          "Multimodal RAG",
+          "Multi-agent RAG"
+        ],
+        "correctIndex": 1,
+        "explanation": "Naive RAG phù hợp prototype và câu hỏi một bước, nhưng giới hạn khi nghiệp vụ phức tạp."
+      },
+      {
+        "question": "Lý do chính chưa dùng Graph RAG trong dự án là gì?",
+        "options": [
+          "Graph không lưu được chữ",
+          "Không có thư viện",
+          "Quan hệ nhiều bước chưa phải nút thắt đủ lớn so với chi phí",
+          "Graph chỉ dùng cho mạng xã hội"
+        ],
+        "correctIndex": 2,
+        "explanation": "Kiến trúc nên được thêm khi giải được lỗi đã đo, không chỉ vì mạnh hơn trên lý thuyết."
+      }
+    ]
+  },
+  {
+    "id": "agentic-rag",
+    "eyebrow": "Kiến trúc Nova",
+    "title": "Agentic RAG và pipeline hai bước",
+    "summary": "Từ tìm đoạn văn sang một agent biết lập kế hoạch, chọn nguồn và dùng công cụ.",
+    "duration": "22 phút",
+    "sections": [
+      {
+        "title": "Agent khác chatbot tuyến tính ở đâu?",
+        "body": [
+          "Agent nhận mục tiêu, quan sát trạng thái, chọn hành động, đọc kết quả rồi mới quyết định bước tiếp. Tool có thể là tìm tài liệu, lấy deadline, thống kê lớp hoặc lấy chi tiết một sinh viên được phép xem.",
+          "Agentic RAG dùng khả năng quyết định đó quanh retrieval. Nó có thể không retrieve, retrieve nhiều lần, đổi query, kết hợp tool có cấu trúc và dừng khi bằng chứng đủ."
+        ],
+        "projectExample": "Router của Nova phân loại câu hỏi. Planner/retrieval chốt bằng chứng và nội dung cần trả lời; bước generation riêng biến kế hoạch thành lời đáp tự nhiên. Tool executor mới được phép đọc dữ liệu nghiệp vụ.",
+        "why": "Tách tìm/chốt dữ kiện khỏi diễn đạt giúp kiểm thử retrieval độc lập với chất văn của LLM và giảm trường hợp câu trả lời mượt nhưng sai dữ liệu."
+      },
+      {
+        "title": "Vì sao dùng hai bước thay vì một prompt lớn?",
+        "body": [
+          "Bước 1 tạo answer plan: ý định, nguồn cần dùng, facts được hỗ trợ, giới hạn và citation. Bước 2 chỉ diễn đạt dựa trên plan đó. Nếu bước 1 thiếu bằng chứng, hệ thống có thể hỏi lại hoặc nói rõ chưa đủ dữ liệu.",
+          "Đổi lại, hai bước có thêm độ trễ và chi phí. Với câu xã giao hoặc phép tính cơ bản, router nên đi đường ngắn; không cần ép mọi lượt qua agent đầy đủ."
+        ],
+        "projectExample": "Câu ‘Python là gì?’ có thể dùng kiến thức học thuật chung. Câu ‘tôi còn bài nào chưa làm?’ phải gọi tool cá nhân. Câu hỏi về PDF dùng retrieval có citation.",
+        "why": "Routing theo rủi ro và nguồn dữ liệu tối ưu hơn một pipeline đắt như nhau cho mọi câu.",
+        "alternatives": [
+          {
+            "name": "Single-pass RAG",
+            "useWhen": "Ưu tiên độ trễ, câu hỏi đơn giản, rủi ro thấp.",
+            "whyNotHere": "Khó quan sát lỗi nằm ở retrieval hay generation và dễ trộn dữ liệu có cấu trúc."
+          },
+          {
+            "name": "Multi-agent",
+            "useWhen": "Các chuyên môn thật sự độc lập, công việc dài và có thể song song.",
+            "whyNotHere": "Tăng phối hợp, token và lỗi giao tiếp; một router với tool chuyên biệt hiện đủ rõ."
+          }
+        ]
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Lợi ích kiểm thử lớn nhất của pipeline hai bước là gì?",
+        "options": [
+          "Không cần database",
+          "Tách chất lượng bằng chứng khỏi cách diễn đạt",
+          "Không cần phân quyền",
+          "Luôn chỉ gọi LLM một lần"
+        ],
+        "correctIndex": 1,
+        "explanation": "Ta có thể chấm retrieval/plan riêng rồi mới chấm câu trả lời cuối."
+      },
+      {
+        "question": "Câu nào nên đi đường tool có cấu trúc?",
+        "options": [
+          "1 + 1 bằng mấy?",
+          "Python là gì?",
+          "Tôi còn bài nào chưa nộp?",
+          "Chào Nova"
+        ],
+        "correctIndex": 2,
+        "explanation": "Bài chưa nộp là dữ liệu riêng, thay đổi theo tài khoản và phải lấy từ backend."
+      }
+    ]
+  },
+  {
+    "id": "personalization",
+    "eyebrow": "Cá nhân hóa",
+    "title": "Memory, vai trò và personalization an toàn",
+    "summary": "Cá nhân hóa cách dạy mà không biến hội thoại thành giám sát ngầm.",
+    "duration": "18 phút",
+    "sections": [
+      {
+        "title": "Ba loại ngữ cảnh cần tách biệt",
+        "body": [
+          "Conversation context giúp hiểu lượt hiện tại. Preference mô tả cách trình bày người dùng chọn, như độ dài hay mức giải thích. Learning state là dữ liệu học tập có căn cứ: bài đã làm, mastery và khái niệm yếu.",
+          "Không nên suy diễn một thuộc tính nhạy cảm từ vài tin nhắn rồi lưu vĩnh viễn. Bộ nhớ phải có mục đích rõ, giới hạn thời gian, cho phép xem/xóa và không vượt quyền của người đang đăng nhập."
+        ],
+        "projectExample": "Nova có tùy chọn cá nhân hóa và bộ nhớ hội thoại có thể xóa. Hồ sơ học tập được backend tạo từ bài nộp, không phải từ cảm nhận chủ quan của LLM.",
+        "why": "Tách ba lớp giúp debug, xin consent và xóa dữ liệu đúng phạm vi."
+      },
+      {
+        "title": "Global role và effective role",
+        "body": [
+          "Role toàn cục quyết định khả năng hệ thống; role trong lớp quyết định Nova nói gì trong ngữ cảnh lớp đó. Một giảng viên có thể đồng thời là học viên trong lớp của đồng nghiệp.",
+          "Tool phải được lọc theo effective role và backend vẫn xác minh ownership. Chỉ giấu tool ở frontend hoặc prompt là chưa đủ bảo mật."
+        ],
+        "projectExample": "Trợ lý giảng dạy có thể xem tổng quan lớp sở hữu; chi tiết một sinh viên chỉ khi hỏi đích danh và qua tool một student_id. Hội thoại riêng của sinh viên không được lộ cho giảng viên.",
+        "why": "Capability scoping vừa tránh rò rỉ dữ liệu vừa ngăn LLM hứa làm việc mà backend sẽ từ chối."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Đâu là learning state đáng tin hơn?",
+        "options": [
+          "LLM đoán sinh viên yếu từ giọng văn",
+          "Kết quả bài nộp và mastery đã tính",
+          "Màu avatar",
+          "Độ dài tên tài khoản"
+        ],
+        "correctIndex": 1,
+        "explanation": "Cá nhân hóa học tập nên dựa trên hành vi học có căn cứ và minh bạch."
+      },
+      {
+        "question": "Prompt ghi ‘chỉ giảng viên được xem’ đã đủ bảo mật chưa?",
+        "options": [
+          "Đủ",
+          "Chỉ đủ nếu model lớn",
+          "Không, backend phải kiểm tra quyền",
+          "Đủ khi dùng RAG"
+        ],
+        "correctIndex": 2,
+        "explanation": "Prompt điều hướng hành vi, không thay thế authorization ở tầng dữ liệu."
+      }
+    ]
+  },
+  {
+    "id": "evaluation",
+    "eyebrow": "Chất lượng",
+    "title": "Evaluation, benchmark và observability",
+    "summary": "Đo từng tầng để biết Nova tốt lên thật hay chỉ trả lời nghe hay hơn.",
+    "duration": "17 phút",
+    "sections": [
+      {
+        "title": "Chấm retrieval và generation riêng",
+        "body": [
+          "Retrieval có thể đo Recall@K, Precision@K, MRR hoặc nDCG trên bộ câu hỏi có đoạn nguồn chuẩn. Generation đo factuality, faithfulness, citation correctness, completeness và style.",
+          "End-to-end score cần thiết nhưng không đủ để sửa lỗi. Nếu đáp án sai, ta phải biết do không tìm thấy nguồn, chọn sai tool, hay LLM diễn đạt vượt quá bằng chứng."
+        ],
+        "projectExample": "Các phase của Nova xây benchmark theo tầng và so sánh trước/sau thay đổi. Golden cases phải có cả câu hỏi bình thường, thiếu dữ liệu, prompt injection và truy cập sai quyền.",
+        "why": "Tối ưu bằng cảm giác dễ làm regression âm thầm; benchmark biến quyết định kiến trúc thành bằng chứng."
+      },
+      {
+        "title": "Online signals và tracing",
+        "body": [
+          "Latency, token, tool error, no-result rate và feedback người dùng là tín hiệu vận hành. Trace nên nối một lượt hỏi qua router, retrieval, tool và generation nhưng phải tránh log dữ liệu nhạy cảm không cần thiết.",
+          "LLM-as-a-judge mở rộng chấm tự động nhưng bản thân judge cũng có sai lệch. Cần rubric rõ, mẫu người chấm và kiểm tra tương quan định kỳ."
+        ],
+        "projectExample": "Khi Nova nói giảng viên không có lớp dù database có lớp, trace cần chỉ ra router có gọi tool không và tool đã nhận đúng user/course chưa.",
+        "why": "Quan sát theo request giúp chẩn đoán thay vì đoán dựa vào câu trả lời cuối."
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Recall@K chủ yếu đánh giá phần nào?",
+        "options": [
+          "Giao diện",
+          "Retrieval",
+          "Phân quyền",
+          "Giọng đọc"
+        ],
+        "correctIndex": 1,
+        "explanation": "Recall@K kiểm tra các nguồn đúng có xuất hiện trong K kết quả được lấy hay không."
+      },
+      {
+        "question": "Vì sao không chỉ dùng LLM-as-a-judge?",
+        "options": [
+          "Judge không đọc được chữ",
+          "Judge cũng có bias và cần hiệu chuẩn bằng người",
+          "Judge không chạy trên server",
+          "Judge chỉ chấm ảnh"
+        ],
+        "correctIndex": 1,
+        "explanation": "Judge hữu ích ở quy mô lớn nhưng không phải ground truth tuyệt đối."
+      }
+    ]
+  },
+  {
+    "id": "safety-production",
+    "eyebrow": "Production",
+    "title": "Safety, privacy và đưa agent ra kênh bên ngoài",
+    "summary": "Những ranh giới bắt buộc trước khi Nova xuất hiện trong nhóm chat thật.",
+    "duration": "19 phút",
+    "sections": [
+      {
+        "title": "Prompt injection và data boundary",
+        "body": [
+          "Prompt injection là nội dung cố khiến model bỏ qua chỉ dẫn hoặc tiết lộ dữ liệu. Tài liệu truy xuất cũng là input không đáng tin; câu trong PDF không được phép nâng quyền hay điều khiển tool.",
+          "Phòng thủ cần nhiều lớp: tách instruction khỏi content, allowlist tool, validate tham số, authorization backend, giới hạn output và audit hành động. Không có một prompt thần kỳ giải quyết tất cả."
+        ],
+        "projectExample": "Nova có thể trả lời kiến thức chung phục vụ học tập nhưng từ chối yêu cầu lệch mục đích hoặc lấy dữ liệu người khác. Tool lớp luôn xác minh chủ sở hữu dù model gọi đúng tên tool.",
+        "why": "LLM là thành phần không xác định; ranh giới dữ liệu phải nằm ở code xác định."
+      },
+      {
+        "title": "Zalo, Messenger, Discord là adapter chứ không phải agent mới",
+        "body": [
+          "Kênh ngoài nên chuẩn hóa message, identity, thread và attachment vào một schema nội bộ rồi dùng chung Nova core. Adapter chịu trách nhiệm webhook verification, rate limit, retry và trả phản hồi theo giới hạn từng nền tảng.",
+          "Identity linking là phần khó: một Discord ID chưa tự động là tài khoản sinh viên. Trước khi liên kết an toàn, Nova chỉ nên trả nội dung công khai; dữ liệu cá nhân/lớp yêu cầu xác thực và consent rõ."
+        ],
+        "projectExample": "Kế hoạch omnichannel giữ một policy engine và một pipeline RAG, còn mỗi nền tảng có adapter riêng. Việc @Nova trong nhóm không được làm lộ mastery của thành viên ra cả nhóm.",
+        "why": "Tái sử dụng core tránh ba phiên bản Nova hành xử khác nhau và giúp benchmark cùng một logic.",
+        "alternatives": [
+          {
+            "name": "Bot riêng cho từng kênh",
+            "useWhen": "Các sản phẩm hoàn toàn khác nghiệp vụ.",
+            "whyNotHere": "Nhân ba policy, prompt, lỗi và chi phí bảo trì."
+          },
+          {
+            "name": "Cho dùng dữ liệu cá nhân ngay theo nickname",
+            "useWhen": "Không nên áp dụng.",
+            "whyNotHere": "Nickname không phải bằng chứng danh tính; rủi ro rò rỉ dữ liệu học tập."
+          }
+        ]
+      }
+    ],
+    "quiz": [
+      {
+        "question": "Lớp bảo vệ cuối cùng khi tool đọc dữ liệu lớp là gì?",
+        "options": [
+          "Màu nút",
+          "Authorization backend",
+          "Tên model",
+          "Lịch sử chat"
+        ],
+        "correctIndex": 1,
+        "explanation": "Backend phải kiểm tra danh tính, ownership và scope trên mỗi request."
+      },
+      {
+        "question": "Trước khi liên kết Discord ID với tài khoản trường, Nova nên làm gì?",
+        "options": [
+          "Đọc mastery theo nickname",
+          "Chỉ trả nội dung công khai, không dữ liệu cá nhân",
+          "Tự đoán email",
+          "Cho admin quyền mặc định"
+        ],
+        "correctIndex": 1,
+        "explanation": "Dữ liệu cá nhân chỉ được mở sau một quy trình liên kết danh tính an toàn và có consent."
+      }
+    ]
+  }
+]

@@ -1,0 +1,132 @@
+[
+  {
+    "id": "data-engineering-pipelines",
+    "track": "05 · Data & MLOps",
+    "level": "junior",
+    "eyebrow": "Data Engineering",
+    "title": "ETL/ELT, orchestration, queues và data quality",
+    "summary": "Xây pipeline dữ liệu có lineage, retry, backfill và chất lượng thay vì một script cron mong manh.",
+    "duration": "130 phút",
+    "prerequisites": ["Python", "SQL", "Document ingestion"],
+    "learningObjectives": ["Phân biệt batch/stream và ETL/ELT", "Thiết kế DAG idempotent", "Đặt data quality contract và lineage"],
+    "keyTerms": ["ETL", "ELT", "DAG", "orchestrator", "queue", "backfill", "lineage", "data contract"],
+    "sections": [
+      {"title": "Batch, stream và orchestration", "body": ["Batch xử lý tập dữ liệu hữu hạn theo lịch/sự kiện; stream xử lý event liên tục với event time, ordering và late data. Không dùng Kafka chỉ vì 'realtime': hàng đợi job đơn giản đủ cho PDF ingestion bất đồng bộ.", "Airflow/Prefect/Dagster quản lý dependency, retry, schedule, backfill và metadata; chúng không thay business logic. Task cần idempotent, có timeout và artifact/version rõ.", "ETL transform trước load phù hợp kiểm soát; ELT load raw vào warehouse rồi transform linh hoạt. Lưu raw immutable giúp replay nhưng cần retention/privacy."], "projectExample": "Nova ingestion có thể chuyển background worker queue khi upload lớn; document_id/version là idempotency boundary.", "why": "Orchestration đáng dùng khi dependency/retry/backfill vượt khả năng một request web."},
+      {"title": "Data quality và lineage", "body": ["Schema, null, range, uniqueness, referential integrity, volume và freshness là checks nền. Distribution drift check bổ sung nhưng không thay semantic validation.", "Data contract xác định producer/consumer schema và compatibility. Lineage nối source→transform→feature/model/answer để biết dữ liệu sai ảnh hưởng đâu và đáp ứng xóa dữ liệu.", "Dead-letter queue giữ job thất bại sau retry để điều tra; không retry vô hạn lỗi deterministic. Backfill phải version code/config để kết quả giải thích được."], "projectExample": "Document state FAILED không được retrieval; operations runbook cần dead job threshold và reprocess procedure.", "why": "AI quality không thể cao hơn data quality và provenance đầu vào."},
+      {"title": "Feature pipelines và online/offline consistency", "body": ["Feature training và serving phải cùng định nghĩa theo point-in-time. Query trạng thái hiện tại cho dữ liệu lịch sử gây time travel leakage.", "Feature store hữu ích khi nhiều models reuse features và cần online low-latency; project nhỏ dùng versioned SQL/Python + snapshot table thường đơn giản hơn.", "PII cần minimization, access, encryption, retention và deletion propagation qua derived datasets."], "projectExample": "Mastery/risk feature cần snapshot theo deadline; không tái dựng quá khứ từ StudentMastery hiện tại.", "why": "Training-serving skew làm offline metric tốt nhưng production sai."}
+    ],
+    "pitfalls": ["Kafka cho mọi pipeline", "Retry vô hạn", "Không raw/version", "Feature nhìn tương lai", "Orchestrator chứa business logic khó test"],
+    "lab": {"title": "Orchestrated ingestion DAG", "steps": ["Tạo ingest→validate→chunk→embed→publish tasks", "Thêm idempotency/retry/DLQ", "Backfill một parser version mới", "Xuất lineage manifest"], "deliverable": "Local DAG chạy bằng open-source orchestrator hoặc queue worker, có failure demo.", "acceptanceCriteria": ["Retry không duplicate", "FAILED không publish", "Backfill reproducible", "Có quality report"]},
+    "interviewQuestions": ["Batch và stream chọn thế nào?", "Idempotency trong pipeline là gì?", "Backfill có rủi ro gì?", "Feature leakage theo thời gian là gì?"],
+    "quiz": [
+      {"question": "PDF upload cần Kafka ngay không?", "options": ["Luôn cần", "Không, queue/job đơn giản có thể đủ", "Chỉ PostgreSQL", "Chỉ GPU"], "correctIndex": 1, "explanation": "Chọn hạ tầng theo throughput/order/replay thật."},
+      {"question": "DLQ chứa gì?", "options": ["Job thất bại sau retry", "Password", "Model weights", "CSS"], "correctIndex": 0, "explanation": "DLQ tách lỗi cần điều tra khỏi queue chính."},
+      {"question": "Feature lịch sử dùng state hiện tại gây gì?", "options": ["Time leakage", "Compression", "Quantization", "CORS"], "correctIndex": 0, "explanation": "Model nhìn thông tin chưa tồn tại tại prediction time."}
+    ]
+  },
+  {
+    "id": "model-serving-optimization",
+    "track": "05 · Data & MLOps",
+    "level": "junior",
+    "eyebrow": "Serving",
+    "title": "Model serving, batching, quantization và GPU economics",
+    "summary": "Đưa model từ notebook thành API có SLO, capacity và tối ưu inference.",
+    "duration": "125 phút",
+    "prerequisites": ["PyTorch", "Transformer", "Backend engineering"],
+    "learningObjectives": ["Tách offline/batch/online serving", "Hiểu batching/KV cache/quantization", "Ước lượng throughput và capacity"],
+    "keyTerms": ["SLO", "throughput", "latency", "dynamic batching", "quantization", "KV cache", "ONNX", "autoscaling"],
+    "sections": [
+      {"title": "Serving contract và SLO", "body": ["API contract gồm input schema, preprocessing, model/version, output và error semantics. Online serving ưu tiên tail latency; batch inference ưu tiên throughput/cost.", "Warmup tải weights/compile kernels trước traffic. Health check liveness khác readiness. Timeout, queue length và backpressure ngăn overload lan toàn hệ thống.", "Capacity dựa arrival rate, service time, concurrency và memory. Autoscale GPU chậm hơn request burst nên cần queue/capacity buffer."], "projectExample": "Nova dùng vendor API với timeout/fallback; nếu self-host reranker vẫn cần service contract và circuit breaker.", "why": "Notebook accuracy không nói model có phục vụ được production load."},
+      {"title": "Batching và LLM inference", "body": ["Dynamic batching gom requests gần nhau tăng GPU utilization nhưng thêm queue delay. Sequence length chênh gây padding waste; continuous batching chèn/rút sequences khi decode.", "LLM có prefill compute-heavy và decode memory-bandwidth-heavy. KV cache tránh tính prefix lại nhưng chiếm memory theo concurrent tokens; prompt caching hữu ích với prefix chung đúng scope.", "Streaming cải thiện time-to-first-token cảm nhận, không giảm total compute. Cancel phải giải phóng generation/cache sớm."], "projectExample": "SSE của Nova hiển thị token khi Composer sinh; metrics nên tách TTFT và total latency.", "why": "Tối ưu trải nghiệm chat cần hiểu hai pha inference."},
+      {"title": "Quantization, distillation và runtime", "body": ["FP16/BF16 giảm memory so FP32; INT8/4-bit giảm hơn nhưng có accuracy/kernel trade-off. Weight-only quantization khác activation quantization; benchmark đúng hardware/task.", "Distillation train student bắt teacher logits/outputs để giảm model; cần dataset coverage và eval regression. ONNX/TensorRT/torch.compile tối ưu graph nhưng operator compatibility/versioning cần test.", "Model nhỏ tuned có thể thắng model lớn về cost/latency trên task hẹp; routing giữ model lớn cho hard cases."], "projectExample": "Reranker traffic lớn có thể chuyển từ LLM API sang cross-encoder quantized sau benchmark.", "why": "Serving optimization là đo quality-per-dollar, không chỉ model size."}
+    ],
+    "pitfalls": ["Chỉ đo average latency", "Batch quá lớn làm tail chậm", "Quantize không eval", "Autoscale không xét cold start", "Cache sai tenant"],
+    "lab": {"title": "Serve và benchmark một model nhỏ", "steps": ["Đóng model thành FastAPI endpoint", "Thêm batching/warmup", "So FP32/FP16/quantized", "Load test p50/p95/throughput"], "deliverable": "Serving repo + benchmark report + capacity estimate.", "acceptanceCriteria": ["Input validation", "Readiness đúng", "Có concurrency load", "Báo quality regression cùng speed"]},
+    "interviewQuestions": ["Throughput và latency trade-off?", "KV cache chiếm gì?", "Quantization khác distillation?", "TTFT và total latency khác gì?"],
+    "quiz": [
+      {"question": "Dynamic batching đổi gì?", "options": ["Tăng throughput nhưng có queue delay", "Xóa model", "Thay SQL", "Bỏ GPU"], "correctIndex": 0, "explanation": "Gom request tận dụng hardware nhưng ảnh hưởng tail."},
+      {"question": "KV cache tăng chủ yếu theo gì?", "options": ["Concurrent tokens/layers", "Số CSS", "Số tables", "Email"], "correctIndex": 0, "explanation": "Cache lưu key/value cho token cũ mỗi layer."},
+      {"question": "Quantization deploy khi nào?", "options": ["Sau benchmark quality/hardware", "Luôn ngay", "Không cần test", "Chỉ CPU"], "correctIndex": 0, "explanation": "Kernel và accuracy phụ thuộc model/task/device."}
+    ]
+  },
+  {
+    "id": "mlops-ci-deployment",
+    "track": "05 · Data & MLOps",
+    "level": "junior",
+    "eyebrow": "MLOps",
+    "title": "Docker, CI/CD, model registry và reproducible deployment",
+    "summary": "Version đồng bộ code, data, model và config; release có canary và rollback.",
+    "duration": "120 phút",
+    "prerequisites": ["Git & Testing", "Model serving"],
+    "learningObjectives": ["Build container an toàn", "Thiết kế CI/CD cho code+model", "Quản lý registry/version/canary"],
+    "keyTerms": ["Docker", "image", "CI/CD", "artifact", "model registry", "IaC", "canary", "rollback"],
+    "sections": [
+      {"title": "Container và supply chain", "body": ["Docker image đóng runtime/dependencies; không đóng secret hoặc mutable data. Multi-stage build, pinned dependencies, non-root user và small base giảm attack surface.", "Image digest immutable tốt hơn latest tag. Scan CVE/SBOM và ký artifact khi maturity tăng. GPU container còn phụ thuộc driver/runtime host.", "Twelve-factor config qua environment/secret manager; migration là bước release có transaction/backward compatibility."], "projectExample": "Academic Assistant frontend/backend deploy riêng; migration OWNER phải chạy trước code dùng constraint mới.", "why": "Reproducible environment loại lỗi 'chạy trên máy em'."},
+      {"title": "CI/CD và registry", "body": ["CI chạy lint/type/unit/security/schema tests; integration dùng ephemeral DB; live eval có budget riêng. CD promote cùng artifact qua staging→production, không rebuild khác nhau.", "Model registry lưu version, lineage, metrics, stage và approvals. Code phải pin model/tokenizer/adapter, không gọi tên mutable mà không audit.", "Canary/blue-green giảm blast radius. Rollback app phải tương thích schema; model rollback cần cache/session behavior được xét."], "projectExample": "Nova feature flags cho planner/reranker và stable rollout cohort là application-level canary.", "why": "MLOps là kiểm soát thay đổi của bốn version: code, data, model, config."},
+      {"title": "Cloud primitives và IaC", "body": ["Object storage cho file/model, relational DB cho transaction, queue cho async work, cache cho hot reusable data. Chọn managed service giảm ops nhưng tăng vendor/cost; đo nhu cầu trước.", "Infrastructure as Code review/version network, compute, secret và policy. Least privilege service identity, private network và backup/restore test quan trọng hơn số cloud services.", "Cost tags/budget/alerts và scale-to-zero phù hợp demo; production SLO có thể cần minimum instances để tránh cold start."], "projectExample": "PostgreSQL giữ file gốc hiện tại đơn giản; object storage là bước sau khi kích thước/egress/backup cho thấy cần."
+        ,"why": "Architecture tiến hóa theo bottleneck đo được."
+      }
+    ],
+    "pitfalls": ["latest tag", "Secret trong image", "Rebuild giữa staging/prod", "Model name mutable", "Migration không backward compatible"],
+    "lab": {"title": "CI/CD cho AI service", "steps": ["Dockerize non-root", "CI test + scan", "Push immutable image", "Deploy staging/canary và scripted rollback"], "deliverable": "Pipeline YAML, Dockerfile, deployment diagram và rollback demo.", "acceptanceCriteria": ["Không secret trong image/log", "Artifact immutable", "Migration strategy rõ", "Rollback đã test"]},
+    "interviewQuestions": ["Model registry khác Git thế nào?", "Canary và blue-green khác gì?", "Vì sao không dùng latest?", "Code/data/model/config version liên hệ ra sao?"],
+    "quiz": [
+      {"question": "Production nên deploy artifact nào?", "options": ["Cùng immutable artifact đã test", "Rebuild mới", "latest ngẫu nhiên", "Source chưa lock"], "correctIndex": 0, "explanation": "Promote cùng artifact tránh khác biệt môi trường."},
+      {"question": "Secret nên ở đâu?", "options": ["Secret manager/environment runtime", "Dockerfile", "Git", "Model card public"], "correctIndex": 0, "explanation": "Không bake secret vào image/source."},
+      {"question": "Registry lưu gì thêm model file?", "options": ["Lineage/metrics/version/stage", "Chỉ màu", "Cookie user", "Raw password"], "correctIndex": 0, "explanation": "Registry quản lifecycle và evidence release."}
+    ]
+  },
+  {
+    "id": "monitoring-drift-security",
+    "track": "05 · Data & MLOps",
+    "level": "junior",
+    "eyebrow": "Reliability & Security",
+    "title": "Monitoring, drift, incident response và AI security",
+    "summary": "Phát hiện model/pipeline xuống cấp và phòng thủ prompt, data, model lẫn supply chain.",
+    "duration": "135 phút",
+    "prerequisites": ["Evaluation", "MLOps deployment", "Safety"],
+    "learningObjectives": ["Thiết kế metrics/logs/traces và SLO", "Phân biệt data/concept/performance drift", "Threat-model AI pipeline"],
+    "keyTerms": ["SLO", "SLI", "drift", "observability", "incident", "prompt injection", "poisoning", "exfiltration"],
+    "sections": [
+      {"title": "Observability và SLO", "body": ["Metrics aggregate, logs ghi events, traces nối request qua services. RED: rate/errors/duration; saturation/queue/GPU memory bổ sung. Không log raw PII/prompts mặc định.", "SLI đo trải nghiệm, SLO đặt mục tiêu, error budget cân tốc độ release và reliability. Alert dựa symptom/actionable threshold, tránh alert fatigue.", "Runbook có detection, triage, mitigation, rollback, communication và postmortem không đổ lỗi."], "projectExample": "Nova cần trace guardrail→router→retrieval→planner→composer, p95 và request_id để chẩn đoán câu 'không có lớp'.", "why": "Không quan sát được thì không vận hành hay chứng minh cải tiến được."},
+      {"title": "Drift và feedback loop", "body": ["Data drift là P(X) đổi; concept drift là P(Y|X) đổi; prediction/performance drift là output/metric đổi. Drift detector là cảnh báo, không tự chứng minh model hỏng.", "Ground-truth có thể trễ; dùng proxy nhưng phải biết bias. Compare cohort/time, investigate upstream schema/data quality trước retrain.", "Retraining tự động cần gate/eval/approval; feedback loop có thể bias nếu intervention thay outcome hoặc user thích câu trả lời tự tin sai."], "projectExample": "RAG còn có corpus/query/retrieval drift khi tài liệu và cách hỏi đổi; monitor no-result, Recall sample và citation feedback.", "why": "Model decay là vấn đề data/product, không chỉ weights."},
+      {"title": "Threat model AI", "body": ["Prompt injection trực tiếp/gián tiếp cố đổi instruction; defense là isolate content, least-privilege tools, validate output và backend auth. Không có prompt chống injection tuyệt đối.", "Data poisoning làm training/RAG corpus chứa nội dung độc; provenance, approval, anomaly checks và rollback index cần thiết. Model artifact có thể chứa malicious pickle; dùng safe formats và trusted source.", "Exfiltration qua output/log/cache/tool arguments cần tenant scope, DLP/redaction, rate limit và audit. Red team theo assets, actors, trust boundaries và abuse cases."], "projectExample": "Tài liệu sinh viên phải giảng viên duyệt; content PDF không được quyền điều khiển tool; OWNER content endpoint 403 role khác.", "why": "AI thêm untrusted natural-language control plane vào threat model cũ."
+      }
+    ],
+    "pitfalls": ["Alert mọi metric", "Drift=retrain ngay", "Log raw prompt/PII", "Tin retrieved document là instruction", "Load pickle lạ"],
+    "lab": {"title": "AI incident game day", "steps": ["Inject retrieval poisoning", "Quan sát trace/alert", "Chặn và rollback index", "Viết postmortem + regression test"], "deliverable": "Threat model, incident timeline, runbook và security regression.", "acceptanceCriteria": ["Có trust boundaries", "Không leak PII trong evidence", "Mitigation đo được", "Fix có test"]},
+    "interviewQuestions": ["Data và concept drift khác gì?", "SLO/error budget dùng thế nào?", "Indirect prompt injection là gì?", "Tại sao prompt không đủ làm security?"],
+    "quiz": [
+      {"question": "Data drift có chắc performance giảm không?", "options": ["Có", "Không, cần điều tra/ground truth", "Chỉ LLM", "Chỉ ảnh"], "correctIndex": 1, "explanation": "Distribution đổi là tín hiệu, không tự chứng minh lỗi."},
+      {"question": "Retrieved PDF có đáng tin như system instruction không?", "options": ["Có", "Không", "Chỉ approved", "Chỉ owner"], "correctIndex": 1, "explanation": "Approved về nội dung không biến text thành instruction có quyền."},
+      {"question": "Ba trụ observability là gì?", "options": ["Metrics, logs, traces", "Train, test, CSS", "GPU, CPU, email", "RAG, SQL, JWT"], "correctIndex": 0, "explanation": "Ba tín hiệu bổ sung nhau cho vận hành."}
+    ]
+  },
+  {
+    "id": "capstone-job-readiness",
+    "track": "06 · Portfolio & Interview",
+    "level": "junior",
+    "eyebrow": "Capstone",
+    "title": "Biến Academic Assistant thành portfolio để apply AI Engineer",
+    "summary": "Đóng gói kiến trúc, benchmark, demo, CV story và system-design interview từ chính dự án.",
+    "duration": "240 phút",
+    "prerequisites": ["Hoàn thành các track trước", "Ít nhất ba hands-on labs"],
+    "learningObjectives": ["Tạo case study có metrics", "Trình bày system design/trade-off", "Chuẩn bị coding/ML/LLM interview stories"],
+    "keyTerms": ["capstone", "case study", "STAR", "system design", "trade-off", "portfolio", "behavioral interview"],
+    "sections": [
+      {"title": "Portfolio có evidence thay vì feature list", "body": ["Trang dự án cần problem/users/constraints, architecture diagram, decisions, security boundaries, benchmark before/after, demo và limitations. Recruiter cần hiểu contribution của bro, không chỉ stack.", "Chọn 3–5 stories sâu từ sản phẩm chính: Agentic RAG hai bước, RBAC/privacy, retrieval benchmark, learning analytics và production incident/voice fix. Mỗi story có baseline, failure, quyết định và đo lường. Learning Hub cùng vai trò OWNER là công cụ học tập nội bộ, tuyệt đối không đưa vào CV, portfolio hoặc demo tuyển dụng.", "Không public secret, dữ liệu sinh viên, tài liệu khóa học nội bộ hay credentials. Tạo synthetic demo dataset và threat-model disclosure."], "projectExample": "Academic Assistant có full-stack, RAG, agents, analytics, voice, migrations, tests và operations—đủ làm flagship nếu evidence được đóng gói rõ.", "why": "Một dự án sâu đáng giá hơn nhiều tutorial repos không có users/trade-offs."},
+      {"title": "System design interview", "body": ["Clarify requirements, scale, SLO, data/privacy trước sơ đồ. Đi từ API/data model tới ingestion/retrieval/agent/serving/observability; nêu bottleneck và evolution path.", "Ước lượng QPS, document/chunk count, storage, token cost và latency budget. Nêu caching key, sharding/queue, failure mode và consistency. Không nhảy vào công nghệ trước requirement.", "Trade-off examples: Postgres+pgvector vs vector service; SSE vs WebSocket; workflow vs multi-agent; API model vs self-host; sync vs async ingestion."], "projectExample": "Dùng Nova architecture làm answer 45 phút, nhưng luôn nói hiện trạng và hướng scale tách biệt."
+        ,"why": "Interview chấm reasoning và communication nhiều hơn sơ đồ hoàn hảo."},
+      {"title": "Coding, ML và behavioral loop", "body": ["Coding: Python collections/complexity, SQL joins/windows, API/debug/test. ML: framing/split/metrics/bias-variance/training. LLM: tokens/Transformer/RAG/eval/agents/security. Ôn bằng tự giải thích và code không nhìn đáp án.", "Behavioral dùng STAR nhưng nhấn decision: máy sập nguồn/recovery, voice crash, tài liệu mất, session privacy, role bug. Nêu điều bro sai/đổi ý và cách test fix—đó là tín hiệu trưởng thành.", "Mock interview ghi âm, giới hạn thời gian và review filler/độ rõ. CV bullet theo công thức action + system + measurable outcome + scale, không bịa metrics chưa đo."], "projectExample": "Ví dụ bullet chỉ dùng số thật từ benchmark/tests; thay 'improved significantly' bằng Recall@K/p95/cost delta đã tái lập.", "why": "Kiến thức chỉ thành năng lực tuyển dụng khi bro diễn đạt và chứng minh dưới thời gian giới hạn."
+      }
+    ],
+    "pitfalls": ["CV liệt kê framework", "Public dữ liệu/secret", "Bịa scale/metric", "System design không hỏi requirement", "Không nói limitation"],
+    "lab": {"title": "Flagship portfolio release", "steps": ["Tạo synthetic public demo", "Chạy benchmark cuối", "Vẽ architecture/trust boundaries", "Viết case study/CV bullets", "Quay demo 5 phút", "Mock system-design interview"], "deliverable": "README/case study, benchmark report, demo video, architecture diagram và bộ 30 Q&A phỏng vấn.", "acceptanceCriteria": ["Mọi metric tái lập được", "Không secret/PII", "Có limitations/next steps", "Một người mới chạy demo theo README", "Trả lời system design trong 45 phút"]},
+    "interviewQuestions": ["Hãy thiết kế Academic Assistant cho 100k sinh viên", "Vì sao chọn Agentic RAG hai bước?", "Lỗi production khó nhất và cách tìm root cause?", "Nếu budget giảm 70% bạn đổi gì?", "Bạn chứng minh multi-agent đáng dùng thế nào?"],
+    "quiz": [
+      {"question": "Portfolio bullet tốt nhất dựa trên gì?", "options": ["Outcome/metric thật và contribution", "Danh sách framework dài", "Tính từ 'advanced'", "Logo"], "correctIndex": 0, "explanation": "Evidence và ownership giúp nhà tuyển dụng đánh giá năng lực."},
+      {"question": "System design nên bắt đầu bằng gì?", "options": ["Requirements/scale/SLO", "Chọn Kafka", "Vẽ GPU", "Code ngay"], "correctIndex": 0, "explanation": "Kiến trúc chỉ đúng trong một tập constraints."},
+      {"question": "Có nên đưa OWNER Learning Hub vào CV hoặc portfolio không?", "options": ["Có toàn bộ", "Không, đây là công cụ học tập nội bộ", "Đăng cả mật khẩu", "Chỉ đưa ảnh chụp"], "correctIndex": 1, "explanation": "CV chỉ trình bày các phần sản phẩm Academic Assistant; Learning Hub và OWNER được giữ riêng."}
+    ]
+  }
+]

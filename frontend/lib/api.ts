@@ -75,7 +75,7 @@ export const api = {
 
 /* ---------- Types khớp với Pydantic schema của backend ---------- */
 
-export type UserRole = "STUDENT" | "INSTRUCTOR" | "ADMIN";
+export type UserRole = "STUDENT" | "INSTRUCTOR" | "ADMIN" | "OWNER";
 
 export interface UserPublic {
   id: number;
@@ -94,6 +94,8 @@ export function dashboardPathForRole(role: UserRole): string {
       return "/instructor";
     case "ADMIN":
       return "/admin";
+    case "OWNER":
+      return "/learning";
     default:
       return "/student";
   }

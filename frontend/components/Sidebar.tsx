@@ -116,6 +116,16 @@ function IconTrend() {
   );
 }
 
+function IconLearning() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      <path d="M9 7h6M9 11h5" />
+    </svg>
+  );
+}
+
 // Mỗi role vào ĐÚNG dashboard của mình (yêu cầu đã chốt từ Tác vụ #3):
 // trang chủ khác nhau hoàn toàn theo vai trò, không phải 1 giao diện
 // chung có nút chuyển role.
@@ -126,6 +136,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/assignments", label: "Bài tập", icon: <IconAssignment />, group: "Học tập" },
   { href: "/history", label: "Lịch sử hỏi đáp", icon: <IconHistory />, roles: ["STUDENT"], group: "Học tập" },
   { href: "/courses", label: "Lớp học", icon: <IconCourses />, group: "Học tập" },
+  { href: "/learning", label: "Học về hệ thống", icon: <IconLearning />, roles: ["OWNER"], group: "Học tập" },
 
   // Không giới hạn roles: sinh viên ĐANG HỌC lớp cũng được đóng góp
   // tài liệu (backend documents/router.py đã cho phép), không chỉ
@@ -150,6 +161,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   STUDENT: "Sinh viên",
   INSTRUCTOR: "Giảng viên",
   ADMIN: "Quản trị viên",
+  OWNER: "Chủ hệ thống",
 };
 
 export default function Sidebar() {
@@ -159,7 +171,10 @@ export default function Sidebar() {
 
   if (!user) return null;
 
-  const visibleItems = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(user.role));
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (user.role === "OWNER") return item.href === "/learning" || item.href === "/profile";
+    return !item.roles || item.roles.includes(user.role);
+  });
 
   async function handleLogout() {
     await logout();

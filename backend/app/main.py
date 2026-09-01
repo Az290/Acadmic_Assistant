@@ -25,6 +25,7 @@ from app.documents.router import router as documents_router
 from app.eval_dashboard.router import router as eval_dashboard_router
 from app.guardrail.router import router as guardrail_router
 from app.instructor.router import router as instructor_router
+from app.internal_learning.router import router as internal_learning_router
 from app.learning.assignment_router import quiz_questions_router, router as assignment_router
 from app.voice.router import router as voice_router
 from app.learning.router import router as learning_router
@@ -124,6 +125,7 @@ app.include_router(learning_router)
 app.include_router(assignment_router)
 app.include_router(quiz_questions_router)
 app.include_router(instructor_router)
+app.include_router(internal_learning_router)
 app.include_router(eval_dashboard_router)
 app.include_router(profile_router)
 app.include_router(personalization_router)

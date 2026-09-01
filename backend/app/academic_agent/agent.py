@@ -62,6 +62,7 @@ from app.config import get_settings
 from app.db.models import AppUser, Conversation, Message, SecurityLog
 from app.guardrail.guardrail import check_input, check_output
 from app.ingestion.embedder import embed_texts
+from app.internal_learning.service import search_modules
 from app.learning.concept_matcher import find_best_concept
 from app.learning.student_context import StudentContext, load_student_context
 from app.personalization.context_builder import (
@@ -85,6 +86,30 @@ HISTORY_LIMIT = 10
 
 _settings = get_settings()
 _client = OpenAI(api_key=_settings.openai_api_key)
+
+
+def _answer_owner_learning_question(message: str, history: list[dict]) -> str:
+    """Nhánh RAG nội bộ riêng; chỉ caller đã xác thực role OWNER mới được gọi."""
+    evidence_text = json.dumps(search_modules(message, limit=3), ensure_ascii=False)
+    response = _client.chat.completions.create(
+        model=get_model_for_category("RAG_QUESTION"),
+        temperature=0.25,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Bạn là Nova trong chế độ cố vấn kỹ thuật riêng cho chủ hệ thống Academic Assistant. "
+                    "Giải thích bằng đúng ngôn ngữ người dùng, tự nhiên và có ví dụ từ dự án. "
+                    "Chỉ khẳng định chi tiết kiến trúc nội bộ khi được EVIDENCE hỗ trợ; nếu kho bài học chưa có "
+                    "thì nói rõ giới hạn. Không tiết lộ secret, token, mật khẩu hay dữ liệu người dùng."
+                ),
+            },
+            {"role": "system", "content": f"EVIDENCE TỪ KHÓA HỌC NỘI BỘ:\n{evidence_text}"},
+            *history[-6:],
+            {"role": "user", "content": message},
+        ],
+    )
+    return response.choices[0].message.content or "Mình chưa có đủ nội dung nội bộ để giải thích phần này."
 
 NO_ENROLLMENT_MESSAGE = (
     "Bạn chưa tham gia lớp học nào nên mình chưa có tài liệu nào để tra cứu. "
@@ -1491,6 +1516,46 @@ async def handle_chat_stream(
     conversation = await _get_or_create_conversation(
         session, conversation_id, user_id, active_course_id
     )
+
+    # Kho kiến trúc nội bộ tách hoàn toàn khỏi chỉ mục tài liệu lớp. Chỉ role
+    # OWNER đã được get_current_user xác minh mới có thể đi vào nhánh này.
+    if user_role == "OWNER":
+        yield {"type": "status", "stage": "retrieving"}
+        answer = await asyncio.to_thread(_answer_owner_learning_question, message, history)
+        output_check = await asyncio.to_thread(check_output, answer)
+        if not output_check.allowed:
+            await _log_security_block(
+                session, user_id, "output", output_check.blocked_by, output_check.reason, answer
+            )
+            answer = "Mình không thể trả lời nội dung đó. Bro thử hỏi lại theo hướng kiến thức kỹ thuật nhé."
+
+        yield {
+            "type": "start",
+            "conversation_id": conversation.id,
+            "category": "INTERNAL_LEARNING",
+            "concept_id": None,
+        }
+        words = answer.split()
+        for index, word in enumerate(words):
+            yield {"type": "chunk", "text": word + (" " if index < len(words) - 1 else "")}
+
+        session.add(Message(conversation_id=conversation.id, role="user", content=message))
+        assistant_message = Message(
+            conversation_id=conversation.id,
+            role="assistant",
+            content=answer,
+            category="RAG_QUESTION",
+            needs_retrieval=True,
+        )
+        session.add(assistant_message)
+        await session.commit()
+        yield {
+            "type": "done",
+            "citations": [],
+            "message_id": assistant_message.id,
+            "retrieval_similarity": None,
+        }
+        return
 
     # --- System Knowledge Query (chỉ nếu SYSTEM_QUESTION) ---
     # Kiểm tra System Knowledge Base TRƯỚC khi xử lý retrieval.

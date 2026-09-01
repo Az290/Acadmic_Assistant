@@ -1,0 +1,219 @@
+[
+  {
+    "id": "preference-alignment-dpo",
+    "track": "06 · Model Training & Alignment",
+    "level": "junior-plus",
+    "eyebrow": "RLHF · DPO",
+    "title": "Preference alignment: Reward Model, RLHF, PPO và DPO",
+    "summary": "Hiểu toàn bộ chuỗi alignment từ dữ liệu preference đến DPO, các biến thể hiện đại và cách đánh giá mà không nhầm alignment với việc làm model biết thêm kiến thức.",
+    "duration": "210 phút",
+    "prerequisites": ["Transformer", "Fine-tuning và LoRA", "Probability", "Evaluation"],
+    "learningObjectives": ["Thiết kế preference dataset đúng", "Giải thích RLHF và DPO bằng công thức", "Chọn DPO, PPO hoặc SFT theo bài toán", "Đánh giá alignment và tránh reward hacking"],
+    "keyTerms": ["preference pair", "reward model", "Bradley-Terry", "RLHF", "PPO", "KL penalty", "DPO", "reference model", "beta", "KTO", "ORPO", "SimPO"],
+    "sections": [
+      {
+        "title": "Từ SFT đến preference data và reward model",
+        "body": [
+          "SFT học bắt chước câu trả lời mẫu bằng cross-entropy. Nó phù hợp để dạy format, phong cách và hành vi cơ bản, nhưng không biểu diễn trực tiếp rằng với cùng một prompt, câu A tốt hơn câu B. Preference dataset lưu prompt, chosen và rejected; cặp phải có tiêu chí rõ, cùng ngữ cảnh và tránh để annotator đoán theo độ dài hay văn phong.",
+          "Reward model nhận prompt-response và xuất điểm vô hướng. Với Bradley-Terry, xác suất chosen thắng rejected là sigmoid(r_chosen-r_rejected); loss là âm log xác suất đó. Reward score chỉ có nghĩa tương đối trong miền dữ liệu, không phải thước đo chân lý tuyệt đối.",
+          "Chia train/validation/test theo prompt hoặc nguồn người dùng để tránh cùng một mẫu xuất hiện ở nhiều split. Kiểm tra agreement giữa annotator, vị trí đáp án, length bias, dữ liệu độc hại và nhóm người dùng bị đại diện thiếu. Dữ liệu preference kém không được cứu bởi optimizer tốt."
+        ],
+        "projectExample": "Nếu muốn Nova trả lời sư phạm hơn, có thể thu cặp trả lời được giảng viên chọn. Kiến thức lớp vẫn đến từ RAG; preference data chỉ dạy cách trình bày và từ chối phù hợp.",
+        "why": "Alignment tối ưu hành vi theo sở thích; nó không thay retrieval và không phải cách đáng tin để cập nhật tri thức thường xuyên.",
+        "alternatives": ["SFT khi có một đáp án mẫu tốt", "Prompting khi chỉ cần đổi hành vi nhẹ", "RAG khi vấn đề là thiếu tri thức"]
+      },
+      {
+        "title": "RLHF với PPO: SFT → Reward Model → policy optimization",
+        "body": [
+          "RLHF cổ điển bắt đầu từ SFT policy, huấn luyện reward model rồi dùng PPO tăng expected reward. Policy sinh token như hành động; reward thường chỉ có cuối chuỗi nên advantage estimation và value model giúp gán tín hiệu học. PPO dùng clipped objective để giới hạn bước cập nhật quá lớn.",
+          "KL penalty giữ policy gần reference model: tối ưu reward nhưng phạt KL(policy || reference). Hệ số quá thấp dễ reward hacking và giảm đa dạng; quá cao khiến model gần như không học. Pipeline còn cần rollout generation, reward/value inference và nhiều bản model nên tốn bộ nhớ, phức tạp và khó tái lập hơn DPO.",
+          "PPO đáng dùng khi có reward có thể đánh giá online, cần khám phá response ngoài preference pairs tĩnh hoặc bài toán tuần tự. Với sản phẩm nhỏ có dữ liệu chosen/rejected cố định, chi phí vận hành thường không đáng."
+        ],
+        "projectExample": "Nova chưa cần PPO: policy không cần khám phá môi trường, hành động ghi dữ liệu đã bị tool policy kiểm soát và chưa có reward online đủ tin cậy.",
+        "why": "Biết PPO giúp hiểu RLHF thực sự là reinforcement learning, đồng thời tránh dùng một pipeline đắt chỉ vì tên gọi phổ biến.",
+        "alternatives": ["DPO cho preference pairs offline", "Rejection sampling + SFT", "Rule/validator cho ràng buộc deterministic"]
+      },
+      {
+        "title": "DPO: tối ưu preference trực tiếp",
+        "body": [
+          "DPO biến bài toán reward-constrained RL thành classification loss trên chosen/rejected. Tín hiệu chính là chênh lệch log-ratio giữa policy và reference: policy phải tăng xác suất tương đối của chosen nhiều hơn rejected. Không cần train reward model riêng hay chạy PPO rollout.",
+          "Beta điều khiển mức bám reference: cần tune theo dữ liệu và theo dõi chosen/rejected margin, KL proxy, validation win rate. Reference thường là bản SFT đóng băng; có thể dùng reference-free biến thể nhưng phải hiểu trade-off ổn định. LoRA/QLoRA giúp DPO trên GPU nhỏ nhưng sequence dài vẫn tốn bộ nhớ vì cần forward chosen và rejected.",
+          "DPO đơn giản hơn chứ không miễn nhiễm overfit, length bias hay preference conflict. Các biến thể: IPO tăng ổn định khi preference nhiễu; KTO dùng desirable/undesirable không cần cặp; ORPO kết hợp SFT và preference odds; SimPO bỏ reference và dùng average log probability. Chọn bằng benchmark, không theo xu hướng."
+        ],
+        "projectExample": "Một thử nghiệm Nova hợp lý là baseline prompt/SFT so với LoRA-DPO trên cùng model, dùng rubric correctness, groundedness, pedagogy, privacy và latency; chỉ triển khai nếu cải thiện có ý nghĩa.",
+        "why": "DPO là lựa chọn thực dụng cho alignment offline nhưng vẫn cần dữ liệu, baseline và eval độc lập.",
+        "alternatives": ["IPO khi label nhiễu", "KTO khi chỉ có thumbs up/down", "ORPO khi muốn một giai đoạn train", "SimPO khi muốn bỏ reference model"]
+      },
+      {
+        "title": "Đánh giá, safety và quyết định có nên fine-tune",
+        "body": [
+          "Offline eval gồm pairwise win rate với blind randomized order, task success, factuality, grounded citation, safety, calibration và slice theo ngôn ngữ/role. LLM-as-judge phải kiểm tra position/verbosity/self-preference bằng mẫu human-labeled. Online A/B cần guardrail và rollback.",
+          "Reward hacking xảy ra khi model tối ưu proxy: trả lời dài, tâng bốc, luôn từ chối hoặc tạo citation có vẻ thuyết phục. Giữ holdout ngoài nguồn annotator, adversarial prompts và metric độc lập với reward dùng để train.",
+          "Thứ tự đầu tư hợp lý: prompt và policy code → RAG/tool → SFT → preference optimization. Fine-tune chỉ khi lỗi lặp lại, có dữ liệu đủ sạch, eval đo được và lợi ích bù chi phí model lifecycle."
+        ],
+        "projectExample": "Nova không được dùng DPO để ghi nhớ dữ liệu sinh viên. Dữ liệu cá nhân vẫn truy xuất có phân quyền theo request; model weights không phải tenant database.",
+        "why": "Model tốt hơn trên một reward không đồng nghĩa sản phẩm an toàn hay hữu ích hơn.",
+        "alternatives": ["Prompt/eval loop", "RAG và tool calling", "Constrained decoding", "Deterministic policy"]
+      }
+    ],
+    "pitfalls": ["Dùng DPO để cập nhật kiến thức", "Preference pair khác cả nội dung lẫn độ dài nên label mơ hồ", "Đánh giá bằng chính reward model đã train", "Không giữ reference/baseline", "Đưa dữ liệu riêng tư vào weights"],
+    "exercise": "Viết decision record so sánh prompt, SFT, DPO và PPO cho ba lỗi giả định của Nova; chỉ rõ dữ liệu, metric, chi phí và rollback.",
+    "lab": {"title": "LoRA-DPO có baseline", "steps": ["Tạo 300 preference pairs có rubric và split theo prompt", "Train SFT/reference nhỏ", "Train LoRA-DPO với ít nhất hai beta", "So prompt-only, SFT và DPO bằng human + automated eval"], "deliverable": "Dataset card, training config, curves, eval report và model card.", "acceptanceCriteria": ["Không leak giữa split", "Có inter-annotator agreement", "Có safety/groundedness slices", "Kết luận cho phép không triển khai DPO"]},
+    "interviewQuestions": ["SFT, RLHF và DPO khác gì?", "Giải thích vai trò reference model và beta", "Reward hacking là gì?", "Khi nào PPO hợp lý hơn DPO?", "Vì sao win rate từ LLM judge có thể sai?"],
+    "quiz": [
+      {"question": "DPO loại bỏ thành phần nào so với RLHF-PPO cổ điển?", "options": ["Reward model riêng và PPO rollout", "Preference data", "Reference behavior", "Evaluation"], "correctIndex": 0, "explanation": "DPO học trực tiếp từ chosen/rejected mà không cần RM riêng và vòng PPO."},
+      {"question": "DPO phù hợp nhất để làm gì?", "options": ["Cập nhật dữ liệu lớp mỗi phút", "Tối ưu hành vi từ preference pairs offline", "Thay database", "Tạo embedding"], "correctIndex": 1, "explanation": "DPO alignment hành vi, không phải kho tri thức."},
+      {"question": "Metric nào không nên đứng một mình?", "options": ["Reward score của model đã dùng để train", "Human blind review", "Safety slice", "Task success holdout"], "correctIndex": 0, "explanation": "Tối ưu và chấm bằng cùng reward dễ che reward hacking."}
+    ]
+  },
+  {
+    "id": "unsupervised-anomaly-learning",
+    "track": "03 · Machine Learning",
+    "level": "junior",
+    "eyebrow": "Unsupervised ML",
+    "title": "Clustering, giảm chiều và phát hiện bất thường",
+    "summary": "Học khi không có nhãn: khám phá cấu trúc dữ liệu nhưng không biến cluster thành sự thật nghiệp vụ.",
+    "duration": "150 phút",
+    "prerequisites": ["Statistics", "ML workflow", "Linear algebra"],
+    "learningObjectives": ["Chọn clustering theo hình học dữ liệu", "Dùng PCA/UMAP đúng mục đích", "Xây anomaly detection có threshold và feedback"],
+    "keyTerms": ["K-means", "DBSCAN", "hierarchical clustering", "PCA", "t-SNE", "UMAP", "Isolation Forest", "one-class SVM"],
+    "sections": [
+      {"title": "Clustering không phải ground truth", "body": ["K-means tối ưu tổng bình phương khoảng cách tới centroid, hợp cluster gần cầu và cần chuẩn hóa feature; chọn k bằng silhouette/elbow kết hợp ý nghĩa nghiệp vụ. DBSCAN tìm vùng mật độ và noise, hợp hình dạng bất kỳ nhưng nhạy eps/min_samples và mật độ thay đổi. Hierarchical clustering cho dendrogram nhưng tốn tài nguyên khi n lớn.", "Cluster id không có ý nghĩa thứ tự và có thể đổi khi seed/data đổi. Đánh giá bằng internal metrics, stability qua bootstrap và external outcome nếu có; tuyệt đối không gọi một cluster sinh viên là yếu khi chưa có bằng chứng."], "projectExample": "Có thể phân nhóm kiểu học để khám phá, nhưng cảnh báo Nova phải dựa trên mastery/deadline định nghĩa được, không dựa nhãn cluster mơ hồ.", "why": "Unsupervised learning tạo giả thuyết, không tự chứng minh diễn giải.", "alternatives": ["Supervised learning nếu có nhãn mục tiêu", "Rule analytics nếu ngưỡng nghiệp vụ rõ"]},
+      {"title": "Giảm chiều để nén, mô hình hóa và trực quan", "body": ["PCA tìm phương sai lớn nhất bằng phép chiếu tuyến tính, có explained variance và transform được dữ liệu mới. t-SNE/UMAP rất hữu ích để vẽ local neighborhoods nhưng khoảng cách toàn cục, hình dạng và cluster trên hình 2D có thể gây hiểu sai.", "Fit scaler và PCA chỉ trên train để tránh leakage. Dùng PCA cho preprocessing khi phù hợp; dùng t-SNE/UMAP chủ yếu cho exploratory visualization và kiểm tra stability theo seed/parameter."], "projectExample": "Embedding tài liệu có thể chiếu UMAP để kiểm tra cụm nội dung trùng lặp, nhưng retrieval vẫn đo trên Recall@k/MRR chứ không chấm bằng biểu đồ đẹp.", "why": "Visualization là công cụ chẩn đoán, không phải metric sản phẩm."},
+      {"title": "Anomaly detection và threshold vận hành", "body": ["Isolation Forest cô lập điểm hiếm bằng random splits; one-class SVM học biên vùng bình thường; autoencoder dùng reconstruction error nhưng có thể tái tạo cả anomaly. Chọn theo chiều dữ liệu, lượng normal data, latency và khả năng giải thích.", "Anomaly score chưa phải quyết định. Threshold phải gắn cost false positive/negative, contamination assumption và review capacity. Theo dõi drift, feedback từ người duyệt và precision@review-budget."], "projectExample": "Nova có thể flag spike lỗi upload hay tool calls lạ cho vận hành, không tự khóa người dùng chỉ từ anomaly score.", "why": "Phát hiện bất thường thường là hệ thống hỗ trợ quyết định, không phải bộ phán quyết."}
+    ],
+    "pitfalls": ["Đặt tên cluster theo định kiến", "Fit scaler trước split", "Tin khoảng cách toàn cục trên t-SNE", "Threshold anomaly không gắn chi phí"],
+    "exercise": "So sánh K-means và DBSCAN trên dữ liệu hai hình trăng; giải thích vì sao silhouette không đủ.",
+    "lab": {"title": "Anomaly pipeline", "steps": ["Tạo dataset có drift", "Fit Isolation Forest chỉ trên train", "Chọn threshold theo review budget", "Theo dõi precision và drift"], "deliverable": "Notebook, threshold policy và dashboard mẫu.", "acceptanceCriteria": ["Không leakage", "Có baseline z-score", "Có error analysis", "Không tự động hành động high-impact"]},
+    "interviewQuestions": ["K-means thất bại khi nào?", "PCA khác UMAP thế nào?", "Chọn threshold anomaly ra sao?"],
+    "quiz": [
+      {"question": "K-means giả định hình học nào tốt nhất?", "options": ["Cluster gần cầu quanh centroid", "Mọi hình bất kỳ", "Chỉ chuỗi thời gian", "Không dùng khoảng cách"], "correctIndex": 0, "explanation": "Objective Euclidean khiến K-means hợp cluster gần cầu."},
+      {"question": "Hình UMAP đẹp chứng minh model tốt chưa?", "options": ["Rồi", "Chưa, cần metric downstream và stability", "Chỉ khi 2D", "Chỉ khi nhiều màu"], "correctIndex": 1, "explanation": "Projection có thể tạo ấn tượng sai."}
+    ]
+  },
+  {
+    "id": "recommender-systems",
+    "track": "03 · Machine Learning",
+    "level": "junior-plus",
+    "eyebrow": "Recommendation",
+    "title": "Recommender systems: retrieval, ranking và feedback loops",
+    "summary": "Xây hệ gợi ý hai tầng, xử lý cold start và đánh giá ngoài độ chính xác.",
+    "duration": "155 phút",
+    "prerequisites": ["ML workflow", "Embeddings", "Evaluation"],
+    "learningObjectives": ["Phân biệt candidate generation và ranking", "Hiểu collaborative/content-based", "Đánh giá offline/online và feedback loop"],
+    "keyTerms": ["collaborative filtering", "matrix factorization", "two-tower", "ranking", "cold start", "implicit feedback", "NDCG", "diversity"],
+    "sections": [
+      {"title": "Từ popularity đến collaborative và content-based", "body": ["Baseline popularity mạnh, rẻ và bắt buộc có. Collaborative filtering học từ user-item interactions; matrix factorization biểu diễn user/item trong latent space nhưng gặp cold start. Content-based dùng thuộc tính item/user, xử lý item mới tốt hơn nhưng dễ tạo filter bubble.", "Implicit feedback như click không đồng nghĩa thích; absence không phải negative. Cần negative sampling, time split và tránh dùng sự kiện tương lai."], "projectExample": "Nova có thể gợi ý khái niệm học tiếp từ mastery và prerequisite trước; chưa cần deep recommender nếu rule baseline đã đúng và dễ giải thích.", "why": "Bắt đầu từ tín hiệu thật và baseline trước kiến trúc phức tạp."},
+      {"title": "Kiến trúc retrieval rồi ranking", "body": ["Candidate generation giảm triệu item xuống hàng trăm bằng ANN/two-tower; ranker dùng feature phong phú để xếp hạng. Hai tầng cân bằng latency và chất lượng, giống retrieval/reranking trong RAG nhưng objective khác.", "Metrics offline gồm Recall@K cho retrieval, NDCG/MAP cho ranking; thêm coverage, novelty, diversity, fairness và calibration. Online đo learning outcome hoặc retention chứ không chỉ click."], "projectExample": "Lộ trình học có thể retrieve các bài phù hợp prerequisite rồi rank theo mastery gap, deadline và độ khó.", "why": "Một ranker không thể chấm toàn catalog trong latency production."},
+      {"title": "Exploration, feedback loop và an toàn", "body": ["Model chỉ học từ item đã hiển thị nên có selection bias. Bandit/exploration thu thập tín hiệu mới nhưng cần guardrail; inverse propensity có thể giảm bias nếu logging policy đúng.", "Trong giáo dục, tối đa engagement có thể khuyến khích bài dễ. Objective nên gồm tiến bộ, độ phủ kiến thức và quyền người học; giữ khả năng giải thích và giáo viên override."], "projectExample": "Không gợi ý mãi nội dung dễ chỉ vì sinh viên click nhiều; cần prerequisite và learning gain.", "why": "Recommendation thay đổi dữ liệu tương lai của chính nó."}
+    ],
+    "pitfalls": ["Random split interaction", "Click=preference thật", "Chỉ tối ưu CTR", "Không có popularity baseline", "Không xử lý cold start"],
+    "exercise": "Thiết kế recommender lộ trình học với objective, candidates, features, constraints và metrics.",
+    "lab": {"title": "Movie/content recommender hai tầng", "steps": ["Popularity baseline", "Matrix factorization hoặc two-tower", "Ranking + time split", "Đánh giá NDCG, coverage và diversity"], "deliverable": "Service demo và eval report.", "acceptanceCriteria": ["Có cold-start policy", "Không time leakage", "Có metric ngoài accuracy", "So với baseline"]},
+    "interviewQuestions": ["Collaborative và content-based trade-off gì?", "Tại sao recommender cần hai tầng?", "Feedback loop là gì?"],
+    "quiz": [
+      {"question": "Metric chính cho candidate retrieval là gì?", "options": ["Recall@K", "CSS score", "BLEU", "MSE luôn luôn"], "correctIndex": 0, "explanation": "Retrieval cần giữ được item liên quan trong candidates."},
+      {"question": "Random split interaction có rủi ro gì?", "options": ["Time leakage", "Thiếu màu", "Không chạy SQL", "Tăng cold start tự động"], "correctIndex": 0, "explanation": "Tương lai có thể lọt vào train."}
+    ]
+  },
+  {
+    "id": "time-series-forecasting",
+    "track": "03 · Machine Learning",
+    "level": "junior-plus",
+    "eyebrow": "Time Series",
+    "title": "Time series forecasting và backtesting",
+    "summary": "Dự báo dữ liệu có thứ tự thời gian với baseline, cửa sổ đúng và khoảng bất định.",
+    "duration": "150 phút",
+    "prerequisites": ["Statistics", "Regression", "Evaluation"],
+    "learningObjectives": ["Nhận diện trend/seasonality", "Thiết kế temporal split/backtest", "So sánh statistical, tree và deep models"],
+    "keyTerms": ["stationarity", "trend", "seasonality", "lag", "rolling window", "ARIMA", "exponential smoothing", "walk-forward validation", "prediction interval"],
+    "sections": [
+      {"title": "Đặc tính chuỗi và baseline", "body": ["Chuỗi có trend, seasonality, autocorrelation, regime change và missing intervals. Baseline naive cuối kỳ và seasonal naive thường rất mạnh; model phải thắng chúng trên nhiều cửa sổ.", "ARIMA mô hình hóa autoregression/differencing/moving average; exponential smoothing hợp level/trend/seasonality. Tree models cần lag/rolling/calendar features; deep sequence models chỉ đáng dùng khi nhiều chuỗi và pattern phức tạp."], "projectExample": "Dự báo số câu hỏi Nova theo giờ có thể bắt đầu seasonal naive theo cùng giờ tuần trước.", "why": "Model phức tạp rất dễ thua seasonal baseline khi dữ liệu ít."},
+      {"title": "Temporal split và leakage", "body": ["Không shuffle time series. Dùng train trước validation sau và rolling/walk-forward backtest qua nhiều origin. Mọi rolling feature phải chỉ dùng quá khứ tại thời điểm dự báo.", "Phân biệt forecast horizon, data availability delay và target publication time. Feature biết sau thời điểm dự báo là leakage dù timestamp bản ghi có vẻ cũ."], "projectExample": "Mastery cuối tuần không thể là feature dự báo tải hệ thống đầu tuần nếu nó chỉ được tổng hợp sau đó.", "why": "Time leakage tạo demo cực đẹp và production cực tệ."},
+      {"title": "Metrics, uncertainty và monitoring", "body": ["MAE dễ hiểu, RMSE phạt lỗi lớn, MAPE hỏng gần zero; dùng WAPE/sMAPE tùy miền. Prediction interval cần coverage và width, có thể dùng quantile loss hoặc conformal methods.", "Monitor residual theo horizon/segment, drift, bias dự báo và interval coverage. Retrain theo backtest evidence, không mặc định theo lịch."], "projectExample": "Capacity planning cần upper quantile để đủ tài nguyên, không chỉ point forecast trung bình.", "why": "Quyết định thường cần mức bất định hơn một con số dự báo."}
+    ],
+    "pitfalls": ["Shuffle split", "Không có seasonal naive", "Rolling feature nhìn tương lai", "Dùng MAPE khi target bằng 0"],
+    "exercise": "Thiết kế backtest cho traffic theo giờ với horizon 24 giờ và feature availability table.",
+    "lab": {"title": "Forecast có interval", "steps": ["Seasonal naive", "Lag-feature gradient boosting", "Walk-forward backtest", "Quantile interval và monitoring"], "deliverable": "Notebook + forecast report.", "acceptanceCriteria": ["Nhiều backtest windows", "Không leakage", "So baseline", "Báo interval coverage"]},
+    "interviewQuestions": ["Vì sao không shuffle time series?", "ARIMA và boosted tree khác gì?", "Prediction interval được đánh giá ra sao?"],
+    "quiz": [
+      {"question": "Validation đúng cho time series là gì?", "options": ["Walk-forward theo thời gian", "Shuffle mọi dòng", "Dùng train làm test", "Chọn mẫu đẹp"], "correctIndex": 0, "explanation": "Validation phải mô phỏng quá khứ dự báo tương lai."},
+      {"question": "MAPE gặp vấn đề khi nào?", "options": ["Actual gần hoặc bằng 0", "Có timestamp", "Dữ liệu dương", "Có baseline"], "correctIndex": 0, "explanation": "Mẫu số gần zero làm MAPE bùng nổ."}
+    ]
+  },
+  {
+    "id": "distributed-training-systems",
+    "track": "06 · Model Training & Alignment",
+    "level": "junior-plus",
+    "eyebrow": "Distributed Training",
+    "title": "GPU memory và distributed model training",
+    "summary": "Hiểu data/model parallelism, mixed precision, sharding và checkpoint dù chưa cần tự train foundation model.",
+    "duration": "175 phút",
+    "prerequisites": ["PyTorch", "Transformer", "Model training"],
+    "learningObjectives": ["Tính memory budget", "Phân biệt DDP, FSDP/ZeRO, tensor và pipeline parallel", "Chẩn đoán bottleneck compute/communication"],
+    "keyTerms": ["DDP", "all-reduce", "FSDP", "ZeRO", "tensor parallel", "pipeline parallel", "mixed precision", "gradient accumulation", "activation checkpointing"],
+    "sections": [
+      {"title": "Memory và throughput trước khi phân tán", "body": ["Training memory gồm weights, gradients, optimizer states và activations. Adam FP32 có thể cần nhiều lần kích thước weights; activations tăng theo batch, sequence và layers. Mixed precision BF16/FP16, gradient accumulation và activation checkpointing đổi memory lấy compute.", "Đo tokens/s, model FLOPs utilization, dataloader wait và GPU memory. Tăng GPU khi pipeline dữ liệu nghẽn chỉ làm tốn tiền."], "projectExample": "Fine-tune model nhỏ cho Nova nên thử QLoRA một GPU trước distributed training.", "why": "Tối ưu single-device là baseline bắt buộc."},
+      {"title": "Data parallel và sharding", "body": ["DDP sao chép model trên mỗi GPU, chia batch và all-reduce gradients; đơn giản nhưng mỗi GPU phải chứa đầy model/optimizer. Effective batch thay đổi cần điều chỉnh learning rate và kiểm tra convergence.", "ZeRO/FSDP shard optimizer, gradients và parameters theo mức khác nhau, cho model lớn hơn nhưng tăng communication và checkpoint complexity. Checkpoint phải lưu model, optimizer, scheduler, RNG và sampler state để resume đúng."], "projectExample": "Nếu DPO LoRA vượt memory, FSDP/DeepSpeed chỉ nên thêm sau profiling và reproducibility test.", "why": "Sharding giải memory, không tự tăng chất lượng model."},
+      {"title": "Model parallelism và vận hành cluster", "body": ["Tensor parallel chia phép nhân trong layer, pipeline parallel chia layers thành stages; thường dùng cùng data parallel cho model rất lớn. Pipeline bubble, network topology và collectives quyết định scaling efficiency.", "Launcher/orchestrator cần rendezvous, fault handling, deterministic seeds, distributed sampler và metric aggregation. Spot interruption đòi checkpoint định kỳ; secret/data governance vẫn áp trên mọi node."], "projectExample": "Dự án hiện dùng API model nên đây là kiến thức mở rộng, không phải hạ tầng cần thêm vào Nova.", "why": "Junior cần đọc hiểu kiến trúc train lớn nhưng không nên cargo-cult cluster vào sản phẩm nhỏ."}
+    ],
+    "pitfalls": ["OOM rồi lập tức thêm GPU", "Không tính optimizer states", "Resume thiếu RNG/sampler", "Báo speedup mà không báo efficiency"],
+    "exercise": "Ước lượng memory cho model 7B full Adam và QLoRA; đề xuất cấu hình phần cứng.",
+    "lab": {"title": "DDP reproducible mini-training", "steps": ["Profile một GPU", "Chạy torchrun DDP hai process", "So throughput/convergence", "Resume checkpoint giữa epoch"], "deliverable": "Benchmark table và runbook.", "acceptanceCriteria": ["Metric aggregation đúng", "Distributed sampler", "Resume gần khớp continuous run", "Báo scaling efficiency"]},
+    "interviewQuestions": ["DDP khác FSDP thế nào?", "Gradient accumulation giải gì?", "Activation checkpointing trade-off gì?", "Tại sao 2 GPU không luôn nhanh gấp đôi?"],
+    "quiz": [
+      {"question": "DDP làm gì với model?", "options": ["Replica mỗi GPU và all-reduce gradient", "Shard từng token luôn", "Chỉ tăng RAM CPU", "Không đồng bộ"], "correctIndex": 0, "explanation": "DDP là replicated data parallelism."},
+      {"question": "Activation checkpointing đổi gì?", "options": ["Giảm memory, tăng recompute", "Tăng memory miễn phí", "Bỏ optimizer", "Thay dataset"], "correctIndex": 0, "explanation": "Activation được tính lại khi backward."}
+    ]
+  },
+  {
+    "id": "multimodal-ai-systems",
+    "track": "07 · Applied AI Extensions",
+    "level": "junior-plus",
+    "eyebrow": "Multimodal",
+    "title": "Multimodal AI: vision, audio và document intelligence",
+    "summary": "Ghép text với ảnh, âm thanh và tài liệu bằng encoder, alignment, fusion và modality-specific evaluation.",
+    "duration": "175 phút",
+    "prerequisites": ["CNN", "Transformer", "Embeddings", "RAG"],
+    "learningObjectives": ["Hiểu contrastive alignment và fusion", "Thiết kế document/audio pipeline", "Đánh giá từng modality thay vì chỉ hỏi LLM judge"],
+    "keyTerms": ["CLIP", "contrastive learning", "vision encoder", "ViT", "ASR", "TTS", "OCR", "late fusion", "cross-attention", "multimodal RAG"],
+    "sections": [
+      {"title": "Biểu diễn và kết hợp modality", "body": ["CLIP-style contrastive learning kéo embedding ảnh-text đúng lại gần và đẩy cặp sai ra xa, hữu ích cho cross-modal retrieval. Vision Transformer biến image patches thành tokens; audio thường thành waveform features hoặc spectrogram trước encoder.", "Early fusion ghép input sớm, late fusion ghép predictions/embeddings, cross-attention cho modality tương tác sâu. Chọn theo dữ liệu paired, latency và mức tương tác cần thiết."], "projectExample": "PDF có sơ đồ cần image/OCR pipeline; text extraction thuần sẽ mất ý nghĩa hình.", "why": "Multimodal không phải chỉ gửi file vào một model rồi tin output."},
+      {"title": "Document, speech và multimodal RAG", "body": ["Document intelligence gồm layout detection, OCR, reading order, table/form extraction và provenance theo trang/bounding box. Multimodal RAG có thể index text chunks cùng image/table embeddings rồi rerank theo query.", "Voice pipeline gồm VAD → ASR → agent → TTS. Streaming cần partial transcript, endpointing, cancellation và latency budget; ASR phải đo WER/CER theo accent/domain, không đánh giá bằng vài câu demo."], "projectExample": "Lỗi nghe 'machine learning' của Nova cần vocabulary bias/domain hints, endpointing và WER benchmark; TTS là bước riêng sau câu trả lời.", "why": "Mỗi modality có failure mode và metric riêng."},
+      {"title": "Evaluation, safety và privacy", "body": ["Vision đo classification/detection/OCR metrics; ASR đo WER/CER; TTS đo intelligibility/naturalness; multimodal QA cần groundedness theo vùng/trang. Test missing/corrupt modality và fallback text-only.", "Ảnh và giọng nói có biometric/privacy risk, metadata và prompt injection ẩn trong document/image. Cần consent, retention, malware scanning, access control và coi OCR/transcript là untrusted input."], "projectExample": "Nova chỉ giữ mic khi người dùng chủ động, hiển thị trạng thái và giải phóng stream; không cần always-listening mode.", "why": "Multimodal tăng cả khả năng lẫn bề mặt tấn công."}
+    ],
+    "pitfalls": ["Đánh giá ASR bằng cảm giác", "Bỏ layout khi đọc PDF", "Không lưu provenance hình/trang", "Coi OCR là instruction đáng tin"],
+    "exercise": "Vẽ pipeline hỏi đáp trên slide có biểu đồ và thuyết minh audio, kèm metrics từng bước.",
+    "lab": {"title": "Document QA có provenance", "steps": ["Extract text/layout/OCR", "Index text và ảnh", "Retrieve/rerank", "Trả lời kèm page/bounding box"], "deliverable": "Demo + eval set gồm table/chart/OCR.", "acceptanceCriteria": ["Citation truy về vùng nguồn", "Có text-only baseline", "Đo OCR/retrieval/answer riêng", "Có injection test"]},
+    "interviewQuestions": ["CLIP học joint space thế nào?", "Early và late fusion khác gì?", "Voice assistant latency gồm những bước nào?", "Multimodal RAG cần provenance ra sao?"],
+    "quiz": [
+      {"question": "Metric ASR phổ biến là gì?", "options": ["WER/CER", "NDCG", "IoU luôn", "ROUGE luôn"], "correctIndex": 0, "explanation": "Word/character error rate đo lỗi transcript."},
+      {"question": "OCR text từ tài liệu nên được coi là gì?", "options": ["Untrusted content", "System instruction", "Luôn đúng", "Secret"], "correctIndex": 0, "explanation": "Tài liệu có thể chứa prompt injection hoặc OCR sai."}
+    ]
+  },
+  {
+    "id": "experiment-data-versioning",
+    "track": "05 · Production, MLOps & Career",
+    "level": "junior",
+    "eyebrow": "Reproducibility",
+    "title": "Experiment tracking, data versioning và model registry",
+    "summary": "Biến notebook thành thí nghiệm tái lập được với lineage từ dữ liệu, code, config đến model và deployment.",
+    "duration": "145 phút",
+    "prerequisites": ["Git", "ML workflow", "MLOps"],
+    "learningObjectives": ["Thiết kế run metadata", "Version dataset/artifact", "Dùng registry và promotion gates", "Tái lập một kết quả cũ"],
+    "keyTerms": ["MLflow", "Weights & Biases", "DVC", "data lineage", "artifact store", "model registry", "experiment tracking", "reproducibility"],
+    "sections": [
+      {"title": "Một run cần lưu những gì", "body": ["Mỗi run cần code commit, config/hyperparameters, dataset version/query snapshot, environment/container, random seeds, metrics theo step/slice và artifacts. Tên file final_v3 không phải versioning.", "Tracking server như MLflow/W&B giúp so run và lưu artifact; nhưng schema/tag convention và quyền truy cập mới quyết định dữ liệu có tìm lại được không. Không log PII, token hay raw prompts nhạy cảm."], "projectExample": "Benchmark RAG Nova nên gắn commit, corpus snapshot, embedding/reranker/model version và eval dataset version.", "why": "Không có lineage thì cải thiện không thể xác nhận hay rollback."},
+      {"title": "Data versioning và pipeline reproducibility", "body": ["Git không phù hợp blob lớn. DVC/lakeFS/object-store manifests hoặc table snapshots liên kết immutable data version với code. Raw data nên immutable; derived data tạo bởi pipeline có checksum/schema và provenance.", "Reproducibility có mức: cùng code/config; cùng data/environment; bitwise deterministic. GPU kernels có thể nondeterministic, nên ghi tolerance và statistical repeat thay vì hứa bitwise vô điều kiện."], "projectExample": "Kho tài liệu PostgreSQL cần snapshot/version cho benchmark, không dùng live corpus rồi so hai cấu hình ở hai ngày khác nhau.", "why": "Data là dependency quan trọng ngang code."},
+      {"title": "Registry, promotion và rollback", "body": ["Model registry lưu version, lineage, signature, metrics và stage; production nên tham chiếu immutable version/digest. Promotion qua gates: unit/data validation, offline eval, safety, load test và approval theo risk.", "Canary/shadow/A-B tách deployment khỏi release. Rollback gồm model, prompt, index, feature pipeline và schema tương thích; chỉ rollback model có thể không đủ."], "projectExample": "Nova cần version cả planner prompt, retrieval config và composer model như một release bundle.", "why": "AI system là tập artifacts, không chỉ một file weights.", "alternatives": ["MLflow cho open-source/self-host", "W&B cho managed collaboration", "DVC/lakeFS cho data", "Metadata table nội bộ khi quy mô nhỏ"]}
+    ],
+    "pitfalls": ["Chỉ log accuracy cuối", "Dataset latest mutable", "Log PII vào tracker", "Registry không có promotion gate", "Không version prompt/index"],
+    "exercise": "Định nghĩa manifest cho một release RAG gồm mọi version cần để tái tạo câu trả lời.",
+    "lab": {"title": "Reproducible ML experiment", "steps": ["Version data và config", "Track ba runs", "Register best candidate", "Reproduce từ máy sạch và rollback"], "deliverable": "Repo, tracking screenshot/export và reproducibility guide.", "acceptanceCriteria": ["Run truy tới code+data", "Không chứa secret/PII", "Có baseline", "Một lệnh tái tạo metric trong tolerance"]},
+    "interviewQuestions": ["Git có đủ để version ML không?", "Một experiment run cần metadata gì?", "Model registry khác artifact store thế nào?", "Rollback RAG gồm những gì?"],
+    "quiz": [
+      {"question": "Để tái tạo RAG cần version gì ngoài model?", "options": ["Corpus/index, prompt và retrieval config", "Chỉ CSS", "Chỉ tên user", "Không gì"], "correctIndex": 0, "explanation": "RAG behavior phụ thuộc toàn pipeline."},
+      {"question": "Raw data tốt nhất nên như thế nào?", "options": ["Immutable và có version", "Ghi đè liên tục", "Đặt tên final", "Không lineage"], "correctIndex": 0, "explanation": "Immutable source giúp audit và tái lập."}
+    ]
+  }
+]
